@@ -1,0 +1,57 @@
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
+} from 'typeorm';
+import { Group } from './group.entity';
+
+@Entity('files')
+export class File {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  fileNumber: number;
+
+  @Column()
+  originalName: string;
+
+  @Column()
+  storagePath: string;
+
+  @Column()
+  mimeType: string;
+
+  @Column()
+  size: number;
+
+  // Stage 01: Upload tracking
+  @Column({ default: false })
+  processed: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  processedAt: Date | null;
+
+  // Stage 02: Grouping - Foreign Key to groups table
+  @Column({ type: 'int', nullable: true })
+  groupId: number | null;
+
+  @ManyToOne(() => Group, (group) => group.files, { nullable: true })
+  @JoinColumn({ name: 'groupId' })
+  group: Group | null;
+
+  @Column({ type: 'int', nullable: true })
+  orderInGroup: number | null;
+
+  @Column({ type: 'text', nullable: true })
+  ocrText: string | null;
+
+  @Column({ default: false })
+  isBookmark: boolean;
+
+  @CreateDateColumn()
+  createdAt: Date;
+}

@@ -1,0 +1,22 @@
+# Playwright MCP artifacts
+.playwright-mcp/
+
+# Node modules
+node_modules/
+
+# Environment files
+.env
+.env.local
+
+# Build outputs
+dist/
+build/
+.next/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,140 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: ocr-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_DATABASE:-ocrflow}
+    ports:
+      - "${DB_PORT:-5434}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # pgAdmin - PostgreSQL Management Tool
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: ocr-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "${PGADMIN_PORT:-5054}:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+  # MinIO Object Storage
+  minio:
+    image: minio/minio:latest
+    container_name: ocr-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_PORT:-9004}:9000"
+      - "${MINIO_CONSOLE_PORT:-9005}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Python OCR Microservice (Typhoon OCR)
+  ocr-service:
+    build:
+      context: ./ocr-service
+      dockerfile: Dockerfile
+    container_name: ocr-service
+    restart: unless-stopped
+    ports:
+      - "${OCR_SERVICE_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # NestJS Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ocr-backend
+    restart: unless-stopped
+    environment:
+      PORT: 4004
+      NODE_ENV: ${NODE_ENV:-development}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_DATABASE: ${DB_DATABASE:-ocrflow}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-ocr-documents}
+      MINIO_USE_SSL: "false"
+      FRONTEND_URL: http://localhost:3004
+      # OCR Service URL (Python microservice)
+      OCR_SERVICE_URL: http://ocr-service:8000
+      # API Keys (passed to OCR service per request)
+      TYPHOON_OCR_API_KEY_1: ${TYPHOON_OCR_API_KEY_1:-}
+      TYPHOON_OCR_API_KEY_2: ${TYPHOON_OCR_API_KEY_2:-}
+      TYPHOON_OCR_API_KEY_3: ${TYPHOON_OCR_API_KEY_3:-}
+      TYPHOON_OCR_API_KEY_4: ${TYPHOON_OCR_API_KEY_4:-}
+      TYPHOON_OCR_API_KEY_5: ${TYPHOON_OCR_API_KEY_5:-}
+      TYPHOON_OCR_API_KEY_6: ${TYPHOON_OCR_API_KEY_6:-}
+      TYPHOON_OCR_API_KEY_7: ${TYPHOON_OCR_API_KEY_7:-}
+    ports:
+      - "4004:4004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ocr-service:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ocr-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4004
+    ports:
+      - "3004:3004"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+  minio_data:
