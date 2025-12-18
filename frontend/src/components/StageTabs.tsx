@@ -56,8 +56,8 @@ export default function StageTabs() {
               className={`
                 flex items-center gap-2 px-4 py-2 border rounded-lg text-[0.9rem] whitespace-nowrap transition-all duration-200
                 ${isActive
-                  ? 'bg-accent border-accent text-white'
-                  : 'bg-card-bg border-border-color text-text-primary hover:border-accent hover:bg-hover-bg'}
+                  ? 'bg-accent border-accent text-white shadow-md shadow-accent/20'
+                  : 'bg-bg-secondary border-border-color text-text-primary hover:border-accent hover:bg-accent/10'}
               `}
             >
               <span className="font-semibold">{stage.id}</span>
