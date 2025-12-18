@@ -9,6 +9,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { LogMessage } from '@/components/shared/Terminal';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { BlurFade } from '@/components/ui/blur-fade';
+import { StageBadge } from '@/components/shared/StageBadge';
 
 interface LabeledFile {
   id: number;
@@ -367,16 +368,11 @@ export default function Stage03PdfLabel() {
 
         <div className="relative p-6 md:p-8 max-w-[1400px] mx-auto">
           {/* Header */}
-          <div className="flex items-start gap-5 mb-8">
-            {/* Stage Badge */}
-            <div className="flex-shrink-0 w-14 h-14 rounded-2xl bg-gradient-to-br from-accent to-purple-600 flex items-center justify-center shadow-lg shadow-accent/25">
-              <span className="text-white font-bold text-xl">03</span>
-            </div>
-            <div>
-              <h1 className="m-0 mb-2 text-2xl font-bold text-text-primary">Stage 03: PDF Label Review</h1>
-              <p className="m-0 text-text-secondary text-sm">Review and adjust labeled documents before extraction</p>
-            </div>
-          </div>
+          <StageBadge
+            stageNumber="03"
+            title="Stage 03: PDF Label Review"
+            description="Review and adjust labeled documents before extraction"
+          />
 
           {/* Status Cards */}
           <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 mb-6 border border-border-color/50 shadow-sm">
