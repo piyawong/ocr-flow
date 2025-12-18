@@ -66,18 +66,25 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg-primary p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-bg-primary via-accent/5 to-purple-500/10 p-4">
       <div className="w-full max-w-md">
-        <Card padding="lg" className="shadow-lg">
+        <Card padding="lg" className="shadow-2xl bg-card-bg/95 backdrop-blur-md border-border-color/50">
           {/* Logo / Header */}
-          <CardHeader className="text-center mb-4">
-            <h1 className="text-3xl font-bold text-accent mb-2">OCR Flow</h1>
+          <CardHeader className="text-center mb-6">
+            <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-accent to-purple-600 flex items-center justify-center shadow-lg shadow-accent/30">
+              <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-accent to-purple-600 bg-clip-text text-transparent mb-2">
+              OCR Flow
+            </h1>
             <p className="text-text-secondary">Document Processing System</p>
           </CardHeader>
 
           <CardContent>
             {/* Login Form */}
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-5">
               {error && (
                 <Alert variant="danger" dismissible onDismiss={() => setError('')}>
                   {error}
@@ -98,6 +105,11 @@ export default function LoginPage() {
                 placeholder="Enter your email"
                 disabled={isSubmitting}
                 required
+                leftIcon={
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+                  </svg>
+                }
               />
 
               <Input
@@ -108,6 +120,11 @@ export default function LoginPage() {
                 placeholder="Enter your password"
                 disabled={isSubmitting}
                 required
+                leftIcon={
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                }
               />
 
               <Button
@@ -115,28 +132,33 @@ export default function LoginPage() {
                 fullWidth
                 size="lg"
                 isLoading={isSubmitting}
+                className="shadow-lg shadow-accent/20"
               >
                 Sign In
               </Button>
             </form>
           </CardContent>
 
-          <CardFooter className="flex-col border-t border-border-color mt-6 pt-6">
-            <p className="text-text-secondary text-sm text-center mb-3">
+          <CardFooter className="flex-col border-t border-border-color/30 mt-6 pt-6">
+            <p className="text-text-secondary text-sm text-center mb-3 font-medium">
               First time setup?
             </p>
             <Button
               variant="outline"
               fullWidth
               onClick={handleInitAdmin}
+              className="border-accent/30 hover:border-accent hover:bg-accent/10 transition-all duration-200"
             >
+              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+              </svg>
               Create Default Admin User
             </Button>
           </CardFooter>
         </Card>
 
         {/* Footer */}
-        <p className="text-center text-text-secondary text-sm mt-4">
+        <p className="text-center text-text-secondary text-sm mt-6 font-medium">
           OCR Flow v2 - Document Processing System
         </p>
       </div>
