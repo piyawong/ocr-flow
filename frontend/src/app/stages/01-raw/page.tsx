@@ -936,8 +936,8 @@ export default function Stage01Raw() {
                   }}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                     viewMode === 'all'
-                      ? 'bg-gradient-to-r from-accent to-purple-600 text-white shadow-md'
-                      : 'text-text-primary/70 hover:text-text-primary hover:bg-accent/10'
+                      ? 'bg-gradient-to-r from-[#3b82f6] to-purple-600 text-white shadow-md'
+                      : 'text-text-primary bg-white/50 dark:bg-transparent hover:text-text-primary hover:bg-[#3b82f6]/10 border border-transparent'
                   }`}
                 >
                   All Files
@@ -950,7 +950,7 @@ export default function Stage01Raw() {
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                     viewMode === 'progress'
                       ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md'
-                      : 'text-text-primary/70 hover:text-text-primary hover:bg-warning/10'
+                      : 'text-text-primary bg-white/50 dark:bg-transparent hover:text-text-primary hover:bg-warning/10 border border-transparent'
                   }`}
                 >
                   Progress ({pendingCount})
