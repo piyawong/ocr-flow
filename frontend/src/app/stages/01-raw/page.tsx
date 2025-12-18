@@ -941,7 +941,7 @@ export default function Stage01Raw() {
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                     viewMode === 'all'
                       ? 'bg-gradient-to-r from-accent to-purple-600 text-white shadow-md'
-                      : 'text-text-secondary hover:text-text-primary hover:bg-accent/10'
+                      : 'text-text-primary/70 hover:text-text-primary hover:bg-accent/10'
                   }`}
                 >
                   All Files
@@ -954,7 +954,7 @@ export default function Stage01Raw() {
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                     viewMode === 'progress'
                       ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md'
-                      : 'text-text-secondary hover:text-text-primary hover:bg-warning/10'
+                      : 'text-text-primary/70 hover:text-text-primary hover:bg-warning/10'
                   }`}
                 >
                   Progress ({pendingCount})

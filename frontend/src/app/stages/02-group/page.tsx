@@ -932,7 +932,7 @@ export default function Stage02Group() {
                     className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-300 ${
                       !showLabeledGroups
                         ? 'bg-gradient-to-r from-accent to-purple-600 text-white shadow-lg shadow-accent/25'
-                        : 'text-text-secondary hover:text-text-primary hover:bg-accent/10'
+                        : 'text-text-primary/70 hover:text-text-primary hover:bg-accent/10'
                     }`}
                     onClick={() => setShowLabeledGroups(false)}
                   >
@@ -942,7 +942,7 @@ export default function Stage02Group() {
                     className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-300 ${
                       showLabeledGroups
                         ? 'bg-gradient-to-r from-emerald-500 to-emerald-400 text-white shadow-lg shadow-emerald-500/25'
-                        : 'text-text-secondary hover:text-text-primary hover:bg-emerald-500/10'
+                        : 'text-text-primary/70 hover:text-text-primary hover:bg-emerald-500/10'
                     }`}
                     onClick={() => setShowLabeledGroups(true)}
                   >
