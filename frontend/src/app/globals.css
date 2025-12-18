@@ -2,38 +2,119 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ========================================
+   Design Tokens - CSS Variables
+   ======================================== */
+
 :root,
 [data-theme='light'] {
+  /* Background Colors */
   --bg-primary: #f8fafc;
   --bg-secondary: #f1f5f9;
   --card-bg: #ffffff;
   --nav-bg: #ffffff;
+
+  /* Text Colors */
   --text-primary: #1e293b;
   --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+
+  /* Border & Divider */
   --border-color: #e2e8f0;
+  --divider-color: #e2e8f0;
+
+  /* Interactive States */
   --hover-bg: #f1f5f9;
+  --active-bg: #e2e8f0;
+  --focus-ring: rgba(59, 130, 246, 0.3);
+
+  /* Semantic Colors */
   --accent: #3b82f6;
   --accent-light: #eff6ff;
+  --accent-dark: #2563eb;
+  --accent-rgb: 59, 130, 246;
+
   --success: #22c55e;
+  --success-light: #dcfce7;
+  --success-rgb: 34, 197, 94;
+
   --warning: #f59e0b;
+  --warning-light: #fef3c7;
+  --warning-rgb: 245, 158, 11;
+
   --danger: #ef4444;
+  --danger-light: #fee2e2;
+  --danger-rgb: 239, 68, 68;
+
+  --info: #3b82f6;
+  --info-light: #dbeafe;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+
+  /* Spacing Scale */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+
+  /* Border Radius */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow: 300ms ease;
 }
 
 [data-theme='dark'] {
+  /* Background Colors */
   --bg-primary: #0f172a;
   --bg-secondary: #1e293b;
   --card-bg: #1e293b;
   --nav-bg: #1e293b;
+
+  /* Text Colors */
   --text-primary: #f1f5f9;
   --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  /* Border & Divider */
   --border-color: #334155;
+  --divider-color: #334155;
+
+  /* Interactive States */
   --hover-bg: #334155;
-  --accent: #3b82f6;
+  --active-bg: #475569;
+  --focus-ring: rgba(59, 130, 246, 0.4);
+
+  /* Semantic Colors - adjusted for dark mode */
   --accent-light: #1e3a5f;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --danger: #ef4444;
+  --success-light: #14532d;
+  --warning-light: #78350f;
+  --danger-light: #7f1d1d;
+  --info-light: #1e3a5f;
+
+  /* Shadows - more subtle in dark mode */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
 }
+
+/* ========================================
+   Base Styles
+   ======================================== */
 
 * {
   box-sizing: border-box;
@@ -53,6 +134,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
 }
 
 a {
@@ -60,7 +142,10 @@ a {
   text-decoration: none;
 }
 
-/* Custom scrollbar styles */
+/* ========================================
+   Scrollbar Styles
+   ======================================== */
+
 .scrollbar-thin {
   scrollbar-width: thin;
   scrollbar-color: var(--border-color) transparent;
@@ -82,4 +167,150 @@ a {
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background-color: var(--text-secondary);
+}
+
+/* Hide scrollbar but keep functionality */
+.scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+/* ========================================
+   Animation Utilities
+   ======================================== */
+
+@layer utilities {
+  .animate-in {
+    animation-duration: var(--transition-normal);
+    animation-fill-mode: both;
+  }
+
+  .fade-in {
+    animation-name: fadeIn;
+  }
+
+  .slide-in-up {
+    animation-name: slideInUp;
+  }
+
+  .slide-in-down {
+    animation-name: slideInDown;
+  }
+
+  .zoom-in-95 {
+    animation-name: zoomIn95;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes slideInUp {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes slideInDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes zoomIn95 {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+}
+
+/* ========================================
+   Component Layer - Reusable Patterns
+   ======================================== */
+
+@layer components {
+  /* Focus ring utility */
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2;
+  }
+
+  /* Card base pattern */
+  .card {
+    @apply bg-card-bg border border-border-color rounded-xl;
+  }
+
+  /* Interactive card */
+  .card-interactive {
+    @apply card transition-all duration-200 hover:border-accent hover:shadow-md cursor-pointer;
+  }
+
+  /* Text truncate */
+  .text-truncate {
+    @apply overflow-hidden text-ellipsis whitespace-nowrap;
+  }
+
+  /* Gradient text */
+  .text-gradient {
+    @apply bg-gradient-to-r from-accent to-accent-dark bg-clip-text text-transparent;
+  }
+}
+
+/* ========================================
+   Page Layout Utilities
+   ======================================== */
+
+.page-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--space-lg);
+}
+
+.page-header {
+  margin-bottom: var(--space-xl);
+}
+
+.page-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.page-description {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin-top: var(--space-xs);
+}
+
+/* ========================================
+   Responsive Utilities
+   ======================================== */
+
+@media (max-width: 768px) {
+  .page-container {
+    padding: var(--space-md);
+  }
 }

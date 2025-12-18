@@ -4,6 +4,11 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { initAdmin } from '@/lib/api';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Card, CardHeader, CardContent, CardFooter } from '@/components/ui/Card';
+import { Alert } from '@/components/ui/Alert';
+import { LoadingState } from '@/components/ui/Spinner';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -55,7 +60,7 @@ export default function LoginPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-bg-primary">
-        <div className="text-text-secondary">Loading...</div>
+        <LoadingState text="Loading..." />
       </div>
     );
   }
@@ -63,81 +68,72 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg-primary p-4">
       <div className="w-full max-w-md">
-        <div className="bg-card-bg rounded-2xl shadow-lg border border-border-color p-8">
+        <Card padding="lg" className="shadow-lg">
           {/* Logo / Header */}
-          <div className="text-center mb-8">
+          <CardHeader className="text-center mb-4">
             <h1 className="text-3xl font-bold text-accent mb-2">OCR Flow</h1>
             <p className="text-text-secondary">Document Processing System</p>
-          </div>
+          </CardHeader>
 
-          {/* Login Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {error && (
-              <div className="bg-danger-light border border-danger text-danger rounded-lg p-3 text-sm">
-                {error}
-              </div>
-            )}
+          <CardContent>
+            {/* Login Form */}
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {error && (
+                <Alert variant="danger" dismissible onDismiss={() => setError('')}>
+                  {error}
+                </Alert>
+              )}
 
-            {initMessage && (
-              <div className="bg-success-light border border-success text-success rounded-lg p-3 text-sm">
-                {initMessage}
-              </div>
-            )}
+              {initMessage && (
+                <Alert variant="success" dismissible onDismiss={() => setInitMessage('')}>
+                  {initMessage}
+                </Alert>
+              )}
 
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-text-primary mb-2">
-                Email
-              </label>
-              <input
-                id="email"
+              <Input
+                label="Email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                required
-                className="w-full px-4 py-3 bg-bg-secondary border border-border-color rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all"
                 placeholder="Enter your email"
                 disabled={isSubmitting}
+                required
               />
-            </div>
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-text-primary mb-2">
-                Password
-              </label>
-              <input
-                id="password"
+              <Input
+                label="Password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                required
-                className="w-full px-4 py-3 bg-bg-secondary border border-border-color rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all"
                 placeholder="Enter your password"
                 disabled={isSubmitting}
+                required
               />
-            </div>
 
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full py-3 px-4 bg-gradient-to-r from-accent to-[#2563eb] text-white font-semibold rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            >
-              {isSubmitting ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
+              <Button
+                type="submit"
+                fullWidth
+                size="lg"
+                isLoading={isSubmitting}
+              >
+                Sign In
+              </Button>
+            </form>
+          </CardContent>
 
-          {/* Init Admin Button (for first time setup) */}
-          <div className="mt-6 pt-6 border-t border-border-color">
+          <CardFooter className="flex-col border-t border-border-color mt-6 pt-6">
             <p className="text-text-secondary text-sm text-center mb-3">
               First time setup?
             </p>
-            <button
+            <Button
+              variant="outline"
+              fullWidth
               onClick={handleInitAdmin}
-              className="w-full py-2 px-4 bg-bg-secondary border border-border-color text-text-secondary font-medium rounded-lg hover:bg-hover-bg hover:border-accent transition-all text-sm"
             >
               Create Default Admin User
-            </button>
-          </div>
-        </div>
+            </Button>
+          </CardFooter>
+        </Card>
 
         {/* Footer */}
         <p className="text-center text-text-secondary text-sm mt-4">

@@ -2,11 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useState } from 'react';
 import { useTheme } from './ThemeProvider';
 import { useAuth } from '@/contexts/AuthContext';
 import { updateProfile, StagePermission } from '@/lib/api';
-import { useState } from 'react';
 import { usePermission } from '@/hooks/usePermission';
+import { Button } from './ui/Button';
+import { Input } from './ui/Input';
+import { Badge } from './ui/Badge';
+import { Modal, ModalHeader, ModalTitle, ModalDescription, ModalBody, ModalFooter } from './ui/Modal';
 
 const navItems = [
   { href: '/', label: 'Dashboard' },
@@ -141,9 +145,7 @@ export default function Navbar() {
                   </svg>
                   <span className="text-[0.9rem] font-medium text-accent">{user.name}</span>
                   {user.role === 'admin' && (
-                    <span className="px-1.5 py-0.5 bg-accent text-white text-[0.7rem] rounded font-medium">
-                      Admin
-                    </span>
+                    <Badge variant="info" size="sm">Admin</Badge>
                   )}
                   <svg className={`w-4 h-4 text-accent transition-transform ${showUserMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                     <path d="M19 9l-7 7-7-7" />
@@ -152,7 +154,7 @@ export default function Navbar() {
 
                 {/* Dropdown Menu */}
                 {showUserMenu && (
-                  <div className="absolute right-0 top-full mt-2 w-48 bg-card-bg rounded-lg shadow-lg border border-border-color overflow-hidden z-50">
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-card-bg rounded-lg shadow-lg border border-border-color overflow-hidden z-50 animate-in fade-in slide-in-down">
                     <div className="px-4 py-3 border-b border-border-color">
                       <p className="text-sm font-medium text-text-primary">{user.name}</p>
                       <p className="text-xs text-text-secondary">{user.email}</p>
@@ -186,21 +188,20 @@ export default function Navbar() {
               </div>
             </>
           ) : !isLoading && (
-            <Link
-              href="/login"
-              className="px-4 py-2 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent/90 transition-all"
-            >
-              Sign In
+            <Link href="/login">
+              <Button size="sm">Sign In</Button>
             </Link>
           )}
 
           {/* Theme Toggle */}
-          <button
+          <Button
+            variant="outline"
+            size="sm"
             onClick={toggleTheme}
-            className="bg-transparent border border-border-color px-2 py-1.5 rounded-md cursor-pointer text-base transition-all duration-200 hover:bg-hover-bg"
+            className="px-2"
           >
             {theme === 'light' ? '🌙' : '☀️'}
-          </button>
+          </Button>
         </div>
       </nav>
 
@@ -213,57 +214,49 @@ export default function Navbar() {
       )}
 
       {/* Name Setting Modal */}
-      {showNameModal && (
-        <div
-          className="fixed top-0 left-0 right-0 bottom-0 bg-black/70 flex items-center justify-center z-[1000] backdrop-blur-sm"
-          onClick={handleCloseModal}
-        >
-          <div
-            className="bg-card-bg p-8 rounded-2xl max-w-[400px] w-[90%] shadow-[0_20px_60px_rgba(0,0,0,0.3)] border border-border-color"
-            onClick={(e) => e.stopPropagation()}
+      <Modal
+        isOpen={showNameModal}
+        onClose={handleCloseModal}
+        size="sm"
+        closeOnEscape={!isSaving}
+        closeOnOverlay={!isSaving}
+      >
+        <ModalHeader>
+          <ModalTitle>Set Reviewer Name</ModalTitle>
+          <ModalDescription>
+            Your name will be saved with all labels you review.
+          </ModalDescription>
+        </ModalHeader>
+        <ModalBody>
+          <Input
+            label="Name"
+            type="text"
+            value={tempName}
+            onChange={(e) => setTempName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleSaveName();
+              } else if (e.key === 'Escape') {
+                handleCloseModal();
+              }
+            }}
+            placeholder="Enter your name"
+            autoFocus
+          />
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="secondary" onClick={handleCloseModal} disabled={isSaving}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSaveName}
+            disabled={!tempName.trim()}
+            isLoading={isSaving}
           >
-            <h2 className="m-0 mb-4 text-xl text-text-primary">Set Reviewer Name</h2>
-            <p className="my-2 text-text-secondary text-[0.9rem]">
-              Your name will be saved with all labels you review.
-            </p>
-
-            <div className="mt-4">
-              <label className="block mb-2 text-[0.9rem] font-medium text-text-primary">Name</label>
-              <input
-                type="text"
-                value={tempName}
-                onChange={(e) => setTempName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    handleSaveName();
-                  } else if (e.key === 'Escape') {
-                    handleCloseModal();
-                  }
-                }}
-                placeholder="Enter your name"
-                className="w-full px-4 py-2.5 border border-border-color bg-bg-secondary text-text-primary rounded-md text-[0.95rem] transition-all duration-200 focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent-rgb),0.1)]"
-                autoFocus
-              />
-            </div>
-
-            <div className="flex gap-4 mt-6">
-              <button
-                className="flex-1 bg-border-color text-text-primary border-none px-6 py-3 rounded-lg text-[0.95rem] font-semibold cursor-pointer transition-all duration-200 hover:bg-accent hover:text-white"
-                onClick={handleCloseModal}
-              >
-                Cancel
-              </button>
-              <button
-                className="flex-1 bg-gradient-to-br from-accent to-[#2563eb] text-white border-none px-6 py-3 rounded-lg text-[0.95rem] font-semibold cursor-pointer transition-all duration-200 hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(59,130,246,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={handleSaveName}
-                disabled={!tempName.trim() || isSaving}
-              >
-                {isSaving ? 'Saving...' : 'Save'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+            Save
+          </Button>
+        </ModalFooter>
+      </Modal>
     </>
   );
 }
