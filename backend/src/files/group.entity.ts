@@ -52,6 +52,19 @@ export class Group {
   @Column({ type: 'text', nullable: true })
   extractDataNotes: string | null;
 
+  // Stage 05: Final Review & Approval
+  @Column({ default: false })
+  isFinalApproved: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  finalApprovedAt: Date | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  finalReviewer: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  finalReviewNotes: string | null;
+
   // District office registration info
   @Column({ type: 'text', nullable: true })
   districtOffice: string | null;

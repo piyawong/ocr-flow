@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { Subject } from 'rxjs';
@@ -894,5 +894,199 @@ export class FilesService {
     await this.groupRepository.save(group);
 
     return storagePath;
+  }
+
+  // ========== STAGE 05: FINAL REVIEW METHODS ==========
+
+  async getFinalReviewGroups(status: 'pending' | 'approved' | 'all') {
+    const queryBuilder = this.groupRepository
+      .createQueryBuilder('group')
+      .leftJoinAndSelect('group.files', 'files')
+      .leftJoinAndSelect('group.foundationInstrument', 'foundationInstrument')
+      .leftJoinAndSelect('group.committeeMembers', 'committeeMembers')
+      .where('group.isLabeledReviewed = :labelReviewed', { labelReviewed: true })
+      .andWhere('group.isParseDataReviewed = :parseReviewed', { parseReviewed: true });
+
+    // Apply status filter
+    if (status === 'pending') {
+      queryBuilder.andWhere('group.isFinalApproved = :approved', { approved: false });
+    } else if (status === 'approved') {
+      queryBuilder.andWhere('group.isFinalApproved = :approved', { approved: true });
+    }
+    // 'all' doesn't add any additional filter
+
+    queryBuilder.orderBy('group.id', 'ASC');
+
+    const groups = await queryBuilder.getMany();
+
+    // Calculate match percentage for each group from labeled_files
+    const groupsWithStats = await Promise.all(
+      groups.map(async (group) => {
+        const labeledFiles = await this.labeledFileRepository.find({
+          where: { groupId: group.id },
+        });
+
+        const totalPages = labeledFiles.length;
+        const matchedPages = labeledFiles.filter(f => f.labelStatus !== 'unmatched').length;
+        const matchPercentage = totalPages > 0 ? (matchedPages / totalPages) * 100 : 0;
+
+        return {
+          groupId: group.id,
+          totalPages: group.files.length,
+
+          // Stage 03 data
+          labelMatchPercentage: matchPercentage,
+          isLabeledReviewed: group.isLabeledReviewed,
+          labeledReviewer: group.labeledReviewer,
+
+          // Stage 04 data
+          hasFoundationInstrument: !!group.foundationInstrument,
+          committeeCount: group.committeeMembers?.length || 0,
+          isParseDataReviewed: group.isParseDataReviewed,
+          parseDataReviewer: group.parseDataReviewer,
+          parseDataAt: group.parseDataAt,
+
+          // Stage 05 data
+          isFinalApproved: group.isFinalApproved,
+          finalReviewer: group.finalReviewer,
+          finalApprovedAt: group.finalApprovedAt,
+        };
+      }),
+    );
+
+    return groupsWithStats;
+  }
+
+  async getFinalReviewGroupDetail(groupId: number) {
+    const group = await this.groupRepository.findOne({
+      where: { id: groupId },
+      relations: [
+        'files',
+        'foundationInstrument',
+        'foundationInstrument.charterSections',
+        'committeeMembers'
+      ],
+    });
+
+    if (!group) {
+      throw new NotFoundException(`Group ${groupId} not found`);
+    }
+
+    // Get labeled files with full detail
+    const labeledFiles = await this.labeledFileRepository.find({
+      where: { groupId: groupId },
+      order: { orderInGroup: 'ASC' },
+    });
+
+    const totalPages = labeledFiles.length;
+    const matchedPages = labeledFiles.filter(f => f.labelStatus !== 'unmatched').length;
+    const unmatchedPages = totalPages - matchedPages;
+    const matchPercentage = totalPages > 0 ? (matchedPages / totalPages) * 100 : 0;
+
+    // Group labeled files by document for summary
+    const documentGroups = new Map<string, any>();
+    labeledFiles.forEach(file => {
+      const key = file.documentId !== null ? `doc-${file.documentId}` : `unmatched-${file.id}`;
+      if (!documentGroups.has(key)) {
+        documentGroups.set(key, {
+          templateName: file.templateName,
+          category: file.category,
+          pageCount: 0,
+        });
+      }
+      documentGroups.get(key)!.pageCount++;
+    });
+
+    const documents = Array.from(documentGroups.values());
+
+    return {
+      groupId: group.id,
+
+      // Stage 03 - Full detail
+      stage03: {
+        totalPages,
+        matchedPages,
+        unmatchedPages,
+        matchPercentage,
+        documents,
+        labeledFiles: labeledFiles.map(f => ({
+          id: f.id,
+          groupedFileId: f.groupedFileId,
+          orderInGroup: f.orderInGroup,
+          originalName: f.originalName,
+          storagePath: f.storagePath,
+          templateName: f.templateName,
+          category: f.category,
+          labelStatus: f.labelStatus,
+          matchReason: f.matchReason,
+          documentId: f.documentId,
+          pageInDocument: f.pageInDocument,
+        })),
+        isReviewed: group.isLabeledReviewed,
+        reviewer: group.labeledReviewer,
+        reviewedAt: group.labeledAt,
+      },
+
+      // Stage 04 - Full detail
+      stage04: {
+        hasFoundationInstrument: !!group.foundationInstrument,
+        foundationData: group.foundationInstrument || null,
+        committeeCount: group.committeeMembers?.length || 0,
+        committeeMembers: group.committeeMembers || [],
+        isReviewed: group.isParseDataReviewed,
+        reviewer: group.parseDataReviewer,
+        parseDataAt: group.parseDataAt,
+      },
+
+      // Stage 05 status
+      stage05: {
+        isFinalApproved: group.isFinalApproved,
+        finalReviewer: group.finalReviewer,
+        finalApprovedAt: group.finalApprovedAt,
+        finalReviewNotes: group.finalReviewNotes,
+      },
+
+      // Group metadata
+      metadata: {
+        districtOffice: group.districtOffice,
+        registrationNumber: group.registrationNumber,
+        logoUrl: group.logoUrl,
+      },
+    };
+  }
+
+  async approveFinalReview(groupId: number, reviewerName: string, notes?: string) {
+    const group = await this.groupRepository.findOne({
+      where: { id: groupId },
+    });
+
+    if (!group) {
+      throw new NotFoundException(`Group ${groupId} not found`);
+    }
+
+    // Verify prerequisites
+    if (!group.isLabeledReviewed) {
+      throw new BadRequestException('Group must be reviewed in Stage 03 first');
+    }
+
+    if (!group.isParseDataReviewed) {
+      throw new BadRequestException('Group must be reviewed in Stage 04 first');
+    }
+
+    // Update group
+    group.isFinalApproved = true;
+    group.finalApprovedAt = new Date();
+    group.finalReviewer = reviewerName;
+    group.finalReviewNotes = notes || null;
+
+    await this.groupRepository.save(group);
+
+    return {
+      groupId: group.id,
+      isFinalApproved: group.isFinalApproved,
+      finalReviewer: group.finalReviewer,
+      finalApprovedAt: group.finalApprovedAt,
+      finalReviewNotes: group.finalReviewNotes,
+    };
   }
 }

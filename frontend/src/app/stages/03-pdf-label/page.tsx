@@ -337,7 +337,7 @@ export default function Stage03PdfLabel() {
   const totalGroups = groups.length;
   const totalPages = groups.reduce((sum, g) => sum + g.totalPages, 0);
   const totalMatched = groups.reduce((sum, g) => sum + g.matchedPages, 0);
-  const overallMatchPercentage = totalPages > 0 ? (totalMatched / totalPages * 100).toFixed(1) : '0';
+  const overallMatchPercentage = totalPages > 0 ? (totalMatched / totalPages * 100) : 0;
 
   // Permission check UI
   if (isLoading) {

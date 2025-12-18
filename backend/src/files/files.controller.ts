@@ -231,6 +231,39 @@ export class FilesController {
     return { message: 'All grouping data cleared' };
   }
 
+  // ========== STAGE 05: FINAL REVIEW ENDPOINTS ==========
+
+  @Get('final-review-groups')
+  async getFinalReviewGroups(
+    @Query('status') status?: 'pending' | 'approved' | 'all',
+  ) {
+    const groups = await this.filesService.getFinalReviewGroups(status || 'pending');
+    return { groups };
+  }
+
+  @Get('final-review-groups/:groupId')
+  async getFinalReviewGroupDetail(@Param('groupId', ParseIntPipe) groupId: number) {
+    const detail = await this.filesService.getFinalReviewGroupDetail(groupId);
+    return detail;
+  }
+
+  @Post('final-review-groups/:groupId/approve')
+  async approveFinalReview(
+    @Param('groupId', ParseIntPipe) groupId: number,
+    @Body() body: { notes?: string; reviewerName: string },
+  ) {
+    const group = await this.filesService.approveFinalReview(
+      groupId,
+      body.reviewerName,
+      body.notes,
+    );
+    return {
+      success: true,
+      message: 'Group approved successfully',
+      group,
+    };
+  }
+
   @Sse('events')
   streamEvents(): Observable<MessageEvent> {
     return this.filesService.getEventObservable().pipe(

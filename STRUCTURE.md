@@ -1,6 +1,6 @@
 # OCR Flow v2 - โครงสร้างและ Logic ของระบบ
 
-> **อัปเดตล่าสุด:** 2025-12-17 (เพิ่ม Authentication System - JWT + Passport)
+> **อัปเดตล่าสุด:** 2025-12-18 (เพิ่ม Stage 05: Final Review & Approval)
 > **เอกสารนี้อธิบาย:** โครงสร้างโค้ด, สถาปัตยกรรม, และ logic หลักของ OCR Flow System
 
 ---
@@ -668,11 +668,39 @@ OCR-flow-v2/
   - Parse ทำงานใน background - ไม่ต้องรอ
 
 #### 5. **05-review** (`/stages/05-review`)
-- Review ข้อมูลที่ extract ได้
-- แก้ไข/อนุมัติข้อมูล
+**Final Review & Approval Stage**
+
+**Main List Page:** (`/stages/05-review`)
+- แสดง groups ที่พร้อมสำหรับ final review
+- Filter: Pending / Approved / All
+- เงื่อนไข: `isLabeledReviewed = true` AND `isParseDataReviewed = true`
+- Status cards: Pending, Approved, Total Groups, Approval Rate
+
+**Detail Page:** (`/stages/05-review/[groupId]`)
+- แสดงสรุป Stage 03 (PDF Labeling) และ Stage 04 (Data Extraction) แบบ side-by-side
+- **Stage 03 Summary:**
+  - Match rate, matched/unmatched pages
+  - Documents found
+  - Reviewer และวันที่
+- **Stage 04 Summary:**
+  - Foundation instrument status
+  - Committee members count + list
+  - Parse date และ reviewer
+- **Final Review Decision:**
+  - Notes/comments (optional)
+  - Approve button → บันทึก `isFinalApproved = true`
+  - Reviewer name จาก JWT user
+- **Admin Only:** สามารถ approve ได้
+
+**Features:**
+- ✅ Combined review of Stage 03 + 04
+- ✅ Final approval before Stage 06
+- ✅ Quality gate (ป้องกัน upload groups ที่ยังไม่พร้อม)
+- ✅ Audit trail (reviewer, timestamp, notes)
 
 #### 6. **06-upload** (`/stages/06-upload`)
 - Upload final documents
+- เงื่อนไข: เฉพาะ groups ที่ `isFinalApproved = true`
 
 ### Components
 
@@ -776,6 +804,12 @@ CREATE TABLE groups (
   parse_data_reviewer VARCHAR(255) NULL,
   extract_data_notes TEXT NULL,
 
+  -- Stage 05: Final Review & Approval
+  is_final_approved BOOLEAN DEFAULT FALSE,
+  final_approved_at TIMESTAMP NULL,
+  final_reviewer VARCHAR(255) NULL,
+  final_review_notes TEXT NULL,
+
   -- Registration info
   district_office TEXT NULL,
   registration_number VARCHAR(50) NULL,
@@ -807,6 +841,12 @@ CREATE TABLE groups (
 - `is_parse_data_reviewed` - group นี้ review parse data แล้วหรือยัง
 - `parse_data_reviewer` - ชื่อผู้ review parse data
 - `extract_data_notes` - ✅ หมายเหตุจากผู้ review parse data (Stage 04)
+
+**Stage 05 (Final Review & Approval):**
+- `is_final_approved` - group นี้ได้รับ final approval แล้วหรือยัง (พร้อม Stage 06)
+- `final_approved_at` - เวลาที่ approve
+- `final_reviewer` - ชื่อผู้ approve (จาก JWT user.name)
+- `final_review_notes` - หมายเหตุจาก final reviewer
 
 **Registration Info:**
 - `district_office` - สำนักงานเขตที่จดทะเบียน (text)
