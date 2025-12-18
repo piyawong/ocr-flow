@@ -28,7 +28,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 
     const variants = {
       primary:
-        'bg-gradient-to-br from-accent to-[#2563eb] text-white border-none hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(59,130,246,0.3)]',
+        'bg-gradient-to-r from-blue-600 to-blue-700 text-white border-none hover:from-blue-700 hover:to-blue-800 hover:shadow-lg active:scale-[0.98]',
       secondary:
         'bg-border-color text-text-primary border-none hover:bg-hover-bg',
       danger:
