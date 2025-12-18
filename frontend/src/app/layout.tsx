@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { AuthProvider } from "@/contexts/AuthContext";
+import AuthRedirect from "@/components/AuthRedirect";
 import Navbar from "@/components/Navbar";
 
 export const metadata: Metadata = {
@@ -24,8 +26,12 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body>
         <ThemeProvider>
-          <Navbar />
-          {children}
+          <AuthProvider>
+            <AuthRedirect>
+              <Navbar />
+              {children}
+            </AuthRedirect>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

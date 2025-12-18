@@ -99,4 +99,35 @@ export class TemplatesService {
   async clearAll(): Promise<void> {
     await this.templateRepository.clear();
   }
+
+  /**
+   * Bulk import templates (only name and category)
+   */
+  async bulkImport(
+    templates: Array<{ name: string; category?: string }>,
+  ): Promise<{ imported: number; templates: Template[] }> {
+    const createdTemplates: Template[] = [];
+
+    for (let i = 0; i < templates.length; i++) {
+      const t = templates[i];
+      const template = this.templateRepository.create({
+        name: t.name,
+        category: t.category || null,
+        firstPagePatterns: null,
+        lastPagePatterns: null,
+        firstPageNegativePatterns: null,
+        lastPageNegativePatterns: null,
+        isSinglePage: false,
+        isActive: true,
+        sortOrder: i,
+      });
+      const saved = await this.templateRepository.save(template);
+      createdTemplates.push(saved);
+    }
+
+    return {
+      imported: createdTemplates.length,
+      templates: createdTemplates,
+    };
+  }
 }

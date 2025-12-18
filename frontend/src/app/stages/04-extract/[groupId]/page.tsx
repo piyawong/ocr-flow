@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
+import { usePermission } from '@/hooks/usePermission';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
 
@@ -135,6 +137,8 @@ interface ParsedGroupDetail {
 export default function GroupDetailPage() {
   const router = useRouter();
   const params = useParams();
+  const { user, isLoading: authLoading } = useAuth();
+  const { canAccessStage04 } = usePermission();
   const groupId = params.groupId as string;
 
   const [groupDetail, setGroupDetail] = useState<ParsedGroupDetail | null>(null);
@@ -313,12 +317,10 @@ export default function GroupDetailPage() {
       return;
     }
 
-    // Check reviewer name
-    let reviewer = localStorage.getItem('ocr-flow-reviewer-name');
-    if (!reviewer) {
-      const name = prompt('กรุณาระบุชื่อผู้ตรวจสอบ:');
-      if (!name) return;
-      localStorage.setItem('ocr-flow-reviewer-name', name);
+    // Check if user is logged in
+    if (!user?.name) {
+      alert('กรุณาเข้าสู่ระบบก่อนบันทึก');
+      return;
     }
 
     setSaveNotes('');
@@ -326,7 +328,7 @@ export default function GroupDetailPage() {
   };
 
   const handleSaveAndReview = async () => {
-    const reviewer = localStorage.getItem('ocr-flow-reviewer-name');
+    const reviewer = user?.name;
     if (!reviewer) return;
 
     setShowSaveModal(false);
@@ -641,6 +643,27 @@ export default function GroupDetailPage() {
     const url = `/documents/${groupId}`;
     window.open(url, '_blank', 'width=940,height=900');
   };
+
+  // Permission check
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+        <div className="text-text-secondary">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!canAccessStage04()) {
+    return (
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-6xl mb-4">🔒</div>
+          <h1 className="text-xl font-bold text-text-primary mb-2">Access Denied</h1>
+          <p className="text-text-secondary">You don't have permission to access this page.</p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

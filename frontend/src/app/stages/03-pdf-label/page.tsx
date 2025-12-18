@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
+import { usePermission } from '@/hooks/usePermission';
 
 interface LabeledFile {
   id: number;
@@ -93,6 +95,10 @@ const groupFilesByDocument = (files: LabeledFile[]): DocumentGroup[] => {
 
 export default function Stage03PdfLabel() {
   const router = useRouter();
+  const { user, isLoading } = useAuth();
+  const { canAccessStage03 } = usePermission();
+
+  // All hooks must be called before any early returns
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<GroupDetail | null>(null);
   const [showRevertConfirm, setShowRevertConfirm] = useState(false);
@@ -119,12 +125,16 @@ export default function Stage03PdfLabel() {
       const data: GroupSummary[] = await res.json();
 
       // Filter: show only groups that are NOT yet parsed (isParseData = false or undefined)
-      const unparsedGroups = data.filter(g => !g.isParseData);
-      setGroups(unparsedGroups);
+      // For admin with "All Groups" filter, show everything including parsed groups
+      const isAdminShowAll = user?.role === 'admin' && reviewFilter === 'all';
+      const filteredGroups = isAdminShowAll
+        ? data
+        : data.filter(g => !g.isParseData);
+      setGroups(filteredGroups);
     } catch (err) {
       console.error('Error fetching label summary:', err);
     }
-  }, [reviewFilter]);
+  }, [reviewFilter, user?.role]);
 
   const fetchLogsHistory = useCallback(async () => {
     try {
@@ -240,6 +250,13 @@ export default function Stage03PdfLabel() {
     }
   }, [logs]);
 
+  // Permission check - redirect if no permission
+  useEffect(() => {
+    if (!isLoading && user && !canAccessStage03()) {
+      router.push('/');
+    }
+  }, [user, isLoading, canAccessStage03, router]);
+
   const handleGroupClick = async (group: GroupSummary) => {
     try {
       const [filesRes, summaryRes] = await Promise.all([
@@ -323,6 +340,27 @@ export default function Stage03PdfLabel() {
   const totalMatched = groups.reduce((sum, g) => sum + g.matchedPages, 0);
   const overallMatchPercentage = totalPages > 0 ? (totalMatched / totalPages * 100).toFixed(1) : '0';
 
+  // Permission check UI
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+        <div className="text-text-secondary">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!canAccessStage03()) {
+    return (
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-6xl mb-4">🔒</div>
+          <h1 className="text-xl font-bold text-text-primary mb-2">Access Denied</h1>
+          <p className="text-text-secondary">You don't have permission to access this page.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-bg-primary">
       {/* Gradient Header Background */}
@@ -387,145 +425,149 @@ export default function Stage03PdfLabel() {
             </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex gap-3 mb-6">
-            {!taskRunning ? (
-              <button
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-accent to-purple-600 text-white font-semibold text-sm shadow-lg shadow-accent/25 hover:shadow-xl hover:shadow-accent/30 hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-2"
-                onClick={startTask}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Start Auto Label All
-              </button>
-            ) : (
-              <button
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold text-sm shadow-lg shadow-amber-500/25 hover:shadow-xl hover:shadow-amber-500/30 hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-2"
-                onClick={stopTask}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Stop Auto Label
-              </button>
-            )}
-            {totalGroups > 0 && (
-              <button
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 text-white font-semibold text-sm shadow-lg shadow-red-500/25 hover:shadow-xl hover:shadow-red-500/30 hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
-                onClick={() => setShowRevertConfirm(true)}
-                disabled={reverting}
-              >
-                Revert All Labels
-              </button>
-            )}
-          </div>
-
-          {/* Terminal */}
-          <div className="bg-[#1a1b26] rounded-2xl overflow-hidden mb-6 border border-[#2d2f3d]/50 shadow-xl">
-            <div className="flex items-center gap-3 px-5 py-3.5 bg-[#16171f] border-b border-[#2d2f3d]">
-              <div className="flex gap-1.5">
-                <span className="w-3 h-3 rounded-full bg-[#ff5f56]"></span>
-                <span className="w-3 h-3 rounded-full bg-[#ffbd2e]"></span>
-                <span className="w-3 h-3 rounded-full bg-[#27ca40]"></span>
-              </div>
-              <span className="text-[#a0a0b0] text-sm font-mono">task-03-label-pdf.py</span>
-              {taskRunning && (
-                <span className="flex items-center gap-2 bg-emerald-500/15 text-emerald-400 px-3 py-1.5 rounded-lg text-xs font-semibold">
-                  <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>
-                  Running
-                </span>
+          {/* Action Buttons - Admin Only */}
+          {user?.role === 'admin' && (
+            <div className="flex gap-3 mb-6">
+              {!taskRunning ? (
+                <button
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-accent to-purple-600 text-white font-semibold text-sm shadow-lg shadow-accent/25 hover:shadow-xl hover:shadow-accent/30 hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-2"
+                  onClick={startTask}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Start Auto Label All
+                </button>
+              ) : (
+                <button
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold text-sm shadow-lg shadow-amber-500/25 hover:shadow-xl hover:shadow-amber-500/30 hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-2"
+                  onClick={stopTask}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Stop Auto Label
+                </button>
               )}
-              <div className="ml-auto flex items-center gap-2">
+              {totalGroups > 0 && (
                 <button
-                  className="px-3 py-1.5 border border-[#5a5a6a] rounded-lg text-sm font-medium cursor-pointer transition-all duration-200 font-mono bg-[#2a2a3a] text-[#c0c0d0] hover:border-accent hover:text-accent hover:bg-accent/10"
-                  onClick={() => setTerminalCompact(!terminalCompact)}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 text-white font-semibold text-sm shadow-lg shadow-red-500/25 hover:shadow-xl hover:shadow-red-500/30 hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+                  onClick={() => setShowRevertConfirm(true)}
+                  disabled={reverting}
                 >
-                  {terminalCompact ? '📋 Full Logs' : '📊 Compact'}
+                  Revert All Labels
                 </button>
-                <button
-                  className="px-3 py-1.5 border border-[#5a5a6a] rounded-lg text-sm font-medium cursor-pointer transition-all duration-200 font-mono bg-[#2a2a3a] text-[#c0c0d0] hover:border-amber-500 hover:text-amber-400 hover:bg-amber-500/10"
-                  onClick={clearLogs}
-                >
-                  🗑️ Clear
-                </button>
-              </div>
+              )}
             </div>
-            <div
-              ref={terminalBodyRef}
-              className={`p-4 px-6 ${terminalCompact ? 'min-h-[100px]' : 'min-h-[100px] max-h-[400px]'} overflow-y-auto font-mono`}
-            >
-              {terminalCompact ? (
-                <div className="space-y-3">
-                  {/* Summary Section */}
-                  <div className="bg-accent/10 rounded-lg p-3 border border-accent/20">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-accent text-sm font-semibold">📊 Summary</span>
-                      <span className="text-[#a0a0b0] text-xs">{logs.length} total logs</span>
+          )}
+
+          {/* Terminal - Admin Only */}
+          {user?.role === 'admin' && (
+            <div className="bg-[#1a1b26] rounded-2xl overflow-hidden mb-6 border border-[#2d2f3d]/50 shadow-xl">
+              <div className="flex items-center gap-3 px-5 py-3.5 bg-[#16171f] border-b border-[#2d2f3d]">
+                <div className="flex gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-[#ff5f56]"></span>
+                  <span className="w-3 h-3 rounded-full bg-[#ffbd2e]"></span>
+                  <span className="w-3 h-3 rounded-full bg-[#27ca40]"></span>
+                </div>
+                <span className="text-[#a0a0b0] text-sm font-mono">task-03-label-pdf.py</span>
+                {taskRunning && (
+                  <span className="flex items-center gap-2 bg-emerald-500/15 text-emerald-400 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                    <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>
+                    Running
+                  </span>
+                )}
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    className="px-3 py-1.5 border border-[#5a5a6a] rounded-lg text-sm font-medium cursor-pointer transition-all duration-200 font-mono bg-[#2a2a3a] text-[#c0c0d0] hover:border-accent hover:text-accent hover:bg-accent/10"
+                    onClick={() => setTerminalCompact(!terminalCompact)}
+                  >
+                    {terminalCompact ? '📋 Full Logs' : '📊 Compact'}
+                  </button>
+                  <button
+                    className="px-3 py-1.5 border border-[#5a5a6a] rounded-lg text-sm font-medium cursor-pointer transition-all duration-200 font-mono bg-[#2a2a3a] text-[#c0c0d0] hover:border-amber-500 hover:text-amber-400 hover:bg-amber-500/10"
+                    onClick={clearLogs}
+                  >
+                    🗑️ Clear
+                  </button>
+                </div>
+              </div>
+              <div
+                ref={terminalBodyRef}
+                className={`p-4 px-6 ${terminalCompact ? 'min-h-[100px]' : 'min-h-[100px] max-h-[400px]'} overflow-y-auto font-mono`}
+              >
+                {terminalCompact ? (
+                  <div className="space-y-3">
+                    {/* Summary Section */}
+                    <div className="bg-accent/10 rounded-lg p-3 border border-accent/20">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-accent text-sm font-semibold">📊 Summary</span>
+                        <span className="text-[#a0a0b0] text-xs">{logs.length} total logs</span>
+                      </div>
+                      <div className="text-[#a0a0b0] text-xs">
+                        {taskRunning ? (
+                          <>
+                            <div>Status: <span className="text-emerald-400 font-medium">Running</span></div>
+                            {lastActivityTime && (
+                              <div>Last Activity: {lastActivityTime.toLocaleTimeString()}</div>
+                            )}
+                          </>
+                        ) : (
+                          <div>Status: <span className="text-[#6a6a7a] font-medium">Idle</span></div>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-[#a0a0b0] text-xs">
-                      {taskRunning ? (
-                        <>
-                          <div>Status: <span className="text-emerald-400 font-medium">Running</span></div>
-                          {lastActivityTime && (
-                            <div>Last Activity: {lastActivityTime.toLocaleTimeString()}</div>
-                          )}
-                        </>
+
+                    {/* Recent Activity */}
+                    <div>
+                      <div className="text-accent text-xs font-semibold mb-2">📝 Recent Activity (Last 10 logs)</div>
+                      {logs.length === 0 ? (
+                        <div className="text-[#6a6a7a] text-sm">No logs yet. Click "Start Auto Label All" to begin.</div>
                       ) : (
-                        <div>Status: <span className="text-[#6a6a7a] font-medium">Idle</span></div>
+                        logs
+                          .filter(log => !log.message.toLowerCase().includes('waiting'))
+                          .slice(-10)
+                          .map((log, i) => (
+                            <div key={i} className="mb-1 text-sm">
+                              <span className="text-[#6a6a7a]">[{new Date(log.timestamp).toLocaleTimeString()}]</span>{' '}
+                              <span className={
+                                log.type === 'success' ? 'text-emerald-400' :
+                                log.type === 'error' ? 'text-red-400' :
+                                log.type === 'warning' ? 'text-amber-400' :
+                                'text-[#c0c0d0]'
+                              }>
+                                {log.message}
+                              </span>
+                            </div>
+                          ))
                       )}
                     </div>
                   </div>
-
-                  {/* Recent Activity */}
+                ) : (
                   <div>
-                    <div className="text-accent text-xs font-semibold mb-2">📝 Recent Activity (Last 10 logs)</div>
                     {logs.length === 0 ? (
                       <div className="text-[#6a6a7a] text-sm">No logs yet. Click "Start Auto Label All" to begin.</div>
                     ) : (
-                      logs
-                        .filter(log => !log.message.toLowerCase().includes('waiting'))
-                        .slice(-10)
-                        .map((log, i) => (
-                          <div key={i} className="mb-1 text-sm">
-                            <span className="text-[#6a6a7a]">[{new Date(log.timestamp).toLocaleTimeString()}]</span>{' '}
-                            <span className={
-                              log.type === 'success' ? 'text-emerald-400' :
-                              log.type === 'error' ? 'text-red-400' :
-                              log.type === 'warning' ? 'text-amber-400' :
-                              'text-[#c0c0d0]'
-                            }>
-                              {log.message}
-                            </span>
-                          </div>
-                        ))
+                      logs.map((log, i) => (
+                        <div key={i} className="mb-1 text-sm">
+                          <span className="text-[#6a6a7a]">[{new Date(log.timestamp).toLocaleTimeString()}]</span>{' '}
+                          <span className={
+                            log.type === 'success' ? 'text-emerald-400' :
+                            log.type === 'error' ? 'text-red-400' :
+                            log.type === 'warning' ? 'text-amber-400' :
+                            'text-[#c0c0d0]'
+                          }>
+                            {log.message}
+                          </span>
+                        </div>
+                      ))
                     )}
                   </div>
-                </div>
-              ) : (
-                <div>
-                  {logs.length === 0 ? (
-                    <div className="text-[#6a6a7a] text-sm">No logs yet. Click "Start Auto Label All" to begin.</div>
-                  ) : (
-                    logs.map((log, i) => (
-                      <div key={i} className="mb-1 text-sm">
-                        <span className="text-[#6a6a7a]">[{new Date(log.timestamp).toLocaleTimeString()}]</span>{' '}
-                        <span className={
-                          log.type === 'success' ? 'text-emerald-400' :
-                          log.type === 'error' ? 'text-red-400' :
-                          log.type === 'warning' ? 'text-amber-400' :
-                          'text-[#c0c0d0]'
-                        }>
-                          {log.message}
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Groups Table */}
           {groups.length === 0 ? (
@@ -543,25 +585,28 @@ export default function Stage03PdfLabel() {
               <div className="flex items-center justify-between mb-5 gap-4 flex-wrap">
                 <h2 className="m-0 text-lg font-semibold text-text-primary">Labeled Groups ({totalGroups} total)</h2>
                 <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 text-sm text-text-secondary font-medium">
-                    Review Status:
-                    <select
-                      value={reviewFilter}
-                      onChange={(e) => {
-                        setReviewFilter(e.target.value as 'unreviewed' | 'all');
-                      }}
-                      className="px-3 py-2 border border-border-color/50 bg-bg-secondary/80 text-text-primary rounded-lg text-sm cursor-pointer transition-all duration-200 hover:border-accent focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent-rgb),0.1)]"
-                    >
-                      <option value="unreviewed">Unreviewed Only</option>
-                      <option value="all">All Groups</option>
-                    </select>
-                  </label>
+                  {/* Review Status filter - Admin Only */}
+                  {user?.role === 'admin' && (
+                    <label className="flex items-center gap-2 text-sm text-text-secondary font-medium">
+                      Review Status:
+                      <select
+                        value={reviewFilter}
+                        onChange={(e) => {
+                          setReviewFilter(e.target.value as 'unreviewed' | 'all');
+                        }}
+                        className="px-3 py-2 border border-border-color/50 bg-card-bg text-text-primary rounded-lg text-sm cursor-pointer transition-all duration-200 hover:border-accent focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent-rgb),0.1)] [&>option]:bg-card-bg [&>option]:text-text-primary"
+                      >
+                        <option value="unreviewed">Unreviewed Only</option>
+                        <option value="all">All Groups</option>
+                      </select>
+                    </label>
+                  )}
                   <label className="flex items-center gap-2 text-sm text-text-secondary font-medium">
                     Match %:
                     <select
                       value={matchFilter}
                       onChange={(e) => setMatchFilter(e.target.value as 'all' | '100' | 'not100')}
-                      className="px-3 py-2 border border-border-color/50 bg-bg-secondary/80 text-text-primary rounded-lg text-sm cursor-pointer transition-all duration-200 hover:border-accent focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent-rgb),0.1)]"
+                      className="px-3 py-2 border border-border-color/50 bg-card-bg text-text-primary rounded-lg text-sm cursor-pointer transition-all duration-200 hover:border-accent focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent-rgb),0.1)] [&>option]:bg-card-bg [&>option]:text-text-primary"
                     >
                       <option value="all">All</option>
                       <option value="100">100% Matched</option>

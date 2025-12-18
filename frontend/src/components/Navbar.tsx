@@ -3,46 +3,80 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTheme } from './ThemeProvider';
-import { useState, useEffect } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { updateProfile, StagePermission } from '@/lib/api';
+import { useState } from 'react';
+import { usePermission } from '@/hooks/usePermission';
 
 const navItems = [
   { href: '/', label: 'Dashboard' },
   { href: '/stages', label: 'Stages' },
-  { href: '/manual-review', label: 'Manual Review' },
   { href: '/templates', label: 'Templates' },
-  { href: '/terminal', label: 'Terminal' },
 ];
 
-const REVIEWER_NAME_KEY = 'ocr-flow-reviewer-name';
+const adminNavItems = [
+  { href: '/admin', label: 'Admin' },
+];
+
+// Stage routes with their permissions
+const stageRoutes = [
+  { href: '/stages/01-raw', permission: null },
+  { href: '/stages/02-group', permission: null },
+  { href: '/stages/03-pdf-label', permission: StagePermission.STAGE_03_PDF_LABEL },
+  { href: '/stages/04-extract', permission: StagePermission.STAGE_04_EXTRACT },
+  { href: '/stages/05-review', permission: StagePermission.STAGE_05_REVIEW },
+  { href: '/stages/06-upload', permission: null },
+];
 
 export default function Navbar() {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
-  const [reviewerName, setReviewerName] = useState<string>('');
+  const { user, isAuthenticated, isLoading, logout, refreshUser } = useAuth();
+  const { hasPermission } = usePermission();
   const [showNameModal, setShowNameModal] = useState(false);
   const [tempName, setTempName] = useState('');
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Load reviewer name from localStorage on mount
-  useEffect(() => {
-    const savedName = localStorage.getItem(REVIEWER_NAME_KEY);
-    if (savedName) {
-      setReviewerName(savedName);
+  // Get the first available stage for the user based on permissions
+  const getFirstAvailableStage = () => {
+    if (user?.role === 'admin') {
+      return '/stages/01-raw';
     }
-  }, []);
 
-  const handleSaveName = () => {
+    // For regular users, find first stage they have permission for
+    for (const stage of stageRoutes) {
+      if (stage.permission && hasPermission(stage.permission)) {
+        return stage.href;
+      }
+    }
+
+    // Default fallback (shouldn't happen if user has any permission)
+    return '/stages/03-pdf-label';
+  };
+
+  const handleSaveName = async () => {
     const name = tempName.trim();
     if (!name) {
       return; // Don't save empty name
     }
-    setReviewerName(name);
-    localStorage.setItem(REVIEWER_NAME_KEY, name);
-    setShowNameModal(false);
-    setTempName('');
+
+    setIsSaving(true);
+    try {
+      await updateProfile({ name });
+      await refreshUser(); // Refresh user data from database
+      setShowNameModal(false);
+      setTempName('');
+    } catch (error) {
+      console.error('Failed to update name:', error);
+      alert('Failed to update name. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleOpenModal = () => {
-    setTempName(reviewerName);
+    setTempName(user?.name || '');
     setShowNameModal(true);
   };
 
@@ -53,6 +87,11 @@ export default function Navbar() {
 
   const isStagesActive = pathname.startsWith('/stages') || pathname.startsWith('/step-');
 
+  // Don't show navbar on login page
+  if (pathname === '/login' || pathname === '/register') {
+    return null;
+  }
+
   return (
     <>
       <nav className="flex items-center justify-between px-8 h-[60px] bg-nav-bg border-b border-border-color sticky top-0 z-[100] shadow-sm">
@@ -60,56 +99,100 @@ export default function Navbar() {
           <Link href="/" className="text-2xl font-bold text-accent no-underline">
             OCR Flow
           </Link>
-          <ul className="flex list-none m-0 p-0 gap-1">
-            {navItems.map((item) => {
-              const isActive = item.href === '/stages'
-                ? isStagesActive
-                : pathname === item.href;
+          {isAuthenticated && (
+            <ul className="flex list-none m-0 p-0 gap-1">
+              {[...navItems, ...(user?.role === 'admin' ? adminNavItems : [])].map((item) => {
+                const isActive = item.href === '/stages'
+                  ? isStagesActive
+                  : item.href === '/'
+                    ? pathname === '/'
+                    : pathname === item.href || pathname.startsWith(item.href + '/');
 
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href === '/stages' ? '/stages/01-raw' : item.href}
-                    className={`
-                      block px-4 py-2 text-[0.95rem] rounded-md transition-all duration-200 relative
-                      ${isActive
-                        ? 'text-accent after:content-[""] after:absolute after:bottom-[-18px] after:left-1/2 after:-translate-x-1/2 after:w-10 after:h-[3px] after:bg-accent after:rounded-t-md'
-                        : 'text-text-secondary hover:text-text-primary hover:bg-hover-bg'}
-                    `}
-                  >
-                    {item.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href === '/stages' ? getFirstAvailableStage() : item.href}
+                      className={`
+                        block px-4 py-2 text-[0.95rem] rounded-md transition-all duration-200 relative
+                        ${isActive
+                          ? 'text-accent after:content-[""] after:absolute after:bottom-[-18px] after:left-1/2 after:-translate-x-1/2 after:w-10 after:h-[3px] after:bg-accent after:rounded-t-md'
+                          : 'text-text-secondary hover:text-text-primary hover:bg-hover-bg'}
+                      `}
+                    >
+                      {item.label}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
         <div className="flex items-center gap-3">
-          {/* Reviewer Name Display */}
-          <div className="flex items-center gap-2">
-            {reviewerName ? (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-accent-light rounded-md border border-accent">
-                <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                <span className="text-[0.9rem] font-medium text-accent">{reviewerName}</span>
+          {isAuthenticated && user ? (
+            <>
+              {/* User Info & Menu */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-accent-light rounded-md border border-accent hover:bg-accent/20 transition-all"
+                >
+                  <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  <span className="text-[0.9rem] font-medium text-accent">{user.name}</span>
+                  {user.role === 'admin' && (
+                    <span className="px-1.5 py-0.5 bg-accent text-white text-[0.7rem] rounded font-medium">
+                      Admin
+                    </span>
+                  )}
+                  <svg className={`w-4 h-4 text-accent transition-transform ${showUserMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {/* Dropdown Menu */}
+                {showUserMenu && (
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-card-bg rounded-lg shadow-lg border border-border-color overflow-hidden z-50">
+                    <div className="px-4 py-3 border-b border-border-color">
+                      <p className="text-sm font-medium text-text-primary">{user.name}</p>
+                      <p className="text-xs text-text-secondary">{user.email}</p>
+                    </div>
+                    <div className="py-1">
+                      <button
+                        onClick={handleOpenModal}
+                        className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-hover-bg flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                          <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                          <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Settings
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          logout();
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-danger hover:bg-danger-light flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                          <path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                        </svg>
+                        Logout
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="px-3 py-1.5 bg-warning-light rounded-md border border-warning">
-                <span className="text-[0.9rem] font-medium text-warning">No Reviewer Name</span>
-              </div>
-            )}
-            <button
-              onClick={handleOpenModal}
-              className="bg-transparent border border-border-color p-2 rounded-md cursor-pointer text-base transition-all duration-200 hover:bg-hover-bg hover:border-accent"
-              title="Set Reviewer Name"
+            </>
+          ) : !isLoading && (
+            <Link
+              href="/login"
+              className="px-4 py-2 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent/90 transition-all"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </button>
-          </div>
+              Sign In
+            </Link>
+          )}
 
           {/* Theme Toggle */}
           <button
@@ -120,6 +203,14 @@ export default function Navbar() {
           </button>
         </div>
       </nav>
+
+      {/* Click outside to close user menu */}
+      {showUserMenu && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setShowUserMenu(false)}
+        />
+      )}
 
       {/* Name Setting Modal */}
       {showNameModal && (
@@ -165,9 +256,9 @@ export default function Navbar() {
               <button
                 className="flex-1 bg-gradient-to-br from-accent to-[#2563eb] text-white border-none px-6 py-3 rounded-lg text-[0.95rem] font-semibold cursor-pointer transition-all duration-200 hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(59,130,246,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={handleSaveName}
-                disabled={!tempName.trim()}
+                disabled={!tempName.trim() || isSaving}
               >
-                Save
+                {isSaving ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>
@@ -175,10 +266,4 @@ export default function Navbar() {
       )}
     </>
   );
-}
-
-// Export function to get reviewer name from localStorage (for use in other components)
-export function getReviewerName(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem(REVIEWER_NAME_KEY);
 }

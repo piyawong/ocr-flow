@@ -10,6 +10,7 @@ import { LabeledFilesModule } from './labeled-files/labeled-files.module';
 import { LabelRunnerModule } from './label-runner/label-runner.module';
 import { ParseRunnerModule } from './parse-runner/parse-runner.module';
 import { TemplatesModule } from './templates/templates.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { TemplatesModule } from './templates/templates.module';
     LabelRunnerModule,
     ParseRunnerModule,
     TemplatesModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

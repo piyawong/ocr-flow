@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { getReviewerName } from '@/components/Navbar';
+import { useAuth } from '@/contexts/AuthContext';
+import { usePermission } from '@/hooks/usePermission';
 import {
   DndContext,
   closestCenter,
@@ -407,6 +408,8 @@ function findAllMatches(text: string, pattern: string, threshold: number = 75): 
 export default function ManualLabelPage() {
   const params = useParams();
   const router = useRouter();
+  const { user, isLoading: authLoading } = useAuth();
+  const { canAccessStage03 } = usePermission();
   const groupId = parseInt(params.groupId as string);
 
   const [pages, setPages] = useState<PageLabel[]>([]);
@@ -420,8 +423,6 @@ export default function ManualLabelPage() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [showReviewerNameModal, setShowReviewerNameModal] = useState(false);
-  const [tempReviewerName, setTempReviewerName] = useState('');
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [reviewNotes, setReviewNotes] = useState('');
   const [zoom, setZoom] = useState(100);
@@ -918,7 +919,7 @@ export default function ManualLabelPage() {
     const hasRotations = Object.keys(tempRotations).length > 0;
     const hasReorder = JSON.stringify(pages.map(p => p.id)) !== JSON.stringify(originalOrder);
 
-    const reviewerName = getReviewerName();
+    const reviewerName = user?.name;
     if (!reviewerName) return;
 
     setIsSaving(true);
@@ -1045,16 +1046,15 @@ export default function ManualLabelPage() {
       return;
     }
 
-    // ✅ Check if reviewer name is set before saving
-    const reviewerName = getReviewerName();
-    if (!reviewerName) {
-      setShowReviewerNameModal(true);
+    // ✅ Check if user is logged in before saving
+    if (!user?.name) {
+      alert('Please log in to save changes.');
       return;
     }
 
     // ✅ Always show notes modal
     setShowNotesModal(true);
-  }, [pages, tempRotations, originalOrder]);
+  }, [pages, tempRotations, originalOrder, user]);
 
   const handleBack = () => {
     if (hasUnsavedChanges) {
@@ -1122,6 +1122,27 @@ export default function ManualLabelPage() {
     if (isInSelection(idx)) return 'middle';
     return null;
   };
+
+  // Permission check
+  if (authLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-bg-primary">
+        <div className="text-text-secondary">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!canAccessStage03()) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-bg-primary">
+        <div className="text-center">
+          <div className="text-6xl mb-4">🔒</div>
+          <h1 className="text-xl font-bold text-text-primary mb-2">Access Denied</h1>
+          <p className="text-text-secondary">You don't have permission to access this page.</p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -2094,79 +2115,6 @@ export default function ManualLabelPage() {
                 <span className="text-text-secondary">{desc}</span>
               </div>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* Reviewer Name Required Modal */}
-      {showReviewerNameModal && (
-        <div
-          className="fixed top-0 left-0 right-0 bottom-0 bg-black/70 flex items-center justify-center z-[1000] backdrop-blur-sm"
-          onClick={() => setShowReviewerNameModal(false)}
-        >
-          <div
-            className="bg-card-bg p-8 rounded-2xl max-w-[400px] w-[90%] shadow-[0_20px_60px_rgba(0,0,0,0.3)] border border-border-color"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="m-0 mb-4 text-xl text-text-primary">Reviewer Name Required</h2>
-            <p className="my-2 text-text-secondary text-[0.9rem]">
-              Please set your reviewer name before saving changes. Your name will be saved with all labels you review.
-            </p>
-
-            <div className="mt-4">
-              <label className="block mb-2 text-[0.9rem] font-medium text-text-primary">Name</label>
-              <input
-                type="text"
-                value={tempReviewerName}
-                onChange={(e) => setTempReviewerName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    const name = tempReviewerName.trim();
-                    if (name) {
-                      localStorage.setItem('ocr-flow-reviewer-name', name);
-                      setShowReviewerNameModal(false);
-                      setTempReviewerName('');
-                      // Retry save after setting name
-                      handleSave();
-                    }
-                  } else if (e.key === 'Escape') {
-                    setShowReviewerNameModal(false);
-                    setTempReviewerName('');
-                  }
-                }}
-                placeholder="Enter your name"
-                className="w-full px-4 py-2.5 border border-border-color bg-bg-secondary text-text-primary rounded-md text-[0.95rem] transition-all duration-200 focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent-rgb),0.1)]"
-                autoFocus
-              />
-            </div>
-
-            <div className="flex gap-4 mt-6">
-              <button
-                className="flex-1 bg-border-color text-text-primary border-none px-6 py-3 rounded-lg text-[0.95rem] font-semibold cursor-pointer transition-all duration-200 hover:bg-accent hover:text-white"
-                onClick={() => {
-                  setShowReviewerNameModal(false);
-                  setTempReviewerName('');
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                className="flex-1 bg-gradient-to-br from-accent to-[#2563eb] text-white border-none px-6 py-3 rounded-lg text-[0.95rem] font-semibold cursor-pointer transition-all duration-200 hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(59,130,246,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={() => {
-                  const name = tempReviewerName.trim();
-                  if (name) {
-                    localStorage.setItem('ocr-flow-reviewer-name', name);
-                    setShowReviewerNameModal(false);
-                    setTempReviewerName('');
-                    // Retry save after setting name
-                    handleSave();
-                  }
-                }}
-                disabled={!tempReviewerName.trim()}
-              >
-                Save & Continue
-              </button>
-            </div>
           </div>
         </div>
       )}

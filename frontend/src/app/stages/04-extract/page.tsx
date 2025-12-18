@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
+import { usePermission } from '@/hooks/usePermission';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
 
@@ -17,6 +19,8 @@ interface ParsedGroup {
 
 export default function Stage04Extract() {
   const router = useRouter();
+  const { isLoading: authLoading } = useAuth();
+  const { canAccessStage04 } = usePermission();
   const [groups, setGroups] = useState<ParsedGroup[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -52,6 +56,27 @@ export default function Stage04Extract() {
   const totalCommitteeMembers = groups.reduce((sum, g) => sum + g.committeeCount, 0);
   const groupsWithFoundation = groups.filter(g => g.hasFoundationInstrument).length;
   const reviewedGroups = groups.filter(g => g.isParseDataReviewed).length;
+
+  // Permission check
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+        <div className="text-text-secondary">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!canAccessStage04()) {
+    return (
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-6xl mb-4">🔒</div>
+          <h1 className="text-xl font-bold text-text-primary mb-2">Access Denied</h1>
+          <p className="text-text-secondary">You don't have permission to access this page.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-bg-primary">

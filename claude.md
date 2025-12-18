@@ -110,10 +110,12 @@
 - **Workflow:**
   1. User manual label หน้าที่ auto-label ไม่ติด
   2. Claude อ่าน manual labels จาก API
-  3. Claude วิเคราะห์ ลักษณะ pattern เอกสาร จาก OCR text และบางที ดูจากรูปภาพ ดูลักษณะเอกสาร และหา patterns
-  4. Claude คิดวิเคราะ แนะนำ patterns ให้ user review หรือ แนะนำ logic เพิ่มเติม เช่น เพิ่ม algorithm นี้ หรือเพิ่ม step นี้ lib นี้ 
-  5. Claude สร้าง/อัปเดต template
-  6. Claude ทดสอบด้วย relabel และรายงานผล
+  3. Claude ลอง call auto label ของ group นี้ และเทียบ ผลลัพท์จาก auto กับ manual ความต่าง
+  4. Claude วิเคราะห์ ลักษณะ pattern เอกสาร จาก OCR text และบางที ดูจากรูปภาพ ดูลักษณะเอกสาร และหา patterns
+  5. Claude คิดวิเคราะ แนะนำ patterns ให้ user review หรือ แนะนำ logic เพิ่มเติม เช่น เพิ่ม algorithm นี้ หรือเพิ่ม step นี้ lib นี้ 
+  5.1 ถ้า มีการเพิ่ม / แก้ logic code ให้ ถาม user ก่อน แต่ถ้าเป็นการแก้ template ใน db ให้ทำได้เลย
+  6. Claude สร้าง/อัปเดต template
+  7. Claude ทดสอบด้วย relabel และรายงานผล
 - **สิ่งสำคัญ:**
   - **ต้องแสดง recommended patterns ให้ user review ก่อน**
   - เลือก patterns ที่เฉพาะเจาะจง (ไม่กว้างเกินไป)

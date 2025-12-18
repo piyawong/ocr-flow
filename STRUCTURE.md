@@ -1,6 +1,6 @@
 # OCR Flow v2 - โครงสร้างและ Logic ของระบบ
 
-> **อัปเดตล่าสุด:** 2025-12-17 (Rename fields: is_review_extract_data → is_parse_data_reviewed, extract_data_reviewer → parse_data_reviewer)
+> **อัปเดตล่าสุด:** 2025-12-17 (เพิ่ม Authentication System - JWT + Passport)
 > **เอกสารนี้อธิบาย:** โครงสร้างโค้ด, สถาปัตยกรรม, และ logic หลักของ OCR Flow System
 
 ---
@@ -14,8 +14,9 @@
 5. [Database Schema](#database-schema)
 6. [Infrastructure](#infrastructure)
 7. [Logic และ Data Flow](#logic-และ-data-flow)
-8. [เป้าหมายและวัตถุประสงค์](#เป้าหมายและวัตถุประสงค์)
-9. [การแก้ไขและอัปเดต](#การแก้ไขและอัปเดต)
+8. [Authentication](#authentication)
+9. [เป้าหมายและวัตถุประสงค์](#เป้าหมายและวัตถุประสงค์)
+10. [การแก้ไขและอัปเดต](#การแก้ไขและอัปเดต)
 
 ---
 
@@ -77,6 +78,26 @@ OCR-flow-v2/
 │   │   │   ├── templates.service.ts
 │   │   │   ├── templates.module.ts
 │   │   │   └── dto/                  # DTOs (create, update)
+│   │   ├── auth/               # Module: Authentication (JWT + Passport)
+│   │   │   ├── user.entity.ts        # Entity สำหรับ users table
+│   │   │   ├── auth.controller.ts    # Auth endpoints (login, register, etc.)
+│   │   │   ├── auth.service.ts       # Auth business logic
+│   │   │   ├── auth.module.ts        # Module definition
+│   │   │   ├── dto/                  # DTOs
+│   │   │   │   ├── login.dto.ts
+│   │   │   │   ├── register.dto.ts
+│   │   │   │   └── update-user.dto.ts
+│   │   │   ├── strategies/           # Passport strategies
+│   │   │   │   ├── jwt.strategy.ts   # JWT validation
+│   │   │   │   └── local.strategy.ts # Username/password validation
+│   │   │   ├── guards/               # Auth guards
+│   │   │   │   ├── jwt-auth.guard.ts # JWT protection
+│   │   │   │   ├── local-auth.guard.ts
+│   │   │   │   └── roles.guard.ts    # Role-based access
+│   │   │   └── decorators/           # Custom decorators
+│   │   │       ├── public.decorator.ts     # Mark routes as public
+│   │   │       ├── roles.decorator.ts      # Role requirements
+│   │   │       └── current-user.decorator.ts # Get current user
 │   │   ├── app.module.ts       # Root module
 │   │   └── main.ts             # Entry point
 │   ├── dist/                   # Compiled output
@@ -93,12 +114,20 @@ OCR-flow-v2/
 │   │   │   │   ├── 04-extract/  # หน้า extract ข้อมูล
 │   │   │   │   ├── 05-review/   # หน้า review
 │   │   │   │   └── 06-upload/   # หน้า upload final
+│   │   │   ├── login/         # หน้า Login
+│   │   │   │   └── page.tsx
 │   │   │   ├── layout.tsx
 │   │   │   └── page.tsx
+│   │   ├── contexts/
+│   │   │   └── AuthContext.tsx    # Auth state management
+│   │   ├── lib/
+│   │   │   └── api.ts             # API client with auth
 │   │   └── components/
-│   │       ├── Navbar.tsx
+│   │       ├── Navbar.tsx         # Updated with user menu + logout
+│   │       ├── AuthGuard.tsx      # Protected route wrapper
 │   │       ├── StageTabs.tsx
 │   │       └── ThemeProvider.tsx
+│   ├── middleware.ts              # Route protection middleware
 │   ├── Dockerfile
 │   └── package.json
 │
@@ -313,6 +342,33 @@ OCR-flow-v2/
   - `findAll()` - ดึง templates ทั้งหมด
   - `findActive()` - ดึงเฉพาะ templates ที่ isActive = true
   - `getTemplatesForLabeling()` - แปลง templates เป็น format สำหรับ label-utils
+
+#### 9. **auth** (Authentication Module)
+- **Entity:** `User`
+- **ฟังก์ชัน:** จัดการ authentication และ authorization
+- **Tech Stack:**
+  - `@nestjs/passport` - Passport integration
+  - `@nestjs/jwt` - JWT token management
+  - `passport-jwt` - JWT strategy
+  - `passport-local` - Username/password strategy
+  - `bcrypt` - Password hashing
+- **API Endpoints:**
+  - `POST /auth/login` - Login (returns JWT token)
+  - `POST /auth/register` - Register new user
+  - `GET /auth/me` - Get current user profile (Protected)
+  - `GET /auth/users` - List all users (Admin only)
+  - `GET /auth/users/:id` - Get user by ID (Admin only)
+  - `PATCH /auth/users/:id` - Update user (Admin only)
+  - `DELETE /auth/users/:id` - Delete user (Admin only)
+  - `POST /auth/init-admin` - Create default admin user (first time setup)
+- **Guards:**
+  - `JwtAuthGuard` - Validate JWT token
+  - `LocalAuthGuard` - Validate username/password
+  - `RolesGuard` - Check user role (admin/user)
+- **Decorators:**
+  - `@Public()` - Mark route as public (no auth required)
+  - `@Roles(UserRole.ADMIN)` - Require specific role
+  - `@CurrentUser()` - Get current user from request
 
 ---
 
@@ -629,12 +685,39 @@ OCR-flow-v2/
   - Theme toggle button
 - **StageTabs:** Tab navigation สำหรับ stages
 - **ThemeProvider:** Dark/Light mode provider
+- **AuthGuard:** Protected route wrapper component
 
 ---
 
 ## 🗄️ Database Schema
 
 ### Tables
+
+#### 0. **users** (Authentication)
+```sql
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  role VARCHAR(50) DEFAULT 'user',  -- 'admin' | 'user'
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+**ฟิลด์สำคัญ:**
+- `email` - Email (unique, ใช้สำหรับ login)
+- `password_hash` - Password hash (bcrypt)
+- `name` - ชื่อผู้ใช้ (จะใช้เป็น reviewer name อัตโนมัติ)
+- `role` - บทบาท: `admin` (จัดการ users ได้) หรือ `user` (ใช้งานปกติ)
+- `is_active` - สถานะ active/inactive
+
+**Default Admin:**
+- เรียก `POST /auth/init-admin` เพื่อสร้าง admin คนแรก
+- Email: `admin@ocrflow.local`
+- Password: `admin123`
 
 #### 1. **files** (รวม Stage 01 + Stage 02)
 ```sql
@@ -1163,6 +1246,98 @@ CREATE TABLE templates (
 - `PUT /templates/:id` - แก้ไข template
 - `DELETE /templates/:id` - ลบ template
 - `POST /templates/:id/toggle` - เปิด/ปิด template (toggle isActive)
+
+---
+
+## 🔐 Authentication
+
+### Overview
+ระบบใช้ **JWT (JSON Web Tokens)** กับ **Passport.js** สำหรับ authentication และ authorization
+
+### Tech Stack
+- **Backend:** `@nestjs/passport`, `@nestjs/jwt`, `passport-jwt`, `passport-local`, `bcrypt`
+- **Frontend:** React Context + localStorage สำหรับ token storage
+
+### Authentication Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Authentication Flow                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. User เข้า /login                                            │
+│     │                                                            │
+│  2. กรอก email + password → POST /auth/login                    │
+│     │                                                            │
+│  3. Backend validate credentials (bcrypt compare)               │
+│     │                                                            │
+│  4. ถ้าถูกต้อง → return JWT token                               │
+│     │                                                            │
+│  5. Frontend เก็บ token ใน localStorage                         │
+│     │                                                            │
+│  6. ทุก API request → ส่ง token ใน Authorization header         │
+│     Authorization: Bearer <token>                                │
+│     │                                                            │
+│  7. Backend validate token → allow/deny                         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### User Roles
+| Role | Permissions |
+|------|-------------|
+| `admin` | Full access - จัดการ users, เข้าถึงทุก features |
+| `user` | Standard access - ใช้งาน stages, review documents |
+
+### Environment Variables
+```env
+# JWT Configuration
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+JWT_EXPIRES_IN=7d
+```
+
+### First Time Setup
+1. รัน backend และ database
+2. เรียก `POST /auth/init-admin` หรือกดปุ่ม "Create Default Admin User" บนหน้า login
+3. Login ด้วย:
+   - Email: `admin@ocrflow.local`
+   - Password: `admin123`
+4. เปลี่ยนรหัสผ่านและสร้าง users เพิ่มเติม
+
+### Frontend Components
+- **AuthContext** (`src/contexts/AuthContext.tsx`) - จัดการ auth state
+- **AuthGuard** (`src/components/AuthGuard.tsx`) - Protected route wrapper
+- **Login Page** (`src/app/login/page.tsx`) - หน้า login
+- **Navbar** - แสดง user info และ logout button
+
+### API Endpoints
+
+#### Public Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/auth/login` | Login และรับ JWT token |
+| POST | `/auth/register` | สร้าง user ใหม่ |
+| POST | `/auth/init-admin` | สร้าง default admin (first time) |
+
+#### Protected Endpoints (ต้อง login)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/auth/me` | ดึงข้อมูล user ปัจจุบัน |
+
+#### Admin Only Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/auth/users` | ดึงรายการ users ทั้งหมด |
+| GET | `/auth/users/:id` | ดึงข้อมูล user ตาม ID |
+| PATCH | `/auth/users/:id` | แก้ไขข้อมูล user |
+| DELETE | `/auth/users/:id` | ลบ user |
+
+### Security Features
+- **Password Hashing:** bcrypt (10 salt rounds)
+- **JWT Expiry:** 7 days (configurable)
+- **Token Validation:** ทุก protected route ตรวจสอบ token
+- **Role-based Access:** Guards ตรวจสอบ user role
+- **Auto-logout:** ถ้า token หมดอายุ → redirect ไป /login
 
 ---
 

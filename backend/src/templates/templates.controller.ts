@@ -21,6 +21,20 @@ export class TemplatesController {
     return this.templatesService.findAll();
   }
 
+  // Bulk routes must be before :id routes
+  @Post('bulk/import')
+  async bulkImport(
+    @Body() body: { templates: Array<{ name: string; category?: string }> },
+  ): Promise<{ imported: number; templates: Template[] }> {
+    return this.templatesService.bulkImport(body.templates);
+  }
+
+  @Delete('bulk/clear')
+  async clearAll(): Promise<{ success: boolean }> {
+    await this.templatesService.clearAll();
+    return { success: true };
+  }
+
   @Get(':id')
   async findOne(@Param('id', ParseIntPipe) id: number): Promise<Template> {
     return this.templatesService.findOne(id);
