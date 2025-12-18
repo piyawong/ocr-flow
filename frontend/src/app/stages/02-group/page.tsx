@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/Button';
 import { Modal, ModalHeader, ModalTitle, ModalBody } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { LogMessage } from '@/components/shared/Terminal';
+import { NumberTicker } from '@/components/ui/number-ticker';
+import { BlurFade } from '@/components/ui/blur-fade';
 
 interface GroupedFile {
   id: number;
@@ -698,83 +700,89 @@ export default function Stage02Group() {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-gradient-to-br from-accent/10 to-accent/5 p-5 rounded-xl border border-accent/20">
-                <span className="block text-accent text-sm font-medium mb-2">Total Groups</span>
-                <span className="block text-4xl font-bold text-text-primary">
-                  {labeledStats ? labeledStats.totalLabeled + groupCount : groupCount}
-                </span>
-                <span className="block text-xs text-accent/70 mt-2">
-                  {labeledStats ? `${labeledStats.totalLabeled} labeled, ${groupCount} pending` :
-                   groupCount > 0 ? 'document sets created' : 'no groups yet'}
-                </span>
-              </div>
-              <div className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 p-5 rounded-xl border border-blue-500/20">
-                <span className="block text-blue-400 text-sm font-medium mb-2">Total Pages</span>
-                <span className="block text-4xl font-bold text-text-primary">
-                  {labeledStats ? labeledStats.totalPages + totalFiles : totalFiles}
-                </span>
-                <span className="block text-xs text-blue-400/70 mt-2">
-                  {labeledStats ? `${labeledStats.labeledPages} matched` :
-                   totalFiles > 0 ? 'files grouped' : 'no files yet'}
-                </span>
-              </div>
-              <div className={`bg-gradient-to-br p-5 rounded-xl border ${
-                labeledStats
-                  ? labeledStats.matchPercentage === 100
-                    ? 'from-emerald-500/10 to-emerald-500/5 border-emerald-500/20'
-                    : 'from-amber-500/10 to-amber-500/5 border-amber-500/20'
-                  : taskRunning
-                    ? 'from-accent/10 to-accent/5 border-accent/20'
-                    : groupCount > 0
-                      ? 'from-amber-500/10 to-amber-500/5 border-amber-500/20'
-                      : 'from-gray-500/10 to-gray-500/5 border-gray-500/20'
-              }`}>
-                <span className={`block text-sm font-medium mb-2 ${
-                  labeledStats
-                    ? labeledStats.matchPercentage === 100
-                      ? 'text-emerald-400'
-                      : 'text-amber-400'
-                    : taskRunning
-                      ? 'text-accent'
-                      : groupCount > 0
-                        ? 'text-amber-400'
-                        : 'text-gray-400'
-                }`}>Status</span>
-                <div className="flex items-center gap-2.5 text-xl font-semibold my-2">
-                  {labeledStats ? (
-                    labeledStats.matchPercentage === 100 ? (
-                      <><span className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></span> <span className="text-text-primary">All Matched</span></>
-                    ) : labeledStats.matchPercentage >= 75 ? (
-                      <><span className="w-3 h-3 bg-emerald-500 rounded-full"></span> <span className="text-text-primary">Labeled ({labeledStats.matchPercentage.toFixed(0)}%)</span></>
-                    ) : (
-                      <><span className="w-3 h-3 bg-amber-500 rounded-full"></span> <span className="text-text-primary">Partial ({labeledStats.matchPercentage.toFixed(0)}%)</span></>
-                    )
-                  ) : taskRunning ? (
-                    <><span className="w-3 h-3 bg-accent rounded-full animate-pulse"></span> <span className="text-text-primary">Processing...</span></>
-                  ) : groupCount > 0 ? (
-                    <><span className="w-3 h-3 bg-amber-500 rounded-full"></span> <span className="text-text-primary">Ready</span></>
-                  ) : (
-                    <><span className="w-3 h-3 bg-gray-500 rounded-full"></span> <span className="text-text-primary">No Groups</span></>
-                  )}
+              <BlurFade delay={0.1} inView>
+                <div className="bg-gradient-to-br from-accent/10 to-accent/5 p-5 rounded-xl border border-accent/20">
+                  <span className="block text-accent text-sm font-medium mb-2">Total Groups</span>
+                  <span className="block text-4xl font-bold text-text-primary">
+                    <NumberTicker value={labeledStats ? labeledStats.totalLabeled + groupCount : groupCount} className="text-text-primary" />
+                  </span>
+                  <span className="block text-xs text-accent/70 mt-2">
+                    {labeledStats ? `${labeledStats.totalLabeled} labeled, ${groupCount} pending` :
+                     groupCount > 0 ? 'document sets created' : 'no groups yet'}
+                  </span>
                 </div>
-                <span className={`block text-xs mt-2 ${
+              </BlurFade>
+              <BlurFade delay={0.2} inView>
+                <div className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 p-5 rounded-xl border border-blue-500/20">
+                  <span className="block text-blue-400 text-sm font-medium mb-2">Total Pages</span>
+                  <span className="block text-4xl font-bold text-text-primary">
+                    <NumberTicker value={labeledStats ? labeledStats.totalPages + totalFiles : totalFiles} className="text-text-primary" />
+                  </span>
+                  <span className="block text-xs text-blue-400/70 mt-2">
+                    {labeledStats ? `${labeledStats.labeledPages} matched` :
+                     totalFiles > 0 ? 'files grouped' : 'no files yet'}
+                  </span>
+                </div>
+              </BlurFade>
+              <BlurFade delay={0.3} inView>
+                <div className={`bg-gradient-to-br p-5 rounded-xl border ${
                   labeledStats
                     ? labeledStats.matchPercentage === 100
-                      ? 'text-emerald-400/70'
-                      : 'text-amber-400/70'
+                      ? 'from-emerald-500/10 to-emerald-500/5 border-emerald-500/20'
+                      : 'from-amber-500/10 to-amber-500/5 border-amber-500/20'
                     : taskRunning
-                      ? 'text-accent/70'
+                      ? 'from-accent/10 to-accent/5 border-accent/20'
                       : groupCount > 0
-                        ? 'text-amber-400/70'
-                        : 'text-gray-400/70'
+                        ? 'from-amber-500/10 to-amber-500/5 border-amber-500/20'
+                        : 'from-gray-500/10 to-gray-500/5 border-gray-500/20'
                 }`}>
-                  {labeledStats
-                    ? `${labeledStats.labeledPages}/${labeledStats.totalPages} pages matched`
-                    : groupCount > 0
-                    ? 'Click Start to label groups'
-                    : 'Run Task 01 first'}
-                </span>
-              </div>
+                  <span className={`block text-sm font-medium mb-2 ${
+                    labeledStats
+                      ? labeledStats.matchPercentage === 100
+                        ? 'text-emerald-400'
+                        : 'text-amber-400'
+                      : taskRunning
+                        ? 'text-accent'
+                        : groupCount > 0
+                          ? 'text-amber-400'
+                          : 'text-gray-400'
+                  }`}>Status</span>
+                  <div className="flex items-center gap-2.5 text-xl font-semibold my-2">
+                    {labeledStats ? (
+                      labeledStats.matchPercentage === 100 ? (
+                        <><span className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></span> <span className="text-text-primary">All Matched</span></>
+                      ) : labeledStats.matchPercentage >= 75 ? (
+                        <><span className="w-3 h-3 bg-emerald-500 rounded-full"></span> <span className="text-text-primary">Labeled ({labeledStats.matchPercentage.toFixed(0)}%)</span></>
+                      ) : (
+                        <><span className="w-3 h-3 bg-amber-500 rounded-full"></span> <span className="text-text-primary">Partial ({labeledStats.matchPercentage.toFixed(0)}%)</span></>
+                      )
+                    ) : taskRunning ? (
+                      <><span className="w-3 h-3 bg-accent rounded-full animate-pulse"></span> <span className="text-text-primary">Processing...</span></>
+                    ) : groupCount > 0 ? (
+                      <><span className="w-3 h-3 bg-amber-500 rounded-full"></span> <span className="text-text-primary">Ready</span></>
+                    ) : (
+                      <><span className="w-3 h-3 bg-gray-500 rounded-full"></span> <span className="text-text-primary">No Groups</span></>
+                    )}
+                  </div>
+                  <span className={`block text-xs mt-2 ${
+                    labeledStats
+                      ? labeledStats.matchPercentage === 100
+                        ? 'text-emerald-400/70'
+                        : 'text-amber-400/70'
+                      : taskRunning
+                        ? 'text-accent/70'
+                        : groupCount > 0
+                          ? 'text-amber-400/70'
+                          : 'text-gray-400/70'
+                  }`}>
+                    {labeledStats
+                      ? `${labeledStats.labeledPages}/${labeledStats.totalPages} pages matched`
+                      : groupCount > 0
+                      ? 'Click Start to label groups'
+                      : 'Run Task 01 first'}
+                  </span>
+                </div>
+              </BlurFade>
             </div>
           </div>
 

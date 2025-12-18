@@ -8,6 +8,8 @@ import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/compon
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Terminal, LogMessage } from '@/components/shared/Terminal';
 import { Pagination } from '@/components/shared/Pagination';
+import { NumberTicker } from '@/components/ui/number-ticker';
+import { BlurFade } from '@/components/ui/blur-fade';
 
 interface RawFile {
   id: number;
@@ -866,50 +868,56 @@ export default function Stage01Raw() {
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="bg-gradient-to-br from-accent/10 to-accent/5 p-5 rounded-xl border border-accent/20">
-                <span className="block text-accent text-sm font-medium mb-2">Total Images</span>
-                <span className="block text-4xl font-bold text-text-primary">{totalAllFiles || totalFiles}</span>
-                <span className="block text-xs text-accent/70 mt-2">
-                  {viewMode === 'all'
-                    ? `Showing ${files.length} of ${totalFiles} files`
-                    : `Progress Mode: ${totalFiles} pending files`}
-                </span>
-              </div>
-              <div className={`bg-gradient-to-br p-5 rounded-xl border ${
-                totalAllFiles === 0
-                  ? 'from-warning/10 to-warning/5 border-warning/20'
-                  : taskRunning
-                    ? 'from-accent/10 to-accent/5 border-accent/20'
-                    : pendingCount > 0
-                      ? 'from-warning/10 to-warning/5 border-warning/20'
-                      : 'from-emerald-500/10 to-emerald-500/5 border-emerald-500/20'
-              }`}>
-                <span className={`block text-sm font-medium mb-2 ${
-                  totalAllFiles === 0 || pendingCount > 0 ? 'text-warning' : taskRunning ? 'text-accent' : 'text-emerald-400'
-                }`}>Status</span>
-                <div className="flex items-center gap-2.5 text-xl font-semibold my-2">
-                  {totalAllFiles === 0 ? (
-                    <><span className="w-3 h-3 bg-warning rounded-full"></span> <span className="text-text-primary">No Images</span></>
-                  ) : taskRunning ? (
-                    <><span className="w-3 h-3 bg-accent rounded-full animate-pulse"></span> <span className="text-text-primary">Processing...</span></>
-                  ) : pendingCount > 0 ? (
-                    <><span className="w-3 h-3 bg-warning rounded-full"></span> <span className="text-text-primary">Ready</span></>
-                  ) : (
-                    <><span className="w-3 h-3 bg-emerald-500 rounded-full"></span> <span className="text-text-primary">All Processed</span></>
-                  )}
+              <BlurFade delay={0.1} inView>
+                <div className="bg-gradient-to-br from-accent/10 to-accent/5 p-5 rounded-xl border border-accent/20">
+                  <span className="block text-accent text-sm font-medium mb-2">Total Images</span>
+                  <span className="block text-4xl font-bold text-text-primary">
+                    <NumberTicker value={totalAllFiles || totalFiles} className="text-text-primary" />
+                  </span>
+                  <span className="block text-xs text-accent/70 mt-2">
+                    {viewMode === 'all'
+                      ? `Showing ${files.length} of ${totalFiles} files`
+                      : `Progress Mode: ${totalFiles} pending files`}
+                  </span>
                 </div>
-                <span className={`block text-xs mt-2 ${
-                  totalAllFiles === 0 || pendingCount > 0 ? 'text-warning/70' : taskRunning ? 'text-accent/70' : 'text-emerald-400/70'
-                }`}>
-                  {totalAllFiles === 0
-                    ? 'Upload images to 01-raw/'
+              </BlurFade>
+              <BlurFade delay={0.2} inView>
+                <div className={`bg-gradient-to-br p-5 rounded-xl border ${
+                  totalAllFiles === 0
+                    ? 'from-warning/10 to-warning/5 border-warning/20'
                     : taskRunning
-                    ? `Processing files... (${pendingCount} remaining)`
-                    : pendingCount > 0
-                    ? `${pendingCount} files waiting to be processed`
-                    : 'All files have been processed'}
-                </span>
-              </div>
+                      ? 'from-accent/10 to-accent/5 border-accent/20'
+                      : pendingCount > 0
+                        ? 'from-warning/10 to-warning/5 border-warning/20'
+                        : 'from-emerald-500/10 to-emerald-500/5 border-emerald-500/20'
+                }`}>
+                  <span className={`block text-sm font-medium mb-2 ${
+                    totalAllFiles === 0 || pendingCount > 0 ? 'text-warning' : taskRunning ? 'text-accent' : 'text-emerald-400'
+                  }`}>Status</span>
+                  <div className="flex items-center gap-2.5 text-xl font-semibold my-2">
+                    {totalAllFiles === 0 ? (
+                      <><span className="w-3 h-3 bg-warning rounded-full"></span> <span className="text-text-primary">No Images</span></>
+                    ) : taskRunning ? (
+                      <><span className="w-3 h-3 bg-accent rounded-full animate-pulse"></span> <span className="text-text-primary">Processing...</span></>
+                    ) : pendingCount > 0 ? (
+                      <><span className="w-3 h-3 bg-warning rounded-full"></span> <span className="text-text-primary">Ready</span></>
+                    ) : (
+                      <><span className="w-3 h-3 bg-emerald-500 rounded-full"></span> <span className="text-text-primary">All Processed</span></>
+                    )}
+                  </div>
+                  <span className={`block text-xs mt-2 ${
+                    totalAllFiles === 0 || pendingCount > 0 ? 'text-warning/70' : taskRunning ? 'text-accent/70' : 'text-emerald-400/70'
+                  }`}>
+                    {totalAllFiles === 0
+                      ? 'Upload images to 01-raw/'
+                      : taskRunning
+                      ? `Processing files... (${pendingCount} remaining)`
+                      : pendingCount > 0
+                      ? `${pendingCount} files waiting to be processed`
+                      : 'All files have been processed'}
+                  </span>
+                </div>
+              </BlurFade>
             </div>
           </div>
 
