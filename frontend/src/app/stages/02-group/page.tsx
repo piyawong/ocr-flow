@@ -1,6 +1,10 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { Button } from '@/components/ui/Button';
+import { Modal, ModalHeader, ModalTitle, ModalBody } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { LogMessage } from '@/components/shared/Terminal';
 
 interface GroupedFile {
   id: number;
@@ -43,13 +47,6 @@ interface LabeledStats {
   labeledPages: number;
   matchPercentage: number;
   groupStats: Map<number, { labeled: number; total: number; percentage: number }>;
-}
-
-interface LogMessage {
-  timestamp: string;
-  thread: number;
-  message: string;
-  type: 'info' | 'success' | 'error' | 'warning';
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
@@ -785,21 +782,22 @@ export default function Stage02Group() {
           {groups.length > 0 && (
             <div className="flex gap-3 mb-6">
               {labeledStats && (
-                <button
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold text-sm shadow-lg shadow-amber-500/25 hover:shadow-xl hover:shadow-amber-500/30 hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+                <Button
+                  variant="secondary"
                   onClick={() => setShowResetConfirm(true)}
                   disabled={resetting || taskRunning}
+                  className="bg-gradient-to-r from-amber-500 to-orange-500 text-white border-none shadow-lg shadow-amber-500/25"
                 >
                   Reset Label Progress
-                </button>
+                </Button>
               )}
-              <button
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 text-white font-semibold text-sm shadow-lg shadow-red-500/25 hover:shadow-xl hover:shadow-red-500/30 hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+              <Button
+                variant="danger"
                 onClick={() => setShowRevertConfirm(true)}
                 disabled={reverting || taskRunning}
               >
                 Revert All Groups
-              </button>
+              </Button>
             </div>
           )}
 
@@ -1027,12 +1025,12 @@ export default function Stage02Group() {
                         )}
                       </td>
                       <td className="p-4 px-5 text-text-primary">
-                        <button
-                          className="px-4 py-2 rounded-lg bg-gradient-to-r from-accent to-purple-600 text-white text-sm font-semibold shadow-md shadow-accent/20 hover:shadow-lg hover:shadow-accent/30 hover:-translate-y-0.5 transition-all duration-300"
+                        <Button
+                          size="sm"
                           onClick={() => handleGroupClick(group)}
                         >
                           View Files
-                        </button>
+                        </Button>
                       </td>
                     </tr>
                   ))}
@@ -1041,27 +1039,26 @@ export default function Stage02Group() {
             </div>
           )}
 
-          {/* Modal */}
-          {selectedGroup && (
-            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[1000] backdrop-blur-sm" onClick={closeModal}>
-              <div className="bg-card-bg/95 backdrop-blur-xl rounded-2xl w-[90%] max-w-[1000px] max-h-[90vh] overflow-hidden border border-border-color/50 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center gap-4 px-6 py-5 border-b border-border-color/50 bg-gradient-to-r from-accent/10 via-purple-500/5 to-transparent">
+          {/* Group Files Modal */}
+          <Modal
+            isOpen={!!selectedGroup}
+            onClose={closeModal}
+            size="xl"
+          >
+            {selectedGroup && (
+              <>
+                <ModalHeader className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-purple-600 flex items-center justify-center shadow-lg shadow-accent/25">
                     <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                     </svg>
                   </div>
-                  <h2 className="m-0 text-xl font-bold text-text-primary">Group {selectedGroup.groupId}</h2>
+                  <ModalTitle>Group {selectedGroup.groupId}</ModalTitle>
                   <span className="bg-gradient-to-r from-accent to-purple-600 text-white px-3 py-1.5 rounded-lg text-sm font-semibold shadow-md shadow-accent/20">
                     {selectedGroup.files.length > 0 ? selectedGroup.files.length : selectedGroup.fileCount} files
                   </span>
-                  <button className="ml-auto w-10 h-10 rounded-xl bg-bg-secondary/80 border border-border-color/50 text-text-secondary cursor-pointer flex items-center justify-center transition-all duration-200 hover:bg-red-500/20 hover:border-red-500/50 hover:text-red-400" onClick={closeModal}>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-                <div className="p-6 max-h-[calc(90vh-80px)] overflow-y-auto">
+                </ModalHeader>
+                <ModalBody className="max-h-[calc(90vh-120px)] overflow-y-auto">
                   {selectedGroup.files.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12">
                       <div className="w-12 h-12 rounded-xl bg-accent/20 flex items-center justify-center mb-4 animate-pulse">
@@ -1094,78 +1091,34 @@ export default function Stage02Group() {
                       ))}
                     </div>
                   )}
-                </div>
-              </div>
-            </div>
-          )}
+                </ModalBody>
+              </>
+            )}
+          </Modal>
 
           {/* Revert Confirmation Dialog */}
-          {showRevertConfirm && (
-            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[1000] backdrop-blur-sm" onClick={() => setShowRevertConfirm(false)}>
-              <div className="bg-card-bg/95 backdrop-blur-xl p-8 rounded-2xl max-w-[420px] w-[90%] shadow-2xl border border-border-color/50" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center gap-4 mb-5">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-500/20 to-red-500/10 flex items-center justify-center">
-                    <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                  </div>
-                  <h2 className="m-0 text-xl font-bold text-text-primary">Revert All Grouped Files?</h2>
-                </div>
-                <p className="my-3 text-text-secondary text-sm">This will delete all <span className="font-semibold text-text-primary">{groupCount} groups</span> ({totalFiles} files) from Stage 02.</p>
-                <p className="text-red-400 text-sm bg-red-500/10 rounded-lg px-4 py-3 border border-red-500/20">⚠️ This action cannot be undone.</p>
-                <div className="flex gap-3 mt-6">
-                  <button
-                    className="flex-1 bg-bg-secondary/80 text-text-primary border border-border-color/50 px-6 py-3 rounded-xl text-sm font-semibold cursor-pointer transition-all duration-300 hover:bg-accent/10 hover:border-accent/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={() => setShowRevertConfirm(false)}
-                    disabled={reverting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="flex-1 bg-gradient-to-r from-red-500 to-rose-600 text-white border-none px-6 py-3 rounded-xl text-sm font-semibold cursor-pointer transition-all duration-300 shadow-lg shadow-red-500/25 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={handleRevertAll}
-                    disabled={reverting}
-                  >
-                    {reverting ? 'Reverting...' : 'Revert All'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          <ConfirmDialog
+            isOpen={showRevertConfirm}
+            onClose={() => setShowRevertConfirm(false)}
+            onConfirm={handleRevertAll}
+            title="Revert All Grouped Files?"
+            description={`This will delete all ${groupCount} groups (${totalFiles} files) from Stage 02. This action cannot be undone.`}
+            confirmText={reverting ? 'Reverting...' : 'Revert All'}
+            variant="danger"
+            isLoading={reverting}
+          />
 
           {/* Reset Progress Confirmation Dialog */}
-          {showResetConfirm && (
-            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[1000] backdrop-blur-sm" onClick={() => setShowResetConfirm(false)}>
-              <div className="bg-card-bg/95 backdrop-blur-xl p-8 rounded-2xl max-w-[420px] w-[90%] shadow-2xl border border-border-color/50" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center gap-4 mb-5">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-500/10 flex items-center justify-center">
-                    <svg className="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                  </div>
-                  <h2 className="m-0 text-xl font-bold text-text-primary">Reset Label Progress?</h2>
-                </div>
-                <p className="my-3 text-text-secondary text-sm">This will clear all labeled data for <span className="font-semibold text-text-primary">{labeledStats?.totalLabeled || 0} groups</span>.</p>
-                <p className="text-amber-400 text-sm bg-amber-500/10 rounded-lg px-4 py-3 border border-amber-500/20">💡 Groups will not be deleted, only label data will be reset for reprocessing.</p>
-                <div className="flex gap-3 mt-6">
-                  <button
-                    className="flex-1 bg-bg-secondary/80 text-text-primary border border-border-color/50 px-6 py-3 rounded-xl text-sm font-semibold cursor-pointer transition-all duration-300 hover:bg-accent/10 hover:border-accent/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={() => setShowResetConfirm(false)}
-                    disabled={resetting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="flex-1 bg-gradient-to-r from-amber-500 to-orange-500 text-white border-none px-6 py-3 rounded-xl text-sm font-semibold cursor-pointer transition-all duration-300 shadow-lg shadow-amber-500/25 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-amber-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={handleResetProgress}
-                    disabled={resetting}
-                  >
-                    {resetting ? 'Resetting...' : 'Reset Progress'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          <ConfirmDialog
+            isOpen={showResetConfirm}
+            onClose={() => setShowResetConfirm(false)}
+            onConfirm={handleResetProgress}
+            title="Reset Label Progress?"
+            description={`This will clear all labeled data for ${labeledStats?.totalLabeled || 0} groups. Groups will not be deleted, only label data will be reset for reprocessing.`}
+            confirmText={resetting ? 'Resetting...' : 'Reset Progress'}
+            variant="warning"
+            isLoading={resetting}
+          />
         </div>
       </div>
     </div>

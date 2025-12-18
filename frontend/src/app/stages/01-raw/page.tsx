@@ -1,6 +1,13 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { Button } from '@/components/ui/Button';
+import { Alert } from '@/components/ui/Alert';
+import { Badge } from '@/components/ui/Badge';
+import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { Terminal, LogMessage } from '@/components/shared/Terminal';
+import { Pagination } from '@/components/shared/Pagination';
 
 interface RawFile {
   id: number;
@@ -30,13 +37,6 @@ interface UploadProgress {
 
 const BATCH_SIZE = 1; // Upload 1 file per request (safer - prevents MinIO/DB sync issues)
 const MAX_PREVIEW_FILES = 6; // Only preview first 6 files
-
-interface LogMessage {
-  timestamp: string;
-  thread: number;
-  message: string;
-  type: 'info' | 'success' | 'error' | 'warning';
-}
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
 
@@ -814,21 +814,15 @@ export default function Stage01Raw() {
           </div>
 
           {error && (
-            <div className="bg-gradient-to-r from-red-500/10 to-red-500/5 text-red-400 p-4 rounded-xl mb-6 border border-red-500/20 flex items-center gap-3">
-              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span>{error}</span>
-            </div>
+            <Alert variant="danger" className="mb-6" dismissible onDismiss={() => setError(null)}>
+              {error}
+            </Alert>
           )}
 
           {!backendConnected && (
-            <div className="bg-gradient-to-r from-amber-500/10 to-amber-500/5 text-amber-400 p-4 rounded-xl mb-6 border border-amber-500/20 flex items-center gap-3">
-              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <span>Backend server is not running. Start backend with: <code className="bg-black/20 px-2 py-0.5 rounded font-mono text-sm">cd ../backend && npm run dev</code></span>
-            </div>
+            <Alert variant="warning" className="mb-6">
+              Backend server is not running. Start backend with: <code className="bg-black/20 px-2 py-0.5 rounded font-mono text-sm">cd ../backend && npm run dev</code>
+            </Alert>
           )}
 
           {/* Status Cards */}
@@ -921,15 +915,12 @@ export default function Stage01Raw() {
 
           {/* Action Buttons */}
           <div className="flex gap-3 mb-6 flex-wrap items-center">
-            <button
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-accent to-purple-600 text-white font-semibold text-sm shadow-lg shadow-accent/25 hover:shadow-xl hover:shadow-accent/30 hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-2"
-              onClick={() => setShowUploadModal(true)}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <Button onClick={() => setShowUploadModal(true)}>
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
               Upload Images
-            </button>
+            </Button>
 
             {/* View Mode Toggle */}
             {totalAllFiles > 0 && (
@@ -964,146 +955,146 @@ export default function Stage01Raw() {
             )}
 
             {processedCount > 0 && (
-              <button
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold text-sm shadow-lg shadow-amber-500/25 hover:shadow-xl hover:shadow-amber-500/30 hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+              <Button
+                variant="secondary"
                 onClick={() => setShowResetConfirm(true)}
                 disabled={taskRunning || resetting}
+                className="bg-gradient-to-r from-amber-500 to-orange-500 text-white border-none shadow-lg shadow-amber-500/25"
               >
                 Reset Progress
-              </button>
+              </Button>
             )}
             {totalAllFiles > 0 && (
-              <button
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 text-white font-semibold text-sm shadow-lg shadow-red-500/25 hover:shadow-xl hover:shadow-red-500/30 hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+              <Button
+                variant="danger"
                 onClick={() => setShowRemoveConfirm(true)}
                 disabled={taskRunning || removing}
               >
                 Remove All
-              </button>
+              </Button>
             )}
           </div>
 
-      {showUploadModal && (
-        <div className="fixed top-0 left-0 right-0 bottom-0 bg-black/70 flex items-center justify-center z-[1000] backdrop-blur-sm" onClick={handleCloseUploadModal}>
-          <div className="bg-card-bg rounded-2xl w-[90%] max-w-[600px] max-h-[90vh] overflow-hidden border border-border-color shadow-[0_20px_60px_rgba(0,0,0,0.4)]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-5 border-b border-border-color">
-              <h2 className="m-0 text-xl font-semibold">Upload Images</h2>
-              <button
-                className="bg-none border-none text-[1.75rem] text-text-secondary cursor-pointer p-0 leading-none transition-colors duration-200 hover:text-text-primary disabled:opacity-50"
-                onClick={handleCloseUploadModal}
-                disabled={uploading}
-              >
-                ×
-              </button>
-            </div>
-            <div className="p-6 max-h-[calc(90vh-80px)] overflow-y-auto">
-              <div
-                className={`border-2 border-dashed rounded-lg p-12 text-center transition-all duration-200 cursor-pointer ${
-                  dragActive ? 'border-accent bg-accent-light' : 'border-border-color'
-                } hover:border-accent`}
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-              >
-                <input
-                  type="file"
-                  multiple
-                  accept=".jpeg,.jpg,image/jpeg"
-                  onChange={handleFileSelect}
-                  className="hidden"
-                  id="fileInput"
-                />
-                <label htmlFor="fileInput" className="flex flex-col items-center gap-2 cursor-pointer text-text-secondary">
-                  <span className="text-[2rem] mb-2">📁</span>
-                  {dragActive ? 'Drop JPEG files here...' : 'Drag & drop JPEG files here or click to select'}
-                  <span className="text-[0.85rem] text-text-secondary opacity-70">Only .jpeg/.jpg files are accepted</span>
-                </label>
+      {/* Upload Modal */}
+      <Modal
+        isOpen={showUploadModal}
+        onClose={handleCloseUploadModal}
+        size="lg"
+        closeOnOverlay={!uploading}
+        closeOnEscape={!uploading}
+      >
+        <ModalHeader>
+          <ModalTitle>Upload Images</ModalTitle>
+        </ModalHeader>
+        <ModalBody className="max-h-[calc(90vh-150px)] overflow-y-auto">
+          {/* Drop Zone */}
+          <div
+            className={`border-2 border-dashed rounded-lg p-12 text-center transition-all duration-200 cursor-pointer ${
+              dragActive ? 'border-accent bg-accent-light' : 'border-border-color'
+            } hover:border-accent`}
+            onDragEnter={handleDrag}
+            onDragLeave={handleDrag}
+            onDragOver={handleDrag}
+            onDrop={handleDrop}
+          >
+            <input
+              type="file"
+              multiple
+              accept=".jpeg,.jpg,image/jpeg"
+              onChange={handleFileSelect}
+              className="hidden"
+              id="fileInput"
+            />
+            <label htmlFor="fileInput" className="flex flex-col items-center gap-2 cursor-pointer text-text-secondary">
+              <span className="text-[2rem] mb-2">📁</span>
+              {dragActive ? 'Drop JPEG files here...' : 'Drag & drop JPEG files here or click to select'}
+              <span className="text-[0.85rem] text-text-secondary opacity-70">Only .jpeg/.jpg files are accepted</span>
+            </label>
+          </div>
+
+          {allSelectedFiles.length > 0 && (
+            <div className="mt-6 pt-6 border-t border-border-color">
+              <h3 className="m-0 mb-4 text-base font-semibold">Selected ({allSelectedFiles.length} files)</h3>
+
+              {/* Preview grid */}
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-3 mb-4">
+                {selectedFiles.map((f, idx) => (
+                  <div key={idx} className="text-center">
+                    <img src={f.preview} alt={f.file.name} className="w-full h-16 object-cover rounded-md mb-1" />
+                    <span className="block text-xs text-text-secondary whitespace-nowrap overflow-hidden text-ellipsis">{f.file.name}</span>
+                  </div>
+                ))}
+                {allSelectedFiles.length > MAX_PREVIEW_FILES && (
+                  <div className="flex items-center justify-center h-16 bg-accent-light rounded-md text-accent font-semibold">
+                    +{allSelectedFiles.length - MAX_PREVIEW_FILES} more
+                  </div>
+                )}
               </div>
 
-              {allSelectedFiles.length > 0 && (
-                <div className="mt-6 pt-6 border-t border-border-color">
-                  <h3 className="m-0 mb-4 text-base">Selected ({allSelectedFiles.length} files)</h3>
-
-                  {/* Preview grid - only show first few files */}
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-3 mb-4">
-                    {selectedFiles.map((f, idx) => (
-                      <div key={idx} className="text-center">
-                        <img src={f.preview} alt={f.file.name} className="w-full h-16 object-cover rounded-md mb-1" />
-                        <span className="block text-xs text-text-secondary whitespace-nowrap overflow-hidden text-ellipsis">{f.file.name}</span>
-                      </div>
-                    ))}
-                    {allSelectedFiles.length > MAX_PREVIEW_FILES && (
-                      <div className="flex items-center justify-center h-16 bg-accent-light rounded-md text-accent font-semibold">
-                        +{allSelectedFiles.length - MAX_PREVIEW_FILES} more
-                      </div>
-                    )}
+              {/* Upload progress */}
+              {uploadProgress && (
+                <div className="mb-4 p-4 bg-accent-light rounded-lg">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm font-medium text-text-primary">
+                      Uploading... {uploadProgress.uploaded + uploadProgress.failed}/{uploadProgress.total}
+                    </span>
+                    <span className="text-sm text-text-secondary">
+                      File {uploadProgress.currentBatch}/{uploadProgress.totalBatches}
+                    </span>
                   </div>
-
-                  {/* Upload progress */}
-                  {uploadProgress && (
-                    <div className="mb-4 p-4 bg-accent-light rounded-lg">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-text-primary">
-                          Uploading... {uploadProgress.uploaded + uploadProgress.failed}/{uploadProgress.total}
-                        </span>
-                        <span className="text-sm text-text-secondary">
-                          File {uploadProgress.currentBatch}/{uploadProgress.totalBatches}
-                        </span>
-                      </div>
-                      {/* Progress bar */}
-                      <div className="w-full h-3 bg-border-color rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-accent transition-all duration-300 ease-out"
-                          style={{
-                            width: `${((uploadProgress.uploaded + uploadProgress.failed) / uploadProgress.total) * 100}%`,
-                          }}
-                        />
-                      </div>
-                      <div className="flex justify-between items-center mt-2 text-xs text-text-secondary">
-                        <span className="text-success">✓ {uploadProgress.uploaded} uploaded</span>
-                        {uploadProgress.failed > 0 && (
-                          <span className="text-danger">✗ {uploadProgress.failed} failed</span>
-                        )}
-                        <span>{Math.round(((uploadProgress.uploaded + uploadProgress.failed) / uploadProgress.total) * 100)}%</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Action buttons */}
-                  <div className="flex gap-3">
-                    <button
-                      onClick={handleUpload}
-                      disabled={uploading}
-                      className="flex-1 bg-accent text-white border-none px-6 py-3 rounded-lg text-base font-medium cursor-pointer transition-opacity duration-200 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {uploading
-                        ? `Uploading ${uploadProgress ? `${uploadProgress.uploaded}/${uploadProgress.total}` : '...'}`
-                        : `Upload ${allSelectedFiles.length} files`}
-                    </button>
-                    {uploading && (
-                      <button
-                        onClick={handleCancelUpload}
-                        className="px-6 py-3 border border-danger text-danger bg-transparent rounded-lg text-base font-medium cursor-pointer transition-all duration-200 hover:bg-danger hover:text-white"
-                      >
-                        Cancel
-                      </button>
-                    )}
+                  <div className="w-full h-3 bg-border-color rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-accent transition-all duration-300 ease-out"
+                      style={{
+                        width: `${((uploadProgress.uploaded + uploadProgress.failed) / uploadProgress.total) * 100}%`,
+                      }}
+                    />
                   </div>
-
-                  {/* File size summary */}
-                  {!uploading && (
-                    <p className="mt-3 text-xs text-text-secondary">
-                      Total size: {(allSelectedFiles.reduce((acc, f) => acc + f.size, 0) / (1024 * 1024)).toFixed(2)} MB
-                      <span className="ml-2 text-accent">• Uploading one file at a time for reliability</span>
-                    </p>
-                  )}
+                  <div className="flex justify-between items-center mt-2 text-xs text-text-secondary">
+                    <span className="text-success">✓ {uploadProgress.uploaded} uploaded</span>
+                    {uploadProgress.failed > 0 && (
+                      <span className="text-danger">✗ {uploadProgress.failed} failed</span>
+                    )}
+                    <span>{Math.round(((uploadProgress.uploaded + uploadProgress.failed) / uploadProgress.total) * 100)}%</span>
+                  </div>
                 </div>
               )}
+
+              {/* Action buttons */}
+              <div className="flex gap-3">
+                <Button
+                  onClick={handleUpload}
+                  disabled={uploading}
+                  fullWidth
+                  size="lg"
+                  isLoading={uploading}
+                >
+                  {uploading
+                    ? `Uploading ${uploadProgress ? `${uploadProgress.uploaded}/${uploadProgress.total}` : '...'}`
+                    : `Upload ${allSelectedFiles.length} files`}
+                </Button>
+                {uploading && (
+                  <Button
+                    variant="danger"
+                    onClick={handleCancelUpload}
+                    size="lg"
+                  >
+                    Cancel
+                  </Button>
+                )}
+              </div>
+
+              {/* File size summary */}
+              {!uploading && (
+                <p className="mt-3 text-xs text-text-secondary">
+                  Total size: {(allSelectedFiles.reduce((acc, f) => acc + f.size, 0) / (1024 * 1024)).toFixed(2)} MB
+                  <span className="ml-2 text-accent">• Uploading one file at a time for reliability</span>
+                </p>
+              )}
             </div>
-          </div>
-        </div>
-      )}
+          )}
+        </ModalBody>
+      </Modal>
 
           {/* Terminal */}
           <div className="bg-[#1a1b26] rounded-2xl overflow-hidden mb-6 border border-[#2d2f3d]/50 shadow-xl">
@@ -1325,31 +1316,32 @@ export default function Stage01Raw() {
                           </td>
                           <td className="p-4 text-sm">
                             <div className="flex gap-2">
-                              <button
+                              <Button
+                                size="sm"
                                 onClick={() => setPreviewFile(file)}
-                                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-accent to-purple-600 text-white text-xs font-medium cursor-pointer transition-all duration-200 hover:-translate-y-0.5 shadow-md shadow-accent/20"
                                 title="View full image"
                               >
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                 </svg>
                                 View
-                              </button>
-                              <button
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="danger"
                                 onClick={() => {
                                   if (confirm(`Delete ${file.originalName}?`)) {
                                     handleDelete(file.id);
                                   }
                                 }}
-                                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-red-500 to-rose-600 text-white text-xs font-medium cursor-pointer transition-all duration-200 hover:-translate-y-0.5 shadow-md shadow-red-500/20"
                                 title="Delete file"
                               >
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                 </svg>
                                 Delete
-                              </button>
+                              </Button>
                             </div>
                           </td>
                         </tr>
@@ -1360,126 +1352,42 @@ export default function Stage01Raw() {
               </div>
 
               {totalPages > 1 && (
-                <div className="flex items-center justify-center gap-2 py-4">
-                  <button
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                    className="px-4 py-2 rounded-lg bg-gradient-to-r from-accent to-purple-600 text-white text-sm font-medium cursor-pointer transition-all duration-200 hover:-translate-y-0.5 shadow-md shadow-accent/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
-                  >
-                    ← Previous
-                  </button>
-                  <div className="flex items-center gap-1">
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
-                      // Show first page, last page, current page, and 2 pages around current
-                      if (
-                        page === 1 ||
-                        page === totalPages ||
-                        (page >= currentPage - 1 && page <= currentPage + 1)
-                      ) {
-                        return (
-                          <button
-                            key={page}
-                            onClick={() => setCurrentPage(page)}
-                            className={`min-w-[36px] h-9 px-2 rounded-lg text-sm font-medium cursor-pointer transition-all duration-200 ${
-                              page === currentPage
-                                ? 'bg-gradient-to-r from-accent to-purple-600 text-white font-semibold shadow-md shadow-accent/25'
-                                : 'bg-card-bg/80 text-text-primary border border-border-color/50 hover:bg-accent/10 hover:border-accent/50'
-                            }`}
-                          >
-                            {page}
-                          </button>
-                        );
-                      } else if (page === currentPage - 2 || page === currentPage + 2) {
-                        return <span key={page} className="px-2 text-text-secondary select-none">...</span>;
-                      }
-                      return null;
-                    })}
-                  </div>
-                  <button
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                    className="px-4 py-2 rounded-lg bg-gradient-to-r from-accent to-purple-600 text-white text-sm font-medium cursor-pointer transition-all duration-200 hover:-translate-y-0.5 shadow-md shadow-accent/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
-                  >
-                    Next →
-                  </button>
-                </div>
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  totalItems={totalFiles}
+                  itemsPerPage={itemsPerPage}
+                  onPageChange={setCurrentPage}
+                  showItemsPerPage={false}
+                  className="justify-center py-4"
+                />
               )}
             </div>
           )}
 
           {/* Remove All Confirmation Dialog */}
-          {showRemoveConfirm && (
-            <div className="fixed top-0 left-0 right-0 bottom-0 bg-black/70 flex items-center justify-center z-[1000] backdrop-blur-sm" onClick={() => setShowRemoveConfirm(false)}>
-              <div className="bg-card-bg/95 backdrop-blur-xl p-8 rounded-2xl max-w-[400px] w-[90%] shadow-2xl border border-border-color/50" onClick={(e) => e.stopPropagation()}>
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-500/20 to-red-500/10 flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </div>
-                <h2 className="m-0 mb-3 text-xl font-bold text-text-primary">Remove All Files?</h2>
-                <p className="my-2 text-text-secondary text-sm">This will delete all {files.length} files and their data from the system.</p>
-                <p className="text-red-400 text-sm mt-3 flex items-center gap-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  This action cannot be undone.
-                </p>
-                <div className="flex gap-3 mt-6">
-                  <button
-                    className="flex-1 px-5 py-3 rounded-xl bg-card-bg border border-border-color/50 text-text-primary font-semibold text-sm cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={() => setShowRemoveConfirm(false)}
-                    disabled={removing}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="flex-1 px-5 py-3 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 text-white font-semibold text-sm cursor-pointer transition-all duration-200 shadow-lg shadow-red-500/25 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
-                    onClick={handleRemoveAll}
-                    disabled={removing}
-                  >
-                    {removing ? 'Removing...' : 'Remove All'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          <ConfirmDialog
+            isOpen={showRemoveConfirm}
+            onClose={() => setShowRemoveConfirm(false)}
+            onConfirm={handleRemoveAll}
+            title="Remove All Files?"
+            description={`This will delete all ${files.length} files and their data from the system. This action cannot be undone.`}
+            confirmText={removing ? 'Removing...' : 'Remove All'}
+            variant="danger"
+            isLoading={removing}
+          />
 
           {/* Reset Progress Confirmation Dialog */}
-          {showResetConfirm && (
-            <div className="fixed top-0 left-0 right-0 bottom-0 bg-black/70 flex items-center justify-center z-[1000] backdrop-blur-sm" onClick={() => setShowResetConfirm(false)}>
-              <div className="bg-card-bg/95 backdrop-blur-xl p-8 rounded-2xl max-w-[400px] w-[90%] shadow-2xl border border-border-color/50" onClick={(e) => e.stopPropagation()}>
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-500/10 flex items-center justify-center mb-4">
-                  <svg className="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                </div>
-                <h2 className="m-0 mb-3 text-xl font-bold text-text-primary">Reset Processing Status?</h2>
-                <p className="my-2 text-text-secondary text-sm">This will mark all {files.filter(f => f.processed).length} processed files as unprocessed.</p>
-                <p className="text-amber-400 text-sm mt-3 flex items-center gap-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Files will not be deleted, only reset for reprocessing.
-                </p>
-                <div className="flex gap-3 mt-6">
-                  <button
-                    className="flex-1 px-5 py-3 rounded-xl bg-card-bg border border-border-color/50 text-text-primary font-semibold text-sm cursor-pointer transition-all duration-200 hover:bg-accent/10 hover:border-accent/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={() => setShowResetConfirm(false)}
-                    disabled={resetting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="flex-1 px-5 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold text-sm cursor-pointer transition-all duration-200 shadow-lg shadow-amber-500/25 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
-                    onClick={handleResetProgress}
-                    disabled={resetting}
-                  >
-                    {resetting ? 'Resetting...' : 'Reset Progress'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          <ConfirmDialog
+            isOpen={showResetConfirm}
+            onClose={() => setShowResetConfirm(false)}
+            onConfirm={handleResetProgress}
+            title="Reset Processing Status?"
+            description={`This will mark all ${files.filter(f => f.processed).length} processed files as unprocessed. Files will not be deleted.`}
+            confirmText={resetting ? 'Resetting...' : 'Reset Progress'}
+            variant="warning"
+            isLoading={resetting}
+          />
 
           {/* Image Preview Modal */}
           {previewFile && (
@@ -1527,36 +1435,35 @@ export default function Stage01Raw() {
 
                 {/* Actions */}
                 <div className="absolute bottom-6 right-6 flex gap-3">
-                  <button
+                  <Button
                     onClick={() => {
                       const link = document.createElement('a');
                       link.href = `${API_URL}/files/${previewFile.id}/preview`;
                       link.download = previewFile.originalName;
                       link.click();
                     }}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-accent to-purple-600 text-white font-medium text-sm cursor-pointer transition-all duration-200 shadow-lg shadow-accent/25 hover:-translate-y-0.5"
                     title="Download image"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                     </svg>
                     Download
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="danger"
                     onClick={() => {
                       if (confirm(`Delete ${previewFile.originalName}?`)) {
                         handleDelete(previewFile.id);
                         setPreviewFile(null);
                       }
                     }}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 text-white font-medium text-sm cursor-pointer transition-all duration-200 shadow-lg shadow-red-500/25 hover:-translate-y-0.5"
                     title="Delete file"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
                     Delete
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>

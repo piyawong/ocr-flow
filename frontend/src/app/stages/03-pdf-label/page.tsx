@@ -4,6 +4,9 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermission } from '@/hooks/usePermission';
+import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { LogMessage } from '@/components/shared/Terminal';
 
 interface LabeledFile {
   id: number;
@@ -31,13 +34,6 @@ interface GroupSummary {
   isParseData?: boolean;
   isReviewed: boolean;
   reviewer: string | null;
-}
-
-interface LogMessage {
-  timestamp: string;
-  thread: number;
-  message: string;
-  type: 'info' | 'success' | 'error' | 'warning';
 }
 
 interface GroupDetail {
@@ -429,35 +425,33 @@ export default function Stage03PdfLabel() {
           {user?.role === 'admin' && (
             <div className="flex gap-3 mb-6">
               {!taskRunning ? (
-                <button
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-accent to-purple-600 text-white font-semibold text-sm shadow-lg shadow-accent/25 hover:shadow-xl hover:shadow-accent/30 hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-2"
-                  onClick={startTask}
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <Button onClick={startTask}>
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   Start Auto Label All
-                </button>
+                </Button>
               ) : (
-                <button
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold text-sm shadow-lg shadow-amber-500/25 hover:shadow-xl hover:shadow-amber-500/30 hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-2"
+                <Button
+                  variant="secondary"
                   onClick={stopTask}
+                  className="bg-gradient-to-r from-amber-500 to-orange-500 text-white border-none"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   Stop Auto Label
-                </button>
+                </Button>
               )}
               {totalGroups > 0 && (
-                <button
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 text-white font-semibold text-sm shadow-lg shadow-red-500/25 hover:shadow-xl hover:shadow-red-500/30 hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+                <Button
+                  variant="danger"
                   onClick={() => setShowRevertConfirm(true)}
                   disabled={reverting}
                 >
                   Revert All Labels
-                </button>
+                </Button>
               )}
             </div>
           )}
@@ -702,12 +696,12 @@ export default function Stage03PdfLabel() {
                           )}
                         </td>
                         <td className="p-4 text-text-primary">
-                          <button
+                          <Button
+                            size="sm"
                             onClick={() => router.push(`/stages/03-pdf-label/manual/${group.groupId}`)}
-                            className="px-4 py-2 rounded-lg bg-gradient-to-r from-accent to-purple-600 text-white text-sm font-semibold shadow-md shadow-accent/20 hover:shadow-lg hover:shadow-accent/30 hover:-translate-y-0.5 transition-all duration-300"
                           >
                             Review
-                          </button>
+                          </Button>
                         </td>
                       </tr>
                     ))}
@@ -725,38 +719,16 @@ export default function Stage03PdfLabel() {
           )}
 
           {/* Revert Confirmation Dialog */}
-          {showRevertConfirm && (
-            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[1000] backdrop-blur-sm" onClick={() => setShowRevertConfirm(false)}>
-              <div className="bg-card-bg/95 backdrop-blur-xl p-8 rounded-2xl max-w-[420px] w-[90%] shadow-2xl border border-border-color/50" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center gap-4 mb-5">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-500/20 to-red-500/10 flex items-center justify-center">
-                    <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                  </div>
-                  <h2 className="m-0 text-xl font-bold text-text-primary">Revert All Labels?</h2>
-                </div>
-                <p className="my-3 text-text-secondary text-sm">This will delete all labels for <span className="font-semibold text-text-primary">{totalGroups} groups</span> ({totalPages} pages) from Stage 03.</p>
-                <p className="text-red-400 text-sm bg-red-500/10 rounded-lg px-4 py-3 border border-red-500/20">⚠️ This action cannot be undone.</p>
-                <div className="flex gap-3 mt-6">
-                  <button
-                    className="flex-1 bg-bg-secondary/80 text-text-primary border border-border-color/50 px-6 py-3 rounded-xl text-sm font-semibold cursor-pointer transition-all duration-300 hover:bg-accent/10 hover:border-accent/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={() => setShowRevertConfirm(false)}
-                    disabled={reverting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="flex-1 bg-gradient-to-r from-red-500 to-rose-600 text-white border-none px-6 py-3 rounded-xl text-sm font-semibold cursor-pointer transition-all duration-300 shadow-lg shadow-red-500/25 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={handleRevertAll}
-                    disabled={reverting}
-                  >
-                    {reverting ? 'Reverting...' : 'Revert All'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          <ConfirmDialog
+            isOpen={showRevertConfirm}
+            onClose={() => setShowRevertConfirm(false)}
+            onConfirm={handleRevertAll}
+            title="Revert All Labels?"
+            description={`This will delete all labels for ${totalGroups} groups (${totalPages} pages) from Stage 03. This action cannot be undone.`}
+            confirmText={reverting ? 'Reverting...' : 'Revert All'}
+            variant="danger"
+            isLoading={reverting}
+          />
         </div>
       </div>
     </div>
