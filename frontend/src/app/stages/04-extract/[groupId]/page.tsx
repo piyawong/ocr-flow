@@ -756,11 +756,11 @@ export default function GroupDetailPage() {
                 {/* Top Row: Badges */}
                 <div className="flex flex-wrap items-center gap-3 mb-2">
                   {/* Group Badge */}
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-r from-accent/20 to-accent/10 border border-accent/20">
-                    <span className="w-7 h-7 rounded-md bg-accent flex items-center justify-center text-white font-bold text-sm shadow-md shadow-accent/30">
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-300/50">
+                    <span className="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center text-white font-bold text-sm shadow-md">
                       {groupDetail.group.id}
                     </span>
-                    <span className="text-accent font-semibold text-sm">Group</span>
+                    <span className="text-blue-700 font-semibold text-sm">Group</span>
                   </div>
 
                   {/* Review Status Badge */}
@@ -967,7 +967,7 @@ export default function GroupDetailPage() {
                     {/* Basic Info Card */}
                     <div className="bg-gradient-to-br from-accent/5 via-transparent to-purple-500/5 rounded-2xl border border-border-color/30 p-6">
                       <div className="flex items-center gap-3 mb-6">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-blue-600 flex items-center justify-center shadow-lg shadow-accent/25">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-700 flex items-center justify-center shadow-lg">
                           <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
@@ -1105,7 +1105,7 @@ export default function GroupDetailPage() {
                                   </button>
 
                                   {/* Section Badge */}
-                                  <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-blue-600 text-white font-bold text-sm flex items-center justify-center shadow-md shadow-accent/20">
+                                  <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-700 text-white font-bold text-sm flex items-center justify-center shadow-md">
                                     {section.number || sectionIdx + 1}
                                   </div>
 
@@ -1266,7 +1266,7 @@ export default function GroupDetailPage() {
                                       <p className="text-text-secondary text-sm mb-4">ยังไม่มีข้อในหมวดนี้</p>
                                       <button
                                         onClick={() => addArticle(section.id)}
-                                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-accent/20 to-accent/10 border border-accent/30 text-accent hover:shadow-md hover:shadow-accent/10 transition-all duration-200 text-sm font-medium"
+                                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-300/50 text-blue-700 hover:shadow-md hover:bg-blue-100 transition-all duration-200 text-sm font-medium"
                                       >
                                         <PlusIcon className="w-4 h-4" />
                                         เพิ่มข้อแรก
@@ -1321,7 +1321,7 @@ export default function GroupDetailPage() {
                       <p className="text-text-secondary text-sm">ยังไม่มีข้อมูลกรรมการ</p>
                       <button
                         onClick={addMember}
-                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-accent/20 to-accent/10 border border-accent/30 text-accent hover:shadow-md hover:shadow-accent/10 transition-all duration-200 text-sm font-medium"
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-300/50 text-blue-700 hover:shadow-md hover:bg-blue-100 transition-all duration-200 text-sm font-medium"
                       >
                         <PlusIcon className="w-4 h-4" />
                         เพิ่มกรรมการคนแรก
@@ -1336,7 +1336,7 @@ export default function GroupDetailPage() {
                         >
                           <div className="flex items-start gap-4">
                             {/* Member Number Badge */}
-                            <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-accent to-blue-600 text-white flex items-center justify-center font-bold text-lg shadow-lg shadow-accent/20">
+                            <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-purple-700 text-white flex items-center justify-center font-bold text-lg shadow-lg">
                               {idx + 1}
                             </div>
 
