@@ -177,6 +177,7 @@ interface SortablePageItemProps {
   sidebarCollapsed: boolean;
   imageCacheBuster: number;
   tempRotations: Record<number, number>;
+  documentDates: Record<string, string | null>;
   onSelect: () => void;
 }
 
@@ -189,6 +190,7 @@ const SortablePageItem = React.memo(function SortablePageItem({
   sidebarCollapsed,
   imageCacheBuster,
   tempRotations,
+  documentDates,
   onSelect,
 }: SortablePageItemProps) {
   const {
@@ -348,6 +350,30 @@ const SortablePageItem = React.memo(function SortablePageItem({
           `}>
             {page.templateName?.replace('.pdf', '') || 'Unmatched'}
           </div>
+
+          {/* Document date (if exists) */}
+          {page.documentId !== null && page.templateName && (() => {
+            const dateKey = `${page.documentId}_${page.templateName}`;
+            const docDate = documentDates[dateKey];
+
+            if (docDate) {
+              return (
+                <div className="flex items-center gap-1 mt-1 px-1 py-0.5 bg-accent/10 rounded text-[9px] text-accent">
+                  <svg className="w-2.5 h-2.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <span className="truncate font-medium">
+                    {new Date(docDate).toLocaleDateString('th-TH', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric'
+                    })}
+                  </span>
+                </div>
+              );
+            }
+            return null;
+          })()}
         </div>
       )}
     </div>
@@ -356,6 +382,18 @@ const SortablePageItem = React.memo(function SortablePageItem({
   // Custom comparison for optimization
   const prevRotation = prevProps.tempRotations[prevProps.page.groupedFileId] || 0;
   const nextRotation = nextProps.tempRotations[nextProps.page.groupedFileId] || 0;
+
+  // Check if document date changed
+  let prevDate = null;
+  let nextDate = null;
+  if (prevProps.page.documentId !== null && prevProps.page.templateName) {
+    const dateKey = `${prevProps.page.documentId}_${prevProps.page.templateName}`;
+    prevDate = prevProps.documentDates[dateKey];
+  }
+  if (nextProps.page.documentId !== null && nextProps.page.templateName) {
+    const dateKey = `${nextProps.page.documentId}_${nextProps.page.templateName}`;
+    nextDate = nextProps.documentDates[dateKey];
+  }
 
   return (
     prevProps.page.id === nextProps.page.id &&
@@ -366,7 +404,8 @@ const SortablePageItem = React.memo(function SortablePageItem({
     prevProps.sidebarCollapsed === nextProps.sidebarCollapsed &&
     prevProps.imageCacheBuster === nextProps.imageCacheBuster &&
     prevProps.page.templateName === nextProps.page.templateName &&
-    prevRotation === nextRotation
+    prevRotation === nextRotation &&
+    prevDate === nextDate
   );
 });
 
@@ -1476,6 +1515,7 @@ export default function ManualLabelPage() {
                       sidebarCollapsed={sidebarCollapsed}
                       imageCacheBuster={imageCacheBuster}
                       tempRotations={tempRotations}
+                      documentDates={documentDates}
                       onSelect={() => setSelectedPageIndex(idx)}
                     />
                   );
@@ -1838,6 +1878,32 @@ export default function ManualLabelPage() {
                     {currentPage.category && (
                       <div className="text-xs text-text-secondary mt-1">{currentPage.category}</div>
                     )}
+                    {/* Document Date */}
+                    {currentPage.documentId !== null && currentPage.templateName && (() => {
+                      const dateKey = `${currentPage.documentId}_${currentPage.templateName}`;
+                      const docDate = documentDates[dateKey];
+
+                      return (
+                        <div className={`flex items-center gap-1.5 mt-2 pt-2 border-t border-border-color ${
+                          docDate ? 'text-accent' : 'text-text-secondary'
+                        }`}>
+                          <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          <span className="text-xs font-medium">
+                            {docDate ? (
+                              new Date(docDate).toLocaleDateString('th-TH', {
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric'
+                              })
+                            ) : (
+                              'No date set'
+                            )}
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 
