@@ -2294,8 +2294,6 @@ export default function ManualLabelPage() {
             })()}
           </div>
         </div>
-          </div>
-        </div>
       </div>
 
       {/* Template Modal */}
