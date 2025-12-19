@@ -443,7 +443,7 @@ export default function ManualLabelPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [rightPanelTab, setRightPanelTab] = useState<'info' | 'templates' | 'ocr'>('info');
+  const [rightPanelTab, setRightPanelTab] = useState<'info' | 'templates' | 'ocr' | 'documents'>('info');
   const [showLabelOverlay, setShowLabelOverlay] = useState(true);
   const [allGroups, setAllGroups] = useState<Array<{ groupId: number; matchPercentage: number }>>([]);
   const [imageCacheBuster, setImageCacheBuster] = useState(() => Date.now()); // Force image reload after rotation
@@ -1143,37 +1143,45 @@ export default function ManualLabelPage() {
     }
   }, [isSaving, pages, tempRotations, originalOrder, groupId]);
 
-  // Get documents with missing dates
-  const getDocumentsWithMissingDates = useCallback((): DocumentWithMissingDate[] => {
-    const documentsMap = new Map<string, DocumentWithMissingDate>();
+  // Get all labeled documents (for Documents tab)
+  const getLabeledDocuments = useCallback(() => {
+    const documentsMap = new Map<string, DocumentWithMissingDate & { hasDate: boolean; date: string | null }>();
 
     pages.forEach((page, idx) => {
       if (page.documentId !== null && page.templateName) {
         const key = `${page.documentId}_${page.templateName}`;
         const dateKey = `${page.documentId}_${page.templateName}`;
-        const hasDate = documentDates[dateKey] !== undefined && documentDates[dateKey] !== null;
+        const date = documentDates[dateKey] || null;
+        const hasDate = date !== null && date !== undefined;
 
-        if (!hasDate) {
-          if (!documentsMap.has(key)) {
-            // This is the first page we've seen for this document
-            documentsMap.set(key, {
-              documentId: page.documentId,
-              templateName: page.templateName,
-              pageRange: { start: idx, end: idx },
-              pageCount: 1,
-            });
-          } else {
-            // Update page range and count
-            const doc = documentsMap.get(key)!;
-            doc.pageRange.end = idx;
-            doc.pageCount++;
-          }
+        if (!documentsMap.has(key)) {
+          // This is the first page we've seen for this document
+          documentsMap.set(key, {
+            documentId: page.documentId,
+            templateName: page.templateName,
+            pageRange: { start: idx, end: idx },
+            pageCount: 1,
+            hasDate,
+            date,
+          });
+        } else {
+          // Update page range and count
+          const doc = documentsMap.get(key)!;
+          doc.pageRange.end = idx;
+          doc.pageCount++;
         }
       }
     });
 
     return Array.from(documentsMap.values());
   }, [pages, documentDates]);
+
+  // Get documents with missing dates
+  const getDocumentsWithMissingDates = useCallback((): DocumentWithMissingDate[] => {
+    return getLabeledDocuments()
+      .filter(doc => !doc.hasDate)
+      .map(({ hasDate, date, ...rest }) => rest);
+  }, [getLabeledDocuments]);
 
   const handleSave = useCallback(() => {
     // ✅ Check if user is logged in before saving
@@ -1781,19 +1789,29 @@ export default function ManualLabelPage() {
               { id: 'info', label: 'Info' },
               { id: 'templates', label: 'Templates' },
               { id: 'ocr', label: 'OCR' },
-            ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setRightPanelTab(tab.id as typeof rightPanelTab)}
-                className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
-                  rightPanelTab === tab.id
-                    ? 'text-text-primary border-b-2 border-accent'
-                    : 'text-text-secondary hover:text-text-primary'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+              { id: 'documents', label: 'Documents' },
+            ].map(tab => {
+              const missingDocsCount = tab.id === 'documents' ? getDocumentsWithMissingDates().length : 0;
+              const hasWarning = missingDocsCount > 0;
+
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setRightPanelTab(tab.id as typeof rightPanelTab)}
+                  className={`relative flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+                    rightPanelTab === tab.id
+                      ? 'text-text-primary border-b-2 border-accent'
+                      : 'text-text-secondary hover:text-text-primary'
+                  }`}
+                >
+                  {tab.label}
+                  {/* Warning Dot */}
+                  {hasWarning && (
+                    <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-warning rounded-full"></span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           {/* Tab Content */}
@@ -2148,6 +2166,134 @@ export default function ManualLabelPage() {
                 </div>
               </div>
             )}
+
+            {/* Documents Tab */}
+            {rightPanelTab === 'documents' && (() => {
+              const allDocs = getLabeledDocuments();
+              const missingDatesCount = allDocs.filter(d => !d.hasDate).length;
+
+              return (
+                <div className="space-y-3">
+                  {/* Header */}
+                  <div>
+                    <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wide">
+                      Labeled Documents
+                    </h3>
+                    <p className="text-[10px] text-text-secondary mt-1">
+                      {allDocs.length} document{allDocs.length !== 1 ? 's' : ''}
+                      {missingDatesCount > 0 && (
+                        <span className="text-warning ml-1">
+                          | {missingDatesCount} missing date{missingDatesCount !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+
+                  {/* Document List */}
+                  {allDocs.length === 0 ? (
+                    <div className="text-center py-8 text-text-secondary text-xs">
+                      <svg className="w-12 h-12 mx-auto mb-2 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <p>No labeled documents yet</p>
+                      <p className="text-[10px] mt-1">Apply templates to label documents</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {allDocs.map((doc) => {
+                        const dateKey = `${doc.documentId}_${doc.templateName}`;
+                        const currentDate = doc.date || '';
+
+                        return (
+                          <div
+                            key={dateKey}
+                            className={`relative bg-bg-secondary border rounded-lg p-3 overflow-hidden ${
+                              doc.hasDate
+                                ? 'border-border-color'
+                                : 'border-warning bg-warning/[0.03]'
+                            }`}
+                          >
+                            {/* Color Bar */}
+                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-accent"></div>
+
+                            {/* Content */}
+                            <div className="pl-2">
+                              {/* Header */}
+                              <div className="flex items-start justify-between gap-2 mb-1">
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="text-xs font-medium text-text-primary truncate">
+                                    {doc.templateName.replace('.pdf', '')}
+                                  </h4>
+                                  {!doc.hasDate && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-semibold text-warning bg-warning/15 rounded-full uppercase mt-1">
+                                      <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                      </svg>
+                                      No Date
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Page Info */}
+                              <p className="text-[10px] text-text-secondary mb-2">
+                                Pages {doc.pageRange.start + 1}-{doc.pageRange.end + 1} ({doc.pageCount} page{doc.pageCount !== 1 ? 's' : ''})
+                              </p>
+
+                              {/* Date Input */}
+                              <div className="relative">
+                                <input
+                                  type="date"
+                                  value={currentDate}
+                                  onChange={(e) => {
+                                    setDocumentDates(prev => ({
+                                      ...prev,
+                                      [dateKey]: e.target.value || null,
+                                    }));
+                                  }}
+                                  placeholder="Select date..."
+                                  className="w-full px-2.5 py-1.5 text-xs text-text-primary bg-bg-primary border border-border-color rounded-md transition-all focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent-rgb),0.1)]"
+                                />
+                                {currentDate && (
+                                  <button
+                                    onClick={() => {
+                                      setDocumentDates(prev => ({
+                                        ...prev,
+                                        [dateKey]: null,
+                                      }));
+                                    }}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary hover:text-danger transition-colors"
+                                    title="Clear date"
+                                  >
+                                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Missing Summary Banner */}
+                  {missingDatesCount > 0 && (
+                    <div className="p-2.5 bg-warning/10 border border-warning/30 rounded-lg flex items-center gap-2">
+                      <svg className="w-4 h-4 text-warning flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <p className="text-[10px] font-medium text-warning flex-1">
+                        {missingDatesCount} document{missingDatesCount !== 1 ? 's' : ''} missing date{missingDatesCount !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
           </div>
         </div>
       </div>
