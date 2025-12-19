@@ -648,8 +648,8 @@ export default function Stage02Group() {
           {/* Status Cards */}
           <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 mb-6 border border-border-color/50 shadow-sm">
             <div className="flex items-center gap-3 mb-5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent/20 to-accent/10 flex items-center justify-center">
-                <svg className="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-100 to-blue-50 border border-blue-200/50 flex items-center justify-center">
+                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
               </div>
@@ -925,9 +925,9 @@ export default function Stage02Group() {
                 <span className="text-text-secondary text-sm font-medium">View:</span>
                 <div className="flex bg-bg-secondary/80 rounded-xl border border-border-color/50 p-1">
                   <button
-                    className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-300 ${
+                    className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
                       !showLabeledGroups
-                        ? 'bg-gradient-to-r from-accent to-purple-600 text-white shadow-lg shadow-accent/25'
+                        ? 'bg-gradient-to-r from-blue-600 to-purple-700 text-white shadow-lg hover:from-blue-700 hover:to-purple-800'
                         : 'text-text-primary/70 hover:text-text-primary hover:bg-accent/10'
                     }`}
                     onClick={() => setShowLabeledGroups(false)}
@@ -955,8 +955,8 @@ export default function Stage02Group() {
           {/* Groups Table */}
           {groups.length === 0 ? (
             <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-12 text-center border border-border-color/50 shadow-sm">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-accent/20 to-accent/10 flex items-center justify-center">
-                <svg className="w-8 h-8 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-blue-100 to-blue-50 border border-blue-200/50 flex items-center justify-center">
+                <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                 </svg>
               </div>
@@ -1052,13 +1052,13 @@ export default function Stage02Group() {
             {selectedGroup && (
               <>
                 <ModalHeader className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-purple-600 flex items-center justify-center shadow-lg shadow-accent/25">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-700 flex items-center justify-center shadow-lg">
                     <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                     </svg>
                   </div>
                   <ModalTitle>Group {selectedGroup.groupId}</ModalTitle>
-                  <span className="bg-gradient-to-r from-accent to-purple-600 text-white px-3 py-1.5 rounded-lg text-sm font-semibold shadow-md shadow-accent/20">
+                  <span className="bg-gradient-to-r from-blue-600 to-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold shadow-md">
                     {selectedGroup.files.length > 0 ? selectedGroup.files.length : selectedGroup.fileCount} files
                   </span>
                 </ModalHeader>
@@ -1082,7 +1082,7 @@ export default function Stage02Group() {
                             className="w-full h-[180px] object-cover"
                           />
                           <div className="p-3 flex items-center gap-2">
-                            <span className="bg-gradient-to-r from-accent to-purple-600 text-white px-2.5 py-1 rounded-md text-xs font-bold shadow-sm">#{file.orderInGroup}</span>
+                            <span className="bg-gradient-to-r from-blue-600 to-purple-700 text-white px-2.5 py-1 rounded-md text-xs font-bold shadow-sm">#{file.orderInGroup}</span>
                             <span className="text-sm text-text-secondary whitespace-nowrap overflow-hidden text-ellipsis">{file.originalName}</span>
                           </div>
                           {file.ocrText && (
