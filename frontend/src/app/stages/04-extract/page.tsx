@@ -227,7 +227,7 @@ export default function Stage04Extract() {
                       >
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-blue-600 text-white font-bold text-sm flex items-center justify-center shadow-md shadow-accent/20">
+                            <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-700 text-white font-bold text-sm flex items-center justify-center shadow-md">
                               {group.groupId}
                             </span>
                           </div>
