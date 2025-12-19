@@ -208,6 +208,14 @@ export class LabelRunnerService {
       });
     }
 
+    // NEW: Link labeled_files to documents table (create documents records)
+    try {
+      await this.labeledFilesService.linkFilesToDocuments(groupId);
+      this.log(`Group ${groupId}: Created documents records`, 'info');
+    } catch (err) {
+      this.log(`Group ${groupId}: Error linking files to documents: ${err.message}`, 'error');
+    }
+
     // Summary
     this.log(
       `Group ${groupId}: ${result.matched}/${result.total} pages matched (${result.percentage.toFixed(1)}%)`,

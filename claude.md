@@ -1,7 +1,7 @@
 # Claude AI Assistant - กฎและแนวทางการทำงาน
 
 > **สำหรับ:** Claude Code AI Assistant
-> **อัปเดตล่าสุด:** 2025-12-14
+> **อัปเดตล่าสุด:** 2025-12-19 (เพิ่ม Custom Agents Workflow)
 
 ---
 
@@ -46,49 +46,61 @@
 1. อ่าน STRUCTURE.md (ถ้ายังไม่เคยอ่านใน session นี้)
 2. ทำความเข้าใจ task ที่ได้รับ
 3. ค้นหาข้อมูลที่เกี่ยวข้องใน:
-   - STRUCTURE.md (โครงสร้าง, modules, logic)
+   - STRUCTURE.md (Navigation hub - บอกว่าถ้าทำอะไรให้ไปอ่านไฟล์ไหน)
+   - backend-detailed.md (Backend modules, services, API endpoints)
+   - frontend-detailed.md (Frontend stages, components, UI/UX)
+   - database-detailed.md (Database schema, tables, relations)
+   - api-reference.md (API endpoints ทั้งหมด 61 endpoints)
    - auto-label.md (auto label PDF / pattern matching logic)
+   - parse-data.md (data extraction logic)
    - template-learning-task.md (template optimization จาก manual labels)
 4. วางแผนการทำงาน (ใช้ TodoWrite ถ้าจำเป็น)
 5. ดำเนินการตาม task
-6. อัปเดต STRUCTURE.md (ถ้ามีการเปลี่ยนแปลง)
+6. อัปเดตเอกสารที่เกี่ยวข้อง (ถ้ามีการเปลี่ยนแปลง)
 7. ทดสอบและรายงานผล
 ```
 
 ### 2. เมื่อทำงานกับ Backend (NestJS)
 
-- **อ่าน:** [สถาปัตยกรรม Backend](./STRUCTURE.md#สถาปัตยกรรม-backend)
+- **อ่าน:** [backend-detailed.md](./backend-detailed.md)
 - **Module ที่มี:**
   - `files/` - จัดการไฟล์ (upload + grouping)
   - `labeled-files/` - จัดการไฟล์ที่ label แล้ว
   - `templates/` - จัดการ templates (Database-based)
-  - `task-runner/` - รัน background tasks
-  - `label-runner/` - รัน label process
-  - `parse-runner/` - รัน parse data process
+  - `task-runner/` - รัน background tasks (OCR + Grouping)
+  - `label-runner/` - รัน label process (Auto-label)
+  - `parse-runner/` - รัน parse data process (Extract data)
+  - `shared/label-utils/` - Pattern matching utilities
+  - `auth/` - Authentication & Authorization (JWT)
   - `minio/` - MinIO integration
-- **ถ้าเพิ่ม module/service ใหม่:** อัปเดต STRUCTURE.md ทันที
+- **ถ้าเพิ่ม module/service ใหม่:** อัปเดต backend-detailed.md และ STRUCTURE.md ทันที
 
 ### 3. เมื่อทำงานกับ Frontend (Next.js)
 
-- **อ่าน:** [สถาปัตยกรรม Frontend](./STRUCTURE.md#สถาปัตยกรรม-frontend)
+- **อ่าน:** [frontend-detailed.md](./frontend-detailed.md)
 - **Stages:**
-  - `01-raw/` - อัพโหลดไฟล์
-  - `02-group/` - จัดกลุ่มไฟล์
-  - `03-pdf-label/` - label PDF
-  - `04-extract/` - extract ข้อมูล
-  - `05-review/` - review
+  - `01-raw/` - อัพโหลดไฟล์ (Upload + OCR)
+  - `02-group/` - จัดกลุ่มไฟล์ (Auto-grouping)
+  - `03-pdf-label/` - label PDF (Auto-label + Manual review)
+  - `04-extract/` - extract ข้อมูล (Parse data + Review)
+  - `05-review/` - review (Final approval)
   - `06-upload/` - upload final
-- **ถ้าเพิ่ม page/component ใหม่:** อัปเดต STRUCTURE.md ทันที
+- **Components:** Navbar, StageTabs, ThemeProvider, AuthGuard
+- **ถ้าเพิ่ม page/component ใหม่:** อัปเดต frontend-detailed.md และ STRUCTURE.md ทันที
 
 ### 4. เมื่อทำงานกับ Database
 
-- **อ่าน:** [Database Schema](./STRUCTURE.md#database-schema)
-- **Tables:**
+- **อ่าน:** [database-detailed.md](./database-detailed.md)
+- **Tables (10 tables):**
+  - `users` - Authentication (JWT + roles)
   - `files` - ไฟล์ทั้งหมด (upload + grouping metadata)
   - `groups` - metadata ของ groups
   - `labeled_files` - ไฟล์ที่ label แล้ว
   - `templates` - template configurations
-- **ถ้าเปลี่ยน schema:** อัปเดต STRUCTURE.md ทันที
+  - `foundation_instruments` - ตราสาร (parsed data)
+  - `charter_sections`, `charter_articles`, `charter_sub_items` - โครงสร้างตราสาร
+  - `committee_members` - กรรมการมูลนิธิ (parsed data)
+- **ถ้าเปลี่ยน schema:** อัปเดต database-detailed.md และ STRUCTURE.md ทันที
 
 ### 5. เมื่อทำงานกับ Auto Label PDF / Pattern Matching
 
@@ -135,25 +147,256 @@
 
 ---
 
+## 🤖 Custom Agents Workflow
+
+### ⚙️ Custom Agents ที่มี
+
+Project นี้มี **Custom Agents** 5 ตัว ใน `.claude/agents/`:
+
+| Agent | Purpose | Tools | Model |
+|-------|---------|-------|-------|
+| **backend-architect** | ออกแบบ APIs, databases, backend systems | Write, Read, Bash, Grep | Opus |
+| **frontend-developer** | สร้าง UI, React components, performance | Write, Read, Bash, Grep, Glob | Opus |
+| **ui-designer** | ออกแบบ UI, design systems, visual design | Write, Read, MultiEdit, WebSearch, WebFetch | Opus |
+| **ux-researcher** | User research, journey maps, usability testing | Write, Read, MultiEdit, WebSearch, WebFetch | Opus |
+| **debugger** | Root cause analysis, bug fixing | Read, Edit, Bash, Grep, Glob | Opus |
+
+---
+
+### 📋 เมื่อไหร่ควรใช้ Agent ไหน?
+
+#### 🎨 **Design & UX Tasks**
+```
+Use Case: ออกแบบ feature ใหม่หรือปรับปรุง UI/UX
+
+Workflow:
+1. ux-researcher → วิจัย user needs, pain points, journey mapping
+2. ui-designer → ออกแบบ UI/UX, design specs, components
+3. frontend-developer → implement design เป็น React components
+4. backend-architect → ออกแบบ APIs ที่ support feature นี้ (ถ้าจำเป็น)
+
+Example:
+- "ออกแบบ feature การแจ้งเตือนใหม่"
+- "ปรับปรุง UX ของ Stage 02 ให้ใช้งานง่ายขึ้น"
+- "สร้าง dashboard สำหรับดู statistics"
+```
+
+#### 🏗️ **Backend Development Tasks**
+```
+Use Case: พัฒนา backend features, APIs, database
+
+Workflow:
+1. backend-architect → ออกแบบ architecture, APIs, database schema
+2. backend-architect → implement code
+3. debugger → test และแก้ bugs (ถ้ามี)
+
+Example:
+- "สร้าง API สำหรับ export data"
+- "เพิ่ม authentication ด้วย OAuth2"
+- "ออกแบบ database schema สำหรับ notifications"
+```
+
+#### 💻 **Frontend Development Tasks**
+```
+Use Case: สร้างหรือแก้ไข UI components, pages
+
+Workflow:
+1. ui-designer → design specs (ถ้ายังไม่มี)
+2. frontend-developer → implement components
+3. debugger → แก้ UI bugs (ถ้ามี)
+
+Example:
+- "สร้าง modal component สำหรับ confirm delete"
+- "แก้ responsive layout ใน Stage 03"
+- "เพิ่ม loading states ใน file upload"
+```
+
+#### 🐛 **Debugging Tasks**
+```
+Use Case: แก้ไข bugs, errors, performance issues
+
+Workflow:
+1. debugger → analyze root cause
+2. debugger → implement fix
+3. debugger → verify solution
+
+Example:
+- "แก้ bug: grouping ไม่ทำงาน"
+- "performance issue: auto-label ช้า"
+- "fix: template matching ผิดพลาด"
+```
+
+#### 📊 **Research & Analysis Tasks**
+```
+Use Case: วิเคราะห์ user behavior, usability issues
+
+Workflow:
+1. ux-researcher → conduct research, analyze data
+2. ux-researcher → create reports → save to research/**/*.md
+3. ui-designer → design solutions (ถ้าจำเป็น)
+
+Example:
+- "วิเคราะห์ว่า users ใช้ Stage 02 อย่างไร"
+- "สร้าง user personas"
+- "ทำ usability testing report"
+```
+
+---
+
+### 🎯 Use Cases และ Agent Workflows
+
+#### Use Case 1: **ออกแบบ Feature ใหม่ทั้งหมด**
+
+```
+Task: "ออกแบบและสร้าง notification system"
+
+Step 1: ux-researcher
+- วิเคราะห์ user needs: users ต้องการแจ้งเตือนอะไร?
+- สร้าง journey map: notification flow
+- Research best practices
+- บันทึกลง: research/features/notification-system.md
+
+Step 2: ui-designer
+- ออกแบบ notification UI (toast, modal, badge)
+- Design states: unread, read, empty
+- Specify colors, animations, interactions
+
+Step 3: backend-architect
+- ออกแบบ notifications table schema
+- Design API endpoints (GET, POST, PATCH)
+- Plan real-time updates (WebSocket/SSE)
+
+Step 4: frontend-developer
+- Implement notification components
+- Connect to APIs
+- Add real-time updates
+
+Step 5: debugger (ถ้ามี issues)
+- Fix bugs
+- Optimize performance
+```
+
+#### Use Case 2: **ปรับปรุง UX ของหน้าที่มีอยู่**
+
+```
+Task: "ปรับปรุง Stage 02 Group page ให้ใช้งานง่ายขึ้น"
+
+Step 1: ux-researcher
+- วิเคราะห์ปัญหาปัจจุบัน (pain points)
+- สำรวจ user feedback
+- สร้าง usability test report
+- บันทึกลง: research/usability-tests/stage02-improvements.md
+
+Step 2: ui-designer
+- ออกแบบ UI improvements
+- Mockup ใหม่
+- Specify changes
+
+Step 3: frontend-developer
+- Implement UI changes
+- Test responsiveness
+- Update components
+
+Result: Better UX in Stage 02
+```
+
+#### Use Case 3: **แก้ไข Bug ที่ซับซ้อน**
+
+```
+Task: "แก้ bug: auto-label ไม่ติดบางไฟล์"
+
+Step 1: debugger
+- Analyze error logs
+- Reproduce the issue
+- Identify root cause (เช่น: pattern matching logic)
+
+Step 2: debugger (ต่อ)
+- Fix code
+- Add tests
+- Verify solution works
+
+Step 3: อัปเดตเอกสาร
+- อัปเดต auto-label.md (ถ้า logic เปลี่ยน)
+```
+
+#### Use Case 4: **Research & Documentation**
+
+```
+Task: "วิเคราะห์ user behavior ใน OCR Flow"
+
+Step 1: ux-researcher
+- รวบรวมข้อมูล analytics
+- สร้าง user flow diagram
+- วิเคราะห์ drop-off points
+- สร้าง personas
+- บันทึกลง:
+  - research/analytics-insights/user-behavior-2025-12.md
+  - research/personas/foundation-admin.md
+  - research/journey-maps/ocr-flow-complete-journey.md
+
+Result: ข้อมูล research ถูกเก็บใน research/ folder อย่างเป็นระเบียบ
+```
+
+---
+
+### ⚡ Quick Reference: Agent Selection
+
+| Task Type | Use Agent |
+|-----------|-----------|
+| 🎨 Design UI/UX | `ui-designer` |
+| 📊 User Research | `ux-researcher` → saves to `research/**/*.md` |
+| 💻 Build Frontend | `frontend-developer` |
+| 🏗️ Build Backend | `backend-architect` |
+| 🐛 Fix Bugs | `debugger` |
+| 🎯 Complete Feature | `ux-researcher` → `ui-designer` → `frontend-developer` + `backend-architect` |
+
+---
+
+### 💡 สำคัญ: Automatic Agent Delegation
+
+**Claude จะเรียกใช้ agents อัตโนมัติ** เมื่อ:
+- User ร้องขอ task ที่ตรงกับ agent description
+- Task ต้องการ specialized expertise
+- ตาม workflow ที่กำหนดไว้ข้างต้น
+
+**ตัวอย่าง:**
+```
+user: "ออกแบบ notification feature"
+→ Claude เรียก: ux-researcher (research)
+→ ต่อด้วย: ui-designer (design)
+→ สุดท้าย: frontend-developer + backend-architect (implement)
+
+user: "แก้ bug ใน auto-label"
+→ Claude เรียก: debugger (analyze + fix)
+
+user: "วิเคราะห์ user behavior"
+→ Claude เรียก: ux-researcher (research + save to research/*.md)
+```
+
+---
+
 ## 🔍 คำถามที่พบบ่อย (FAQ)
 
 ### Q1: โครงสร้างโฟลเดอร์ของ project เป็นอย่างไร?
 **A:** อ่าน [โครงสร้างโฟลเดอร์](./STRUCTURE.md#โครงสร้างโฟลเดอร์)
 
 ### Q2: Backend มี module อะไรบ้าง?
-**A:** อ่าน [สถาปัตยกรรม Backend](./STRUCTURE.md#สถาปัตยกรรม-backend)
+**A:** อ่าน [backend-detailed.md](./backend-detailed.md) - รวม 9 modules (files, labeled-files, task-runner, label-runner, parse-runner, shared/label-utils, templates, auth, minio)
 
 ### Q3: Frontend มีหน้าอะไรบ้าง?
-**A:** อ่าน [สถาปัตยกรรม Frontend](./STRUCTURE.md#สถาปัตยกรรม-frontend)
+**A:** อ่าน [frontend-detailed.md](./frontend-detailed.md) - รวม 6 stages (01-raw, 02-group, 03-pdf-label, 04-extract, 05-review, 06-upload) และ components ทั้งหมด
 
 ### Q4: Database มี table อะไรบ้าง?
-**A:** อ่าน [Database Schema](./STRUCTURE.md#database-schema)
+**A:** อ่าน [database-detailed.md](./database-detailed.md) - รวม 10 tables พร้อม ER diagram และ relations
+
+### Q4.1: API endpoints ทั้งหมดมีอะไรบ้าง?
+**A:** อ่าน [api-reference.md](./api-reference.md) - รวม 61 endpoints แบ่งตาม modules พร้อม Request/Response examples
 
 ### Q5: Logic การ auto label PDF ทำงานอย่างไร?
 **A:** อ่าน `auto-label.md` (ทั้งหมด)
 
 ### Q6: Templates จัดการอย่างไร?
-**A:** Templates เก็บใน Database (table `templates`) - ดู [Template Structure](./STRUCTURE.md#template-structure-database) และจัดการผ่าน `/templates` page
+**A:** Templates เก็บใน Database (table `templates`) - ดู [database-detailed.md](./database-detailed.md#4-templates-auto-label-configuration) และ [backend-detailed.md](./backend-detailed.md#7-templates-module), จัดการผ่าน `/templates` page
 
 ### Q7: Pattern matching ทำงานอย่างไร?
 **A:** อ่าน `auto-label.md` (ส่วน "Pattern Matching Strategy")
@@ -190,47 +433,75 @@
 ## 📚 ไฟล์เอกสารสำคัญ
 
 1. **STRUCTURE.md** ⭐ (อ่านก่อนทุกครั้ง)
-   - โครงสร้างโค้ด
-   - Backend/Frontend architecture
-   - Database schema
-   - Infrastructure
-   - Logic และ data flow
+   - **Navigation Hub** - บอกว่าถ้าจะทำอะไรให้ไปอ่านไฟล์ไหน
+   - Quick Start Guide
+   - Tech Stack Summary
+   - Workflow overview
 
-2. **auto-label.md** ⭐
+2. **backend-detailed.md** ⭐
+   - Backend modules ทั้งหมด (9 modules)
+   - Service Methods และ API Endpoints
+   - Background Task Patterns
+   - Authentication & Authorization
+
+3. **frontend-detailed.md** ⭐
+   - Frontend stages ทั้งหมด (6 stages)
+   - Components (Navbar, StageTabs, ThemeProvider, AuthGuard)
+   - UI/UX Patterns และ Styling System
+   - Keyboard Shortcuts
+   - Real-time Features (SSE)
+
+4. **database-detailed.md** ⭐
+   - Database Schema (10 tables)
+   - ER Diagram (ASCII + Mermaid)
+   - Relations & Foreign Keys
+   - CASCADE DELETE behavior
+   - Indexes และ Performance
+
+5. **api-reference.md** ⭐
+   - API Endpoints ทั้งหมด (61 endpoints)
+   - แยกตาม modules
+   - Request/Response format
+   - Quick Lookup Table
+
+6. **auto-label.md** ⭐
    - Logic การ auto label PDF (Stage 2)
    - Pattern matching algorithm (Exact Match)
    - Template structure และการทำงาน
    - AND/OR logic, Negative patterns
-   - ตัวอย่าง flow และ troubleshooting
+   - Context Rules
 
-3. **template-learning-task.md** ⭐ (สำหรับ Template Optimization)
-   - วิเคราะห์ manual labels และสร้าง/อัปเดต templates
-   - Pattern selection guidelines
-   - ตัวอย่างการวิเคราะห์ OCR text แบบละเอียด
-   - Safety checks และ testing workflow
-   - ใช้เมื่อ: user manual label แล้วต้องการให้ระบบเรียนรู้
-
-4. **parse-data.md**
+7. **parse-data.md**
    - Logic การ parse data จาก OCR (Stage 3)
    - ตราสาร (foundation instrument)
    - บัญชีรายชื่อกรรมการ (committee members)
 
-5. **task-runner.md**
+8. **task-runner.md**
    - Pattern สำหรับ Infinite Worker Loop
    - SSE Logging
 
-6. **CLAUDE.md** (ไฟล์นี้)
-   - กฎและแนวทางการทำงานสำหรับ Claude
+9. **template-learning-task.md** (สำหรับ Template Optimization)
+   - วิเคราะห์ manual labels และสร้าง/อัปเดต templates
+   - Pattern selection guidelines
+   - ตัวอย่างการวิเคราะห์ OCR text
+   - Safety checks และ testing workflow
+
+10. **CLAUDE.md** (ไฟล์นี้)
+    - กฎและแนวทางการทำงานสำหรับ Claude
 
 ---
 
 ## 🚫 สิ่งที่ห้ามทำ
 
 1. ❌ **ห้าม** เริ่มทำงานโดยไม่อ่าน STRUCTURE.md
-2. ❌ **ห้าม** แก้ไขโครงสร้างโดยไม่อัปเดต STRUCTURE.md
-3. ❌ **ห้าม** สร้าง module/page ใหม่โดยไม่บันทึกใน STRUCTURE.md
-4. ❌ **ห้าม** เปลี่ยน database schema โดยไม่อัปเดต STRUCTURE.md
-5. ❌ **ห้าม** แก้ไข auto label / pattern matching logic โดยไม่อัปเดต auto-label.md
+2. ❌ **ห้าม** แก้ไขโครงสร้างโดยไม่อัปเดตเอกสารที่เกี่ยวข้อง:
+   - Backend modules → อัปเดต backend-detailed.md
+   - Frontend pages/components → อัปเดต frontend-detailed.md
+   - Database schema → อัปเดต database-detailed.md
+   - API endpoints → อัปเดต api-reference.md
+3. ❌ **ห้าม** สร้าง module/page/table ใหม่โดยไม่บันทึกในเอกสารที่เกี่ยวข้อง
+4. ❌ **ห้าม** แก้ไข auto label / pattern matching logic โดยไม่อัปเดต auto-label.md
+5. ❌ **ห้าม** แก้ไข parse data logic โดยไม่อัปเดต parse-data.md
 
 ---
 
@@ -257,8 +528,15 @@
 3. อ้างอิงเอกสารเมื่อตอบคำถาม
 4. ใช้ TodoWrite เพื่อจัดการงาน
 5. ทดสอบก่อนส่งมอบ
+6. ใช้ Custom Agents ตาม workflow ที่กำหนด:
+   - Design tasks: ux-researcher → ui-designer → frontend-developer
+   - Backend tasks: backend-architect
+   - Bug fixes: debugger
+   - Research: ux-researcher (save to research/**/*.md)
 ```
 
-**จำไว้:** STRUCTURE.md คือแหล่งข้อมูลหลักของ project นี้
+**จำไว้:**
+- STRUCTURE.md คือแหล่งข้อมูลหลักของ project นี้
+- Custom Agents จะช่วยให้ทำงานมีประสิทธิภาพและเป็นระบบมากขึ้น
 
 ** งานนี้ ถ้าต้องใช้ sub agent หรือใช้ sub agent ได้ ให้ใช้เลย **

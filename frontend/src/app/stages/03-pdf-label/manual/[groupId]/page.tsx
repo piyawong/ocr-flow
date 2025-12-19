@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermission } from '@/hooks/usePermission';
+import { DocumentDateModal } from '@/components/DocumentDateModal';
 import {
   DndContext,
   closestCenter,
@@ -442,6 +443,25 @@ export default function ManualLabelPage() {
   const [tempRotations, setTempRotations] = useState<Record<number, number>>({}); // { groupedFileId: degrees }
   const [originalOrder, setOriginalOrder] = useState<number[]>([]); // Original page IDs order
 
+  // Document dates tracking (NEW!)
+  const [documentDates, setDocumentDates] = useState<Record<string, string | null>>({}); // key = `${documentId}_${templateName}`
+  const [documentDateModal, setDocumentDateModal] = useState<{
+    isOpen: boolean;
+    documentNumber: number;
+    templateName: string;
+    initialDate: string | null;
+  }>({
+    isOpen: false,
+    documentNumber: 0,
+    templateName: '',
+    initialDate: null,
+  });
+  const [pendingTemplateSelection, setPendingTemplateSelection] = useState<{
+    template: Template;
+    startPage: number;
+    endPage: number;
+  } | null>(null);
+
   const imageContainerRef = useRef<HTMLDivElement>(null);
   const pageListRef = useRef<HTMLDivElement>(null);
 
@@ -872,20 +892,70 @@ export default function ManualLabelPage() {
     }
   };
 
+  // Helper: Get next document number
+  const getNextDocumentNumber = (): number => {
+    // Check if selected pages already have documentId
+    const existingDocId = pages[startPage!]?.documentId;
+    if (existingDocId) {
+      return existingDocId;
+    }
+
+    // Find max documentId in current pages
+    const maxDocId = Math.max(0, ...pages.map(p => p.documentId || 0));
+    return maxDocId + 1;
+  };
+
   const handleTemplateSelect = (template: Template) => {
     if (startPage === null || endPage === null) return;
 
-    const pageCount = endPage - startPage + 1;
-    const isSingle = pageCount === 1;
+    // Get document number for this selection
+    const documentNumber = getNextDocumentNumber();
+    const key = `${documentNumber}_${template.name}`;
 
+    // Save pending selection
+    setPendingTemplateSelection({
+      template,
+      startPage,
+      endPage,
+    });
+
+    // Show date modal
+    setDocumentDateModal({
+      isOpen: true,
+      documentNumber,
+      templateName: template.name,
+      initialDate: documentDates[key] || null,
+    });
+
+    // Close template modal
+    setIsTemplateModalOpen(false);
+  };
+
+  // Handle document date confirmation
+  const handleDocumentDateConfirm = (date: string | null) => {
+    if (!pendingTemplateSelection) return;
+
+    const { template, startPage: start, endPage: end } = pendingTemplateSelection;
+    const pageCount = end - start + 1;
+    const isSingle = pageCount === 1;
+    const documentNumber = getNextDocumentNumber();
+
+    // Save document date
+    const key = `${documentNumber}_${template.name}`;
+    setDocumentDates(prev => ({
+      ...prev,
+      [key]: date,
+    }));
+
+    // Apply template to pages
     setPages(prev => prev.map((page, idx) => {
-      if (idx >= startPage && idx <= endPage) {
+      if (idx >= start && idx <= end) {
         let status: PageLabel['labelStatus'];
         if (isSingle) {
           status = 'single';
-        } else if (idx === startPage) {
+        } else if (idx === start) {
           status = 'start';
-        } else if (idx === endPage) {
+        } else if (idx === end) {
           status = 'end';
         } else {
           status = 'continue';
@@ -896,7 +966,8 @@ export default function ManualLabelPage() {
           templateName: template.name,
           category: template.category,
           labelStatus: status,
-          pageInDocument: idx - startPage + 1,
+          documentId: documentNumber,
+          pageInDocument: idx - start + 1,
           isModified: true,
         };
       }
@@ -904,9 +975,9 @@ export default function ManualLabelPage() {
     }));
 
     setHasUnsavedChanges(true);
-    setIsTemplateModalOpen(false);
     setStartPage(null);
     setEndPage(null);
+    setPendingTemplateSelection(null);
 
     // ✅ Don't auto-jump to next unmatched page - keep focus on current page
   };
@@ -973,8 +1044,18 @@ export default function ManualLabelPage() {
         );
       }
 
-      // 3. Save labels (existing logic)
-      if (modifiedPages.length > 0) {
+      // 3. Save labels (with document dates - NEW!)
+      if (modifiedPages.length > 0 || Object.keys(documentDates).length > 0) {
+        // Build documents array from documentDates state
+        const documentsPayload = Object.entries(documentDates).map(([key, date]) => {
+          const [docNum, templateName] = key.split('_');
+          return {
+            documentNumber: parseInt(docNum),
+            templateName: templateName,
+            documentDate: date, // "YYYY-MM-DD" or null
+          };
+        });
+
         const res = await fetch(`${API_URL}/labeled-files/group/${groupId}/pages`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -988,6 +1069,7 @@ export default function ManualLabelPage() {
               documentId: p.documentId,
               pageInDocument: p.pageInDocument,
             })),
+            documents: documentsPayload, // NEW: Send document dates
           }),
         });
 
@@ -2192,6 +2274,19 @@ export default function ManualLabelPage() {
           </div>
         );
       })()}
+
+      {/* Document Date Modal (NEW!) */}
+      <DocumentDateModal
+        isOpen={documentDateModal.isOpen}
+        onClose={() => {
+          setDocumentDateModal(prev => ({ ...prev, isOpen: false }));
+          setPendingTemplateSelection(null);
+        }}
+        onConfirm={handleDocumentDateConfirm}
+        documentNumber={documentDateModal.documentNumber}
+        templateName={documentDateModal.templateName}
+        initialDate={documentDateModal.initialDate}
+      />
 
       {/* Custom Scrollbar Styles */}
       <style jsx global>{`

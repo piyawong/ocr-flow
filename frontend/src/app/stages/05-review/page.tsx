@@ -73,7 +73,7 @@ export default function Stage05Review() {
   const totalGroups = groups.length;
   const pendingGroups = groups.filter(g => !g.isFinalApproved).length;
   const approvedGroups = groups.filter(g => g.isFinalApproved).length;
-  const approvalRate = totalGroups > 0 ? ((approvedGroups / totalGroups) * 100).toFixed(1) : '0';
+  const approvalRate = totalGroups > 0 ? (approvedGroups / totalGroups) * 100 : 0;
 
   // Permission check
   if (authLoading) {

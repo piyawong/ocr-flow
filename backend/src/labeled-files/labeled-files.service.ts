@@ -2,6 +2,7 @@ import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { LabeledFile, LabelStatus } from './labeled-file.entity';
+import { Document } from './document.entity';
 import { Group } from '../files/group.entity';
 import { MinioService } from '../minio/minio.service';
 import { TemplatesService } from '../templates/templates.service';
@@ -12,6 +13,8 @@ export class LabeledFilesService {
   constructor(
     @InjectRepository(LabeledFile)
     private labeledFileRepository: Repository<LabeledFile>,
+    @InjectRepository(Document)
+    private documentRepository: Repository<Document>,
     @InjectRepository(Group)
     private groupRepository: Repository<Group>,
     private minioService: MinioService,
@@ -48,6 +51,7 @@ export class LabeledFilesService {
     return this.labeledFileRepository.find({
       where: { groupId },
       order: { orderInGroup: 'ASC' },
+      relations: ['document'], // Include document relation
     });
   }
 
@@ -327,9 +331,15 @@ export class LabeledFilesService {
       documentId?: number;
       pageInDocument?: number;
     }[],
+    documentDates?: {
+      documentNumber: number; // Same as documentId
+      templateName: string;
+      documentDate: string | null; // "YYYY-MM-DD" or null
+    }[],
   ): Promise<{ updated: number }> {
     let updatedCount = 0;
 
+    // Step 1: Update labeled_files records
     for (const update of updates) {
       const result = await this.labeledFileRepository.update(
         { id: update.id, groupId },
@@ -347,6 +357,33 @@ export class LabeledFilesService {
       }
     }
 
+    // Step 2: Link labeled_files to documents table
+    await this.linkFilesToDocuments(groupId);
+
+    // Step 3: Update document dates if provided
+    if (documentDates && documentDates.length > 0) {
+      for (const docDate of documentDates) {
+        const doc = await this.createOrUpdateDocument({
+          groupId,
+          documentNumber: docDate.documentNumber,
+          templateName: docDate.templateName,
+          documentDate: docDate.documentDate ? new Date(docDate.documentDate) : null,
+        });
+
+        // Update documentTableId for all pages in this document
+        await this.labeledFileRepository.update(
+          {
+            groupId,
+            documentId: docDate.documentNumber,
+            templateName: docDate.templateName,
+          },
+          {
+            documentTableId: doc.id,
+          },
+        );
+      }
+    }
+
     return { updated: updatedCount };
   }
 
@@ -357,6 +394,141 @@ export class LabeledFilesService {
       name: t.name,
       category: t.category || '',
     }));
+  }
+
+  // ========================================================================
+  // DOCUMENT CRUD METHODS (NEW)
+  // ========================================================================
+
+  /**
+   * Create or update a document record
+   * Used when user manually labels pages
+   */
+  async createOrUpdateDocument(data: {
+    groupId: number;
+    documentNumber: number; // Same as old documentId
+    templateName: string;
+    category?: string;
+    documentDate?: Date | null;
+  }): Promise<Document> {
+    // Check if document already exists
+    const existing = await this.documentRepository.findOne({
+      where: {
+        groupId: data.groupId,
+        documentNumber: data.documentNumber,
+        templateName: data.templateName,
+      },
+    });
+
+    if (existing) {
+      // Update existing document
+      await this.documentRepository.update(existing.id, {
+        documentDate: data.documentDate,
+        category: data.category,
+      });
+      return this.documentRepository.findOne({ where: { id: existing.id } })!;
+    } else {
+      // Create new document
+      const doc = this.documentRepository.create({
+        groupId: data.groupId,
+        documentNumber: data.documentNumber,
+        templateName: data.templateName,
+        category: data.category,
+        documentDate: data.documentDate,
+        pageCount: 0, // Will be updated later
+      });
+      return this.documentRepository.save(doc);
+    }
+  }
+
+  /**
+   * Get all documents for a group (with page counts)
+   */
+  async getDocumentsByGroup(groupId: number): Promise<Document[]> {
+    const documents = await this.documentRepository.find({
+      where: { groupId },
+      order: { documentNumber: 'ASC' },
+      relations: ['pages'],
+    });
+
+    // Update page counts
+    for (const doc of documents) {
+      doc.pageCount = doc.pages?.length || 0;
+    }
+
+    return documents;
+  }
+
+  /**
+   * Update document date only
+   */
+  async updateDocumentDate(
+    documentId: number,
+    documentDate: Date | null,
+  ): Promise<Document> {
+    await this.documentRepository.update(documentId, { documentDate });
+    return this.documentRepository.findOne({ where: { id: documentId } })!;
+  }
+
+  /**
+   * Get document by ID
+   */
+  async getDocumentById(documentId: number): Promise<Document | null> {
+    return this.documentRepository.findOne({
+      where: { id: documentId },
+      relations: ['pages'],
+    });
+  }
+
+  /**
+   * Delete document (CASCADE will delete labeled_files.documentTableId references)
+   */
+  async deleteDocument(documentId: number): Promise<void> {
+    await this.documentRepository.delete(documentId);
+  }
+
+  /**
+   * Link labeled_files to documents after labeling
+   * This is called after creating labeled_files to set documentTableId
+   */
+  async linkFilesToDocuments(groupId: number): Promise<void> {
+    const files = await this.findByGroup(groupId);
+
+    for (const file of files) {
+      if (file.documentId && file.templateName && !file.documentTableId) {
+        // Find or create document
+        const doc = await this.createOrUpdateDocument({
+          groupId,
+          documentNumber: file.documentId,
+          templateName: file.templateName,
+          category: file.category,
+        });
+
+        // Link file to document
+        await this.labeledFileRepository.update(file.id, {
+          documentTableId: doc.id,
+        });
+      }
+    }
+
+    // Update page counts
+    await this.updateDocumentPageCounts(groupId);
+  }
+
+  /**
+   * Update page counts for all documents in a group
+   */
+  async updateDocumentPageCounts(groupId: number): Promise<void> {
+    const documents = await this.documentRepository.find({
+      where: { groupId },
+    });
+
+    for (const doc of documents) {
+      const pageCount = await this.labeledFileRepository.count({
+        where: { documentTableId: doc.id },
+      });
+      await this.documentRepository.update(doc.id, { pageCount });
+    }
   }
 
   // Mark all files in a group as reviewed by a user

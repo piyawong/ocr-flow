@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LabeledFile } from './labeled-file.entity';
+import { Document } from './document.entity';
 import { Group } from '../files/group.entity';
 import { LabeledFilesService } from './labeled-files.service';
 import { LabeledFilesController } from './labeled-files.controller';
@@ -10,7 +11,7 @@ import { ParseRunnerModule } from '../parse-runner/parse-runner.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([LabeledFile, Group]),
+    TypeOrmModule.forFeature([LabeledFile, Document, Group]),
     MinioModule,
     TemplatesModule,
     forwardRef(() => ParseRunnerModule),

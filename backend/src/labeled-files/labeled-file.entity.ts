@@ -7,6 +7,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { Group } from '../files/group.entity';
+import { Document } from './document.entity';
 
 export type LabelStatus = 'start' | 'continue' | 'end' | 'single' | 'unmatched';
 
@@ -50,12 +51,23 @@ export class LabeledFile {
   @Column({ type: 'text', nullable: true })
   matchReason: string;
 
-  // Document tracking
+  // Document tracking (OLD - keep for backward compatibility)
   @Column({ nullable: true })
-  documentId: number; // Which document this page belongs to (auto-increment per group)
+  documentId: number; // DEPRECATED: Use documentTableId instead
 
   @Column({ nullable: true })
   pageInDocument: number; // Page number within the document
+
+  // NEW: Reference to documents table
+  @Column({ nullable: true })
+  documentTableId: number;
+
+  @ManyToOne(() => Document, (document) => document.pages, {
+    nullable: true,
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'documentTableId' })
+  document: Document;
 
   // User review tracking
   @Column({ type: 'boolean', default: false })

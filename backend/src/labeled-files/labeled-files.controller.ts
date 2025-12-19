@@ -106,9 +106,18 @@ export class LabeledFilesController {
         documentId?: number;
         pageInDocument?: number;
       }[];
+      documents?: {
+        documentNumber: number;
+        templateName: string;
+        documentDate: string | null;
+      }[];
     },
   ) {
-    return this.labeledFilesService.updatePageLabels(groupId, body.updates);
+    return this.labeledFilesService.updatePageLabels(
+      groupId,
+      body.updates,
+      body.documents, // NEW: Pass document dates
+    );
   }
 
   // Mark all files in a group as reviewed by a user
