@@ -29,10 +29,10 @@
   --focus-ring: rgba(59, 130, 246, 0.3);
 
   /* Semantic Colors */
-  --accent: #3b82f6;
+  --accent: #2563eb;
   --accent-light: #eff6ff;
-  --accent-dark: #2563eb;
-  --accent-rgb: 59, 130, 246;
+  --accent-dark: #1d4ed8;
+  --accent-rgb: 37, 99, 235;
 
   --success: #22c55e;
   --success-light: #dcfce7;
