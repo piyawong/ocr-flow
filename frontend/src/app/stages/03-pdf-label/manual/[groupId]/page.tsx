@@ -2245,7 +2245,7 @@ export default function ManualLabelPage() {
 
               <div className="flex gap-4 mt-6">
                 <button
-                  className="flex-1 bg-border-color text-text-primary border-none px-6 py-3 rounded-lg text-[0.95rem] font-semibold cursor-pointer transition-all duration-200 hover:bg-accent hover:text-white"
+                  className="flex-1 bg-transparent text-text-primary border-2 border-border-color px-6 py-3 rounded-lg text-[0.95rem] font-semibold cursor-pointer transition-all duration-200 hover:bg-bg-tertiary hover:border-text-secondary"
                   onClick={() => {
                     setShowNotesModal(false);
                     setReviewNotes('');
@@ -2254,7 +2254,7 @@ export default function ManualLabelPage() {
                   Cancel
                 </button>
                 <button
-                  className="flex-1 bg-gradient-to-br from-accent to-[#2563eb] text-white border-none px-6 py-3 rounded-lg text-[0.95rem] font-semibold cursor-pointer transition-all duration-200 hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(59,130,246,0.3)]"
+                  className="flex-1 bg-gradient-to-br from-[#3b82f6] to-[#2563eb] text-white border-none px-6 py-3 rounded-lg text-[0.95rem] font-semibold cursor-pointer transition-all duration-200 shadow-[0_2px_8px_rgba(59,130,246,0.25)] hover:-translate-y-px hover:shadow-[0_4px_16px_rgba(59,130,246,0.4)]"
                   onClick={() => performSave(reviewNotes)}
                 >
                   {is100Matched ? 'Save & Mark as Reviewed' : 'Save'}

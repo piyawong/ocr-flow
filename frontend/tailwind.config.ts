@@ -12,6 +12,7 @@ const config: Config = {
   		colors: {
   			'bg-primary': 'var(--bg-primary)',
   			'bg-secondary': 'var(--bg-secondary)',
+  			'bg-tertiary': 'var(--bg-tertiary)',
   			'card-bg': 'var(--card-bg)',
   			'nav-bg': 'var(--nav-bg)',
   			'text-primary': 'var(--text-primary)',

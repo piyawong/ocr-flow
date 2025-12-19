@@ -11,6 +11,7 @@
   /* Background Colors */
   --bg-primary: #f8fafc;
   --bg-secondary: #f1f5f9;
+  --bg-tertiary: #e2e8f0;
   --card-bg: #ffffff;
   --nav-bg: #ffffff;
 
@@ -81,6 +82,7 @@
   /* Background Colors */
   --bg-primary: #0f172a;
   --bg-secondary: #1e293b;
+  --bg-tertiary: #334155;
   --card-bg: #1e293b;
   --nav-bg: #1e293b;
 
@@ -99,7 +101,10 @@
   --focus-ring: rgba(59, 130, 246, 0.4);
 
   /* Semantic Colors - adjusted for dark mode */
+  --accent: #3b82f6;
   --accent-light: #1e3a5f;
+  --accent-dark: #2563eb;
+  --accent-rgb: 59, 130, 246;
   --success-light: #14532d;
   --warning-light: #78350f;
   --danger-light: #7f1d1d;
