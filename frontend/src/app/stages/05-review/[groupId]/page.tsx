@@ -212,7 +212,7 @@ export default function FinalReviewDetailPage() {
           <p className="text-text-secondary mb-4">The requested group does not exist or is not ready for final review.</p>
           <button
             onClick={() => router.push('/stages/05-review')}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-accent to-purple-600 text-white font-medium text-sm"
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-700 text-white font-medium text-sm"
           >
             Back to List
           </button>
@@ -699,7 +699,7 @@ export default function FinalReviewDetailPage() {
           {isApproved && detail?.stage05?.finalReviewNotes && (
             <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm mt-6">
               <div className="flex items-center gap-3 mb-3">
-                <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
                 </svg>
                 <h3 className="font-semibold text-text-primary">Review Notes:</h3>
