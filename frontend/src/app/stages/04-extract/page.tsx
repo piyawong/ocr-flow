@@ -295,7 +295,7 @@ export default function Stage04Extract() {
                               e.stopPropagation();
                               router.push(`/stages/04-extract/${group.groupId}`);
                             }}
-                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-accent to-blue-600 text-white font-medium text-sm hover:shadow-lg hover:shadow-accent/25 transition-all duration-300"
+                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-700 text-white font-medium text-sm hover:from-blue-700 hover:to-purple-800 hover:shadow-lg transition-all duration-200 active:scale-[0.98]"
                           >
                             Review
                           </button>
