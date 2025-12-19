@@ -216,20 +216,20 @@ const SortablePageItem = React.memo(function SortablePageItem({
       className={`
         relative cursor-pointer transition-all duration-100 rounded-lg mb-1 overflow-hidden
         ${isSelected
-          ? 'bg-accent/30 ring-2 ring-accent ring-offset-1 ring-offset-card-bg shadow-lg shadow-accent/20'
+          ? 'bg-blue-500/20 dark:bg-blue-400/25 ring-[3px] ring-blue-500 dark:ring-blue-400 ring-offset-2 ring-offset-card-bg shadow-xl shadow-blue-500/30 dark:shadow-blue-400/20 scale-[1.02]'
           : 'hover:bg-hover-bg'}
         ${status === 'start-pending' ? 'bg-success/20 ring-2 ring-success' : ''}
         ${status === 'start' ? 'bg-success/30 ring-2 ring-success' : ''}
         ${status === 'end' ? 'bg-danger/30 ring-2 ring-danger' : ''}
-        ${status === 'middle' ? 'bg-accent/15' : ''}
+        ${status === 'middle' ? 'bg-blue-500/10 dark:bg-blue-400/10' : ''}
       `}
     >
       {sidebarCollapsed ? (
         <div className="p-2 flex items-center justify-center">
           <div className={`
-            w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center transition-all
+            w-8 h-8 rounded-lg text-sm font-bold flex items-center justify-center transition-all
             ${isSelected
-              ? 'bg-accent text-white shadow-md'
+              ? 'bg-blue-500 dark:bg-blue-400 text-white shadow-lg ring-2 ring-blue-500 dark:ring-blue-400 ring-offset-1 ring-offset-card-bg'
               : isMatched
                 ? 'bg-success text-white'
                 : 'bg-hover-bg text-text-secondary'}
@@ -263,9 +263,9 @@ const SortablePageItem = React.memo(function SortablePageItem({
               </div>
               {/* Page number */}
               <div className={`
-                flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold transition-all
+                flex items-center justify-center w-7 h-7 rounded-md text-xs font-bold transition-all
                 ${isSelected
-                  ? 'bg-accent text-white'
+                  ? 'bg-blue-500 dark:bg-blue-400 text-white shadow-md ring-1 ring-blue-400/50'
                   : 'bg-hover-bg text-text-secondary'}
               `}>
                 {idx + 1}
@@ -292,7 +292,7 @@ const SortablePageItem = React.memo(function SortablePageItem({
           <div className={`
             relative aspect-[3/4] rounded-md overflow-hidden mb-1.5 transition-all
             ${isSelected
-              ? 'ring-2 ring-accent shadow-md'
+              ? 'ring-2 ring-blue-500 dark:ring-blue-400 shadow-md'
               : isMatched
                 ? 'ring-1 ring-success/50'
                 : 'ring-1 ring-danger/30'}
@@ -1120,23 +1120,15 @@ export default function ManualLabelPage() {
   }, [isSaving, pages, tempRotations, originalOrder, groupId]);
 
   const handleSave = useCallback(() => {
-    const modifiedPages = pages.filter(p => p.isModified);
-    const hasRotations = Object.keys(tempRotations).length > 0;
-    const hasReorder = JSON.stringify(pages.map(p => p.id)) !== JSON.stringify(originalOrder);
-
-    if (modifiedPages.length === 0 && !hasRotations && !hasReorder) {
-      return;
-    }
-
     // ✅ Check if user is logged in before saving
     if (!user?.name) {
       alert('Please log in to save changes.');
       return;
     }
 
-    // ✅ Always show notes modal
+    // ✅ Always show notes modal (even without changes - acts as "approve")
     setShowNotesModal(true);
-  }, [pages, tempRotations, originalOrder, user]);
+  }, [user]);
 
   const handleBack = () => {
     if (hasUnsavedChanges) {
@@ -1341,11 +1333,11 @@ export default function ManualLabelPage() {
 
           <button
             onClick={handleSave}
-            disabled={!hasUnsavedChanges || isSaving}
+            disabled={isSaving}
             className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-2 ${
-              hasUnsavedChanges
-                ? 'bg-success text-white hover:bg-success/90 shadow-lg shadow-success/30'
-                : 'bg-hover-bg text-text-secondary cursor-not-allowed'
+              isSaving
+                ? 'bg-hover-bg text-text-secondary cursor-not-allowed'
+                : 'bg-success text-white hover:bg-success/90 shadow-lg shadow-success/30'
             }`}
           >
             {isSaving ? (
@@ -1353,15 +1345,13 @@ export default function ManualLabelPage() {
                 <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                 Saving...
               </>
-            ) : hasUnsavedChanges ? (
+            ) : (
               <>
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Save Changes
+                Save
               </>
-            ) : (
-              'Saved'
             )}
           </button>
         </div>
@@ -1428,16 +1418,16 @@ export default function ManualLabelPage() {
                   const tempRotation = tempRotations[activePage.groupedFileId] || 0;
 
                   return (
-                    <div className="bg-card-bg rounded-lg shadow-2xl border-2 border-accent p-2 w-44 opacity-90">
+                    <div className="bg-card-bg rounded-lg shadow-2xl border-2 border-blue-500 dark:border-blue-400 p-2 w-44 opacity-90">
                       <div className="flex items-center gap-2 mb-2">
-                        <div className="w-6 h-6 bg-accent text-white rounded-md text-xs font-bold flex items-center justify-center">
+                        <div className="w-6 h-6 bg-blue-500 dark:bg-blue-400 text-white rounded-md text-xs font-bold flex items-center justify-center">
                           {activeIdx + 1}
                         </div>
                         <div className="flex-1 text-xs font-medium text-text-primary truncate">
                           Dragging...
                         </div>
                       </div>
-                      <div className="aspect-[3/4] rounded-md overflow-hidden ring-2 ring-accent">
+                      <div className="aspect-[3/4] rounded-md overflow-hidden ring-2 ring-blue-500 dark:ring-blue-400">
                         <img
                           src={`${API_URL}/files/${activePage.groupedFileId}/preview?t=${imageCacheBuster}`}
                           alt="Dragging"
