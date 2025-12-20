@@ -330,6 +330,9 @@ export default function LogoCropperPage() {
         }, '*');
       }
 
+      // Wait a bit to ensure request is fully sent before closing
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       window.close();
     } catch (err: any) {
       console.error('Error saving logo:', err);

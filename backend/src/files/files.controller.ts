@@ -181,6 +181,7 @@ export class FilesController {
     return { message: 'Logo uploaded successfully', logoUrl };
   }
 
+  @Public()
   @Get('logo/:path(*)')
   async getLogo(@Param('path') path: string, @Res() res: Response) {
     try {
