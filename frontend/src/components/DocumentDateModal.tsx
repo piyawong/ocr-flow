@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { ThaiDatePicker } from './ThaiDatePicker';
 
 interface DocumentDateModalProps {
   isOpen: boolean;
@@ -64,13 +65,11 @@ export function DocumentDateModal({
           <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
             วันที่ของเอกสาร <span className="text-gray-400 text-xs">(ไม่บังคับ)</span>
           </label>
-          <input
-            type="date"
+          <ThaiDatePicker
             value={date}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={setDate}
             onKeyDown={handleKeyDown}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-            placeholder="YYYY-MM-DD"
+            placeholder="เลือกวันที่..."
             autoFocus
           />
           {date && (

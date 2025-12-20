@@ -5,6 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermission } from '@/hooks/usePermission';
 import { DocumentDateModal } from '@/components/DocumentDateModal';
+import { ThaiDatePicker } from '@/components/ThaiDatePicker';
+import { fetchWithAuth, API_URL } from '@/lib/api';
 import {
   DndContext,
   closestCenter,
@@ -72,7 +74,7 @@ interface DocumentWithMissingDate {
   pageCount: number;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
+// API_URL removed - using fetchWithAuth from @/lib/api instead
 
 // ⚠️ Note: This fuzzy matching is for CLIENT-SIDE OCR text search only (Manual Label UI)
 // It is NOT used in auto-label logic (backend uses Exact Match only)
@@ -209,7 +211,7 @@ const SortablePageItem = React.memo(function SortablePageItem({
     zIndex: isDragging ? 1000 : 'auto',
   };
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
+  // API_URL removed - using fetchWithAuth from @/lib/api instead
 
   const handleClick = (e: React.MouseEvent) => {
     // Don't trigger onClick if clicking on drag handle
@@ -730,9 +732,9 @@ export default function ManualLabelPage() {
       try {
         setLoading(true);
         const [filesRes, templatesRes, summaryRes] = await Promise.all([
-          fetch(`${API_URL}/labeled-files/group/${groupId}`),
-          fetch(`${API_URL}/labeled-files/templates`),
-          fetch(`${API_URL}/labeled-files/summary`),
+          fetchWithAuth(`/labeled-files/group/${groupId}`),
+          fetchWithAuth(`/labeled-files/templates`),
+          fetchWithAuth(`/labeled-files/summary`),
         ]);
 
         const files: LabeledFile[] = await filesRes.json();
@@ -996,8 +998,24 @@ export default function ManualLabelPage() {
 
   // Handle document date confirmation
   const handleDocumentDateConfirm = (date: string | null) => {
-    if (!pendingTemplateSelection) return;
+    // Case 1: Just editing existing document date (no template selection pending)
+    if (!pendingTemplateSelection) {
+      // Get current document info from modal state
+      const { documentNumber, templateName } = documentDateModal;
+      const key = `${documentNumber}_${templateName}`;
 
+      // Update document date only
+      setDocumentDates(prev => ({
+        ...prev,
+        [key]: date,
+      }));
+
+      setHasUnsavedChanges(true);
+      setDocumentDateModal(prev => ({ ...prev, isOpen: false }));
+      return;
+    }
+
+    // Case 2: Selecting new template + setting date (original flow)
     const { template, startPage: start, endPage: end } = pendingTemplateSelection;
     const pageCount = end - start + 1;
     const isSingle = pageCount === 1;
@@ -1063,9 +1081,8 @@ export default function ManualLabelPage() {
         for (const [fileIdStr, totalDegrees] of Object.entries(tempRotations)) {
           const fileId = parseInt(fileIdStr);
           if (totalDegrees !== 0) {
-            const res = await fetch(`${API_URL}/files/${fileId}/rotate`, {
+            const res = await fetchWithAuth(`/files/${fileId}/rotate`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ degrees: totalDegrees }),
             });
             if (!res.ok) {
@@ -1085,9 +1102,8 @@ export default function ManualLabelPage() {
           newOrder: index + 1,
         }));
 
-        const res = await fetch(`${API_URL}/files/group/${groupId}/reorder`, {
+        const res = await fetchWithAuth(`/files/group/${groupId}/reorder`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ reorderedFiles }),
         });
 
@@ -1119,9 +1135,8 @@ export default function ManualLabelPage() {
           };
         });
 
-        const res = await fetch(`${API_URL}/labeled-files/group/${groupId}/pages`, {
+        const res = await fetchWithAuth(`/labeled-files/group/${groupId}/pages`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             updates: modifiedPages.map(p => ({
               id: p.id,
@@ -1149,9 +1164,8 @@ export default function ManualLabelPage() {
       const is100Matched = matchedCount === totalCount;
 
       // Always save notes, but mark as reviewed only when 100% matched
-      const res = await fetch(`${API_URL}/labeled-files/group/${groupId}/mark-reviewed`, {
+      const res = await fetchWithAuth(`/labeled-files/group/${groupId}/mark-reviewed`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reviewer: reviewerName,
           notes: notes || null,
@@ -1872,13 +1886,38 @@ export default function ManualLabelPage() {
                         {currentPage.labelStatus}
                       </span>
                     </div>
+                    {/* Template Name with Edit Date Button */}
                     {currentPage.templateName && (
-                      <div className="text-sm text-text-primary">{currentPage.templateName}</div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-text-primary font-medium">{currentPage.templateName}</div>
+                          {currentPage.category && (
+                            <div className="text-xs text-text-secondary mt-1">{currentPage.category}</div>
+                          )}
+                        </div>
+                        {/* Edit Date Button */}
+                        {currentPage.documentId !== null && (
+                          <button
+                            onClick={() => {
+                              const dateKey = `${currentPage.documentId}_${currentPage.templateName}`;
+                              setDocumentDateModal({
+                                isOpen: true,
+                                documentNumber: currentPage.documentId!,
+                                templateName: currentPage.templateName!,
+                                initialDate: documentDates[dateKey] || null,
+                              });
+                            }}
+                            className="p-1.5 rounded-lg hover:bg-bg-tertiary transition-colors flex-shrink-0"
+                            title="Edit document date"
+                          >
+                            <svg className="w-4 h-4 text-text-secondary hover:text-accent transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
                     )}
-                    {currentPage.category && (
-                      <div className="text-xs text-text-secondary mt-1">{currentPage.category}</div>
-                    )}
-                    {/* Document Date */}
+                    {/* Document Date Display */}
                     {currentPage.documentId !== null && currentPage.templateName && (() => {
                       const dateKey = `${currentPage.documentId}_${currentPage.templateName}`;
                       const docDate = documentDates[dateKey];
@@ -2039,7 +2078,7 @@ export default function ManualLabelPage() {
                       onClick={async () => {
                         if (!confirm('Re-run auto-label for this group? This will reset all manual changes.')) return;
                         try {
-                          const res = await fetch(`${API_URL}/label-runner/relabel/${groupId}`, { method: 'POST' });
+                          const res = await fetchWithAuth(`/label-runner/relabel/${groupId}`, { method: 'POST' });
                           const data = await res.json();
                           if (data.success) {
                             alert(`Re-labeled: ${data.matched}/${data.total} pages matched`);
@@ -2307,33 +2346,29 @@ export default function ManualLabelPage() {
                               </p>
 
                               {/* Date Input */}
-                              <div className="relative">
-                                <input
-                                  type="date"
+                              <div className="space-y-2">
+                                <ThaiDatePicker
                                   value={currentDate}
-                                  onChange={(e) => {
+                                  onChange={(date) => {
                                     setDocumentDates(prev => ({
                                       ...prev,
-                                      [dateKey]: e.target.value || null,
+                                      [dateKey]: date || null,
                                     }));
                                   }}
-                                  placeholder="Select date..."
-                                  className="w-full px-2.5 py-1.5 text-xs text-text-primary bg-bg-primary border border-border-color rounded-md transition-all focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent-rgb),0.1)]"
+                                  placeholder="เลือกวันที่..."
                                 />
                                 {currentDate && (
                                   <button
+                                    type="button"
                                     onClick={() => {
                                       setDocumentDates(prev => ({
                                         ...prev,
                                         [dateKey]: null,
                                       }));
                                     }}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary hover:text-danger transition-colors"
-                                    title="Clear date"
+                                    className="text-[10px] text-text-secondary hover:text-danger transition-colors underline"
                                   >
-                                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
+                                    ล้างวันที่
                                   </button>
                                 )}
                               </div>

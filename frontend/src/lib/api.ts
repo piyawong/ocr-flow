@@ -1,5 +1,8 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
 
+// Export API_BASE_URL for use in image src and other URL constructions
+export const API_URL = API_BASE_URL;
+
 // Token storage keys
 const ACCESS_TOKEN_KEY = 'ocr-flow-access-token';
 
