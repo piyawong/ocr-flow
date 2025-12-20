@@ -1,5 +1,6 @@
 'use client';
 
+import { fetchWithAuth } from '@/lib/api';
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -44,7 +45,7 @@ export default function Stage05Review() {
   const fetchGroups = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/files/final-review-groups?status=${statusFilter}`);
+      const res = await fetchWithAuth(`/files/final-review-groups?status=${statusFilter}`);
       const data = await res.json();
       setGroups(data.groups || []);
     } catch (err) {

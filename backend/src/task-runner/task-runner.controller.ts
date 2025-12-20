@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Sse, MessageEvent } from '@nestjs/common';
 import { Observable, map } from 'rxjs';
+import { Public } from '../auth/decorators/public.decorator';
 import { TaskRunnerService } from './task-runner.service';
 
 @Controller('task-runner')
@@ -49,6 +50,7 @@ export class TaskRunnerController {
     return { message: 'Task stopped' };
   }
 
+  @Public()
   @Sse('logs')
   streamLogs(): Observable<MessageEvent> {
     return this.taskRunnerService.getLogObservable().pipe(

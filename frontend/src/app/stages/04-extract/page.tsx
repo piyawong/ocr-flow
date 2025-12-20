@@ -1,5 +1,6 @@
 'use client';
 
+import { fetchWithAuth } from '@/lib/api';
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -27,7 +28,7 @@ export default function Stage04Extract() {
   const fetchGroups = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/files/parsed-groups`);
+      const res = await fetchWithAuth(`/files/parsed-groups`);
       const data = await res.json();
       setGroups(data.groups || []);
     } catch (err) {

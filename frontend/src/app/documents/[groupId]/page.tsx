@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { fetchWithAuth } from '@/lib/api';
 import ImageViewer from '@/components/ImageViewer';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
@@ -39,7 +40,7 @@ export default function GroupDocumentsPage() {
     const fetchLabeledFiles = async () => {
       try {
         setLoading(true);
-        const res = await fetch(`${API_URL}/labeled-files/group/${groupId}`);
+        const res = await fetchWithAuth(`/labeled-files/group/${groupId}`);
         if (!res.ok) {
           throw new Error('Failed to fetch labeled files');
         }

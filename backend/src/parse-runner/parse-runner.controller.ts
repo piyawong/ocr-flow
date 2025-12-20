@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Sse, MessageEvent, Param, Query, ParseIntPipe } from '@nestjs/common';
 import { Observable, map } from 'rxjs';
+import { Public } from '../auth/decorators/public.decorator';
 import { ParseRunnerService } from './parse-runner.service';
 
 @Controller('parse-runner')
@@ -59,6 +60,7 @@ export class ParseRunnerController {
     return result;
   }
 
+  @Public()
   @Sse('logs')
   streamLogs(): Observable<MessageEvent> {
     return this.parseRunnerService.getLogObservable().pipe(

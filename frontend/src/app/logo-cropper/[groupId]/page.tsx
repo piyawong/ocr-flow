@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { fetchWithAuth } from '@/lib/api';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
 
@@ -59,7 +60,7 @@ export default function LogoCropperPage() {
     const fetchLabeledFiles = async () => {
       try {
         setLoading(true);
-        const res = await fetch(`${API_URL}/labeled-files/group/${groupId}`);
+        const res = await fetchWithAuth(`/labeled-files/group/${groupId}`);
         if (!res.ok) throw new Error('Failed to fetch labeled files');
         const data = await res.json();
         const sortedFiles = (data || []).sort((a: any, b: any) => a.orderInGroup - b.orderInGroup);

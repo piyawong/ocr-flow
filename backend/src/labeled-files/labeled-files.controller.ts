@@ -1,5 +1,6 @@
 import { Controller, Get, Param, ParseIntPipe, Post, Patch, Body, Res, NotFoundException, Query } from '@nestjs/common';
 import { Response } from 'express';
+import { Public } from '../auth/decorators/public.decorator';
 import { LabeledFilesService } from './labeled-files.service';
 import { LabelStatus } from './labeled-file.entity';
 
@@ -65,6 +66,7 @@ export class LabeledFilesController {
   }
 
   // Preview a labeled file by ID
+  @Public()
   @Get(':id/preview')
   async getPreview(
     @Param('id', ParseIntPipe) id: number,

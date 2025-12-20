@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { LogMessage } from '@/components/shared/Terminal';
 import { NumberTicker } from '@/components/ui/number-ticker';
+import { fetchWithAuth } from '@/lib/api';
 import { BlurFade } from '@/components/ui/blur-fade';
 import { StageBadge } from '@/components/shared/StageBadge';
 
@@ -120,7 +121,7 @@ export default function Stage03PdfLabel() {
     try {
       // Fetch summary with isParseData flag
       const includeReviewed = reviewFilter === 'all';
-      const res = await fetch(`${API_URL}/labeled-files/summary?includeReviewed=${includeReviewed}`);
+      const res = await fetchWithAuth(`/labeled-files/summary?includeReviewed=${includeReviewed}`);
       const data: GroupSummary[] = await res.json();
 
       // Filter: show only groups that are NOT yet parsed (isParseData = false or undefined)
@@ -137,7 +138,7 @@ export default function Stage03PdfLabel() {
 
   const fetchLogsHistory = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/label-runner/logs-history`);
+      const res = await fetchWithAuth(`/label-runner/logs-history`);
       const data = await res.json();
       setLogs(data.logs || []);
     } catch (err) {
@@ -195,7 +196,7 @@ export default function Stage03PdfLabel() {
 
   const startTask = async () => {
     try {
-      await fetch(`${API_URL}/label-runner/start`, { method: 'POST' });
+      await fetchWithAuth(`/label-runner/start`, { method: 'POST' });
       setTaskRunning(true);
       connectToLogs();
     } catch (err) {
@@ -205,7 +206,7 @@ export default function Stage03PdfLabel() {
 
   const stopTask = async () => {
     try {
-      await fetch(`${API_URL}/label-runner/stop`, { method: 'POST' });
+      await fetchWithAuth(`/label-runner/stop`, { method: 'POST' });
       setTaskRunning(false);
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -218,7 +219,7 @@ export default function Stage03PdfLabel() {
 
   const clearLogs = async () => {
     try {
-      await fetch(`${API_URL}/label-runner/clear-logs`, { method: 'POST' });
+      await fetchWithAuth(`/label-runner/clear-logs`, { method: 'POST' });
       setLogs([]);
     } catch (err) {
       console.error('Error clearing logs:', err);
@@ -259,8 +260,8 @@ export default function Stage03PdfLabel() {
   const handleGroupClick = async (group: GroupSummary) => {
     try {
       const [filesRes, summaryRes] = await Promise.all([
-        fetch(`${API_URL}/labeled-files/group/${group.groupId}`),
-        fetch(`${API_URL}/labeled-files/group/${group.groupId}/summary`),
+        fetchWithAuth(`/labeled-files/group/${group.groupId}`),
+        fetchWithAuth(`/labeled-files/group/${group.groupId}/summary`),
       ]);
 
       const files: LabeledFile[] = await filesRes.json();
@@ -313,8 +314,8 @@ export default function Stage03PdfLabel() {
   const handleRevertAll = async () => {
     setReverting(true);
     try {
-      await fetch(`${API_URL}/labeled-files/clear`, { method: 'POST' });
-      await fetch(`${API_URL}/label-runner/clear-logs`, { method: 'POST' });
+      await fetchWithAuth(`/labeled-files/clear`, { method: 'POST' });
+      await fetchWithAuth(`/label-runner/clear-logs`, { method: 'POST' });
       setShowRevertConfirm(false);
       fetchGroups();
     } catch (err) {

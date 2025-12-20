@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { fetchWithAuth } from '@/lib/api';
 
 interface ContextRules {
   requirePreviousCategory?: string;
@@ -71,7 +72,7 @@ export default function TemplatesPage() {
 
   const fetchTemplates = async () => {
     try {
-      const res = await fetch(`${API_URL}/templates`);
+      const res = await fetchWithAuth(`/templates`);
       if (!res.ok) throw new Error('Failed to fetch templates');
       const data = await res.json();
       setTemplates(data);
@@ -147,12 +148,11 @@ export default function TemplatesPage() {
         contextRules,
       };
 
-      const url = editingId ? `${API_URL}/templates/${editingId}` : `${API_URL}/templates`;
+      const url = editingId ? `/templates/${editingId}` : `/templates`;
       const method = editingId ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await fetchWithAuth(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
 
@@ -172,7 +172,7 @@ export default function TemplatesPage() {
 
   const handleDelete = async (id: number) => {
     try {
-      const res = await fetch(`${API_URL}/templates/${id}`, { method: 'DELETE' });
+      const res = await fetchWithAuth(`/templates/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete');
       setDeleteId(null);
       fetchTemplates();
@@ -183,7 +183,7 @@ export default function TemplatesPage() {
 
   const handleToggleActive = async (id: number) => {
     try {
-      const res = await fetch(`${API_URL}/templates/${id}/toggle`, { method: 'POST' });
+      const res = await fetchWithAuth(`/templates/${id}/toggle`, { method: 'POST' });
       if (!res.ok) throw new Error('Failed to toggle');
       fetchTemplates();
     } catch (err: any) {

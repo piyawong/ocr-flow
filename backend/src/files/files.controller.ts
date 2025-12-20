@@ -17,6 +17,7 @@ import {
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { Observable, map } from 'rxjs';
+import { Public } from '../auth/decorators/public.decorator';
 import { FilesService } from './files.service';
 
 @Controller('files')
@@ -63,6 +64,7 @@ export class FilesController {
     };
   }
 
+  @Public()
   @Get(':id/preview')
   async getPreview(
     @Param('id', ParseIntPipe) id: number,
@@ -264,6 +266,7 @@ export class FilesController {
     };
   }
 
+  @Public()
   @Sse('events')
   streamEvents(): Observable<MessageEvent> {
     return this.filesService.getEventObservable().pipe(

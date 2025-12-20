@@ -11,6 +11,7 @@ import { StageBadge } from '@/components/shared/StageBadge';
 
 interface GroupedFile {
   id: number;
+import { fetchWithAuth } from '@/lib/api';
   groupId: number;
   orderInGroup: number;
   originalRawFileId: number;
@@ -86,7 +87,7 @@ export default function Stage02Group() {
   const fetchLabeledStats = useCallback(async (updateGroups: boolean = false) => {
     try {
       // Fetch groups metadata (isComplete, isAutoLabeled)
-      const metadataRes = await fetch(`${API_URL}/files/groups-metadata`);
+      const metadataRes = await fetchWithAuth(`/files/groups-metadata`);
       const metadataData = await metadataRes.json();
       const groupsMetadata = new Map<number, GroupMetadata>();
       (metadataData.groups || []).forEach((g: GroupMetadata) => {
@@ -112,7 +113,7 @@ export default function Stage02Group() {
       }
 
       // Fetch labeled files for stats
-      const res = await fetch(`${API_URL}/labeled-files`);
+      const res = await fetchWithAuth(`/labeled-files`);
       const data = await res.json();
 
       if (!data.files || data.files.length === 0) {
@@ -165,7 +166,7 @@ export default function Stage02Group() {
       const shouldShowLabeled = showLabeled !== undefined ? showLabeled : showLabeledGroups;
 
       // Fetch only group metadata (no files)
-      const res = await fetch(`${API_URL}/files/groups-metadata`);
+      const res = await fetchWithAuth(`/files/groups-metadata`);
       const data = await res.json();
       const groupsMetadata: GroupMetadata[] = data.groups || [];
 
@@ -422,7 +423,7 @@ export default function Stage02Group() {
 
   const fetchLogsHistory = async () => {
     try {
-      const res = await fetch(`${API_URL}/label-runner/logs-history`);
+      const res = await fetchWithAuth(`/label-runner/logs-history`);
       const data = await res.json();
       if (data.logs && data.logs.length > 0) {
         setLogs(data.logs);
@@ -454,7 +455,7 @@ export default function Stage02Group() {
           connectToLogs();
           setTimeout(async () => {
             try {
-              await fetch(`${API_URL}/label-runner/start`, { method: 'POST' });
+              await fetchWithAuth(`/label-runner/start`, { method: 'POST' });
             } catch (err) {
               console.error('Error auto-starting task:', err);
               setTaskRunning(false);
@@ -474,7 +475,7 @@ export default function Stage02Group() {
     connectToLogs();
 
     try {
-      await fetch(`${API_URL}/label-runner/start`, { method: 'POST' });
+      await fetchWithAuth(`/label-runner/start`, { method: 'POST' });
     } catch (err) {
       console.error('Error starting task:', err);
       setTaskRunning(false);
@@ -483,7 +484,7 @@ export default function Stage02Group() {
 
   const handleStopTask = async () => {
     try {
-      await fetch(`${API_URL}/label-runner/stop`, { method: 'POST' });
+      await fetchWithAuth(`/label-runner/stop`, { method: 'POST' });
       setTaskRunning(false);
     } catch (err) {
       console.error('Error stopping task:', err);
@@ -519,7 +520,7 @@ export default function Stage02Group() {
       setTaskRunning(true);
       connectToLogs();
       try {
-        await fetch(`${API_URL}/label-runner/start`, { method: 'POST' });
+        await fetchWithAuth(`/label-runner/start`, { method: 'POST' });
       } catch (err) {
         console.error('Error starting task:', err);
         setTaskRunning(false);
@@ -529,7 +530,7 @@ export default function Stage02Group() {
 
   const handleClearLogs = async () => {
     try {
-      await fetch(`${API_URL}/label-runner/clear-logs`, { method: 'POST' });
+      await fetchWithAuth(`/label-runner/clear-logs`, { method: 'POST' });
       setLogs([]);
     } catch (err) {
       console.error('Error clearing logs:', err);
@@ -551,7 +552,7 @@ export default function Stage02Group() {
     // Lazy load files if not already loaded
     if (group.files.length === 0 && group.fileCount > 0) {
       try {
-        const res = await fetch(`${API_URL}/files/group/${group.groupId}`);
+        const res = await fetchWithAuth(`/files/group/${group.groupId}`);
         const data = await res.json();
 
         // Update group with loaded files
@@ -601,9 +602,9 @@ export default function Stage02Group() {
     setReverting(true);
     try {
       // Clear both files grouping AND labeled_files to maintain consistency
-      await fetch(`${API_URL}/files/clear-grouping`, { method: 'POST' });
-      await fetch(`${API_URL}/labeled-files/clear`, { method: 'POST' });
-      await fetch(`${API_URL}/label-runner/clear-logs`, { method: 'POST' });
+      await fetchWithAuth(`/files/clear-grouping`, { method: 'POST' });
+      await fetchWithAuth(`/labeled-files/clear`, { method: 'POST' });
+      await fetchWithAuth(`/label-runner/clear-logs`, { method: 'POST' });
       setShowRevertConfirm(false);
       fetchGroups();
       setLogs([]);
@@ -618,8 +619,8 @@ export default function Stage02Group() {
   const handleResetProgress = async () => {
     setResetting(true);
     try {
-      await fetch(`${API_URL}/labeled-files/clear`, { method: 'POST' });
-      await fetch(`${API_URL}/label-runner/clear-logs`, { method: 'POST' });
+      await fetchWithAuth(`/labeled-files/clear`, { method: 'POST' });
+      await fetchWithAuth(`/label-runner/clear-logs`, { method: 'POST' });
       setShowResetConfirm(false);
       fetchGroups();
       setLogs([]);

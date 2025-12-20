@@ -11,6 +11,7 @@ import { Pagination } from '@/components/shared/Pagination';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { BlurFade } from '@/components/ui/blur-fade';
 import { StageBadge } from '@/components/shared/StageBadge';
+import { fetchWithAuth } from '@/lib/api';
 
 interface RawFile {
   id: number;
@@ -92,7 +93,7 @@ export default function Stage01Raw() {
         sortOrder: 'ASC',
         processed: viewMode === 'progress' ? 'false' : 'all', // Progress mode = show only pending
       });
-      const res = await fetch(`${API_URL}/files?${params}`);
+      const res = await fetchWithAuth(`/files?${params}`);
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
@@ -104,8 +105,8 @@ export default function Stage01Raw() {
 
       // Always fetch processed/pending counts for Status Card
       try {
-        const processedRes = await fetch(`${API_URL}/files?${new URLSearchParams({ processed: 'true', limit: '1', page: '1' })}`);
-        const pendingRes = await fetch(`${API_URL}/files?${new URLSearchParams({ processed: 'false', limit: '1', page: '1' })}`);
+        const processedRes = await fetchWithAuth(`/files?${new URLSearchParams({ processed: 'true', limit: '1', page: '1' })}`);
+        const pendingRes = await fetchWithAuth(`/files?${new URLSearchParams({ processed: 'false', limit: '1', page: '1' })}`);
 
         if (processedRes.ok && pendingRes.ok) {
           const processedData = await processedRes.json();
@@ -300,7 +301,7 @@ export default function Stage01Raw() {
 
     // Start the task
     try {
-      const response = await fetch(`${API_URL}/task-runner/start`, { method: 'POST' });
+      const response = await fetchWithAuth(`/task-runner/start`, { method: 'POST' });
       const data = await response.json();
 
       // If backend says already running, just connect to existing task
@@ -332,7 +333,7 @@ export default function Stage01Raw() {
 
   const fetchLogsHistory = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/task-runner/logs-history`);
+      const res = await fetchWithAuth(`/task-runner/logs-history`);
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
@@ -452,7 +453,7 @@ export default function Stage01Raw() {
     });
 
     try {
-      const response = await fetch(`${API_URL}/files/upload`, {
+      const response = await fetchWithAuth(`/files/upload`, {
         method: 'POST',
         body: formData,
       });
@@ -555,7 +556,7 @@ export default function Stage01Raw() {
 
   const handleDelete = async (id: number) => {
     try {
-      await fetch(`${API_URL}/files/${id}`, { method: 'DELETE' });
+      await fetchWithAuth(`/files/${id}`, { method: 'DELETE' });
       fetchFiles();
     } catch (err) {
       console.error('Error deleting:', err);
@@ -640,7 +641,7 @@ export default function Stage01Raw() {
 
     // Check backend status before starting
     try {
-      const statusRes = await fetch(`${API_URL}/task-runner/status`);
+      const statusRes = await fetchWithAuth(`/task-runner/status`);
       const statusData = await statusRes.json();
 
       if (statusData.isRunning) {
@@ -688,12 +689,12 @@ export default function Stage01Raw() {
       }
 
       // Send stop request
-      await fetch(`${API_URL}/task-runner/stop`, { method: 'POST' });
+      await fetchWithAuth(`/task-runner/stop`, { method: 'POST' });
 
       // Wait a bit and verify backend stopped
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      const statusRes = await fetch(`${API_URL}/task-runner/status`);
+      const statusRes = await fetchWithAuth(`/task-runner/status`);
       const statusData = await statusRes.json();
 
       if (statusData.isRunning) {
@@ -707,7 +708,7 @@ export default function Stage01Raw() {
         // Wait for backend to actually stop (max 5 seconds)
         for (let i = 0; i < 10; i++) {
           await new Promise(resolve => setTimeout(resolve, 500));
-          const checkRes = await fetch(`${API_URL}/task-runner/status`);
+          const checkRes = await fetchWithAuth(`/task-runner/status`);
           const checkData = await checkRes.json();
 
           if (!checkData.isRunning) {
@@ -727,8 +728,8 @@ export default function Stage01Raw() {
   const handleRemoveAll = async () => {
     setRemoving(true);
     try {
-      await fetch(`${API_URL}/files/clear`, { method: 'POST' });
-      await fetch(`${API_URL}/task-runner/clear-logs`, { method: 'POST' });
+      await fetchWithAuth(`/files/clear`, { method: 'POST' });
+      await fetchWithAuth(`/task-runner/clear-logs`, { method: 'POST' });
       setShowRemoveConfirm(false);
       fetchFiles();
       setLogs([]);
@@ -743,7 +744,7 @@ export default function Stage01Raw() {
   const handleResetProgress = async () => {
     setResetting(true);
     try {
-      await fetch(`${API_URL}/files/reset-processed`, { method: 'POST' });
+      await fetchWithAuth(`/files/reset-processed`, { method: 'POST' });
       setShowResetConfirm(false);
       fetchFiles();
       setError(null);

@@ -1,6 +1,6 @@
 # OCR Flow v2 - Backend Architecture (รายละเอียด)
 
-> **อัปเดตล่าสุด:** 2025-12-19
+> **อัปเดตล่าสุด:** 2025-12-20 (เพิ่ม Global Auth Guard + @Public() สำหรับ SSE endpoints)
 > **วัตถุประสงค์:** เอกสารรายละเอียดสถาปัตยกรรม Backend สำหรับนักพัฒนา
 
 ---
@@ -211,7 +211,7 @@ export class Group {
 |--------|----------|-------------|------|
 | POST | `/files/upload` | อัพโหลดไฟล์ (images/PDFs) | Yes |
 | GET | `/files` | ดึงรายการไฟล์ทั้งหมด (pagination, sorting, filtering) | Yes |
-| GET | `/files/:id/preview` | ดูตัวอย่างไฟล์ | Yes |
+| GET | `/files/:id/preview` | ดูตัวอย่างไฟล์ | No (Public) |
 | POST | `/files/:id/rotate` | Rotate รูปภาพ 90° | Yes |
 | DELETE | `/files/:id` | ลบไฟล์ | Yes |
 | POST | `/files/clear` | ลบไฟล์ทั้งหมด | Yes |
@@ -269,7 +269,7 @@ interface GetFilesQuery {
 | GET | `/files/group/:groupId` | ดึงไฟล์ของ group ที่ระบุ | Yes |
 | PUT | `/files/group/:groupId/reorder` | เปลี่ยนลำดับไฟล์ใน group | Yes |
 | POST | `/files/clear-grouping` | ลบการจัดกลุ่มทั้งหมด (CASCADE DELETE) | Yes |
-| SSE | `/files/events` | รับ events แบบ real-time | Yes |
+| SSE | `/files/events` | รับ events แบบ real-time | No (Public) |
 
 ##### GET /files/groups-metadata - Response
 
@@ -567,7 +567,7 @@ class LabeledFilesService {
 | GET | `/task-runner/status` | ตรวจสอบสถานะ task | Yes |
 | GET | `/task-runner/logs-history` | ดึง log history | Yes |
 | POST | `/task-runner/clear-logs` | ลบ logs | Yes |
-| SSE | `/task-runner/logs` | รับ logs แบบ real-time | Yes |
+| SSE | `/task-runner/logs` | รับ logs แบบ real-time | No (Public) |
 
 ### Worker Loop Logic
 
@@ -661,7 +661,7 @@ class TaskRunnerService {
 | GET | `/label-runner/status` | ตรวจสอบสถานะ task | Yes |
 | GET | `/label-runner/logs-history` | ดึง log history | Yes |
 | POST | `/label-runner/clear-logs` | ลบ logs | Yes |
-| SSE | `/label-runner/logs` | รับ logs แบบ real-time | Yes |
+| SSE | `/label-runner/logs` | รับ logs แบบ real-time | No (Public) |
 
 ### Worker Loop Logic
 
@@ -768,7 +768,7 @@ type LabelEvent = 'LOG' | 'GROUP_PROCESSED' | 'STATUS_CHANGE';
 | GET | `/parse-runner/status` | ตรวจสอบสถานะ task | Yes |
 | GET | `/parse-runner/logs-history` | ดึง log history | Yes |
 | POST | `/parse-runner/clear-logs` | ลบ logs | Yes |
-| SSE | `/parse-runner/logs` | รับ logs แบบ real-time | Yes |
+| SSE | `/parse-runner/logs` | รับ logs แบบ real-time | No (Public) |
 
 ### Worker Loop Logic
 
@@ -1163,12 +1163,60 @@ enum UserRole {
 
 ### Guards
 
-#### JwtAuthGuard
+**Global Authentication:**
+- ✅ **JwtAuthGuard** ถูกติดตั้งเป็น **Global Guard** (APP_GUARD) ใน `app.module.ts`
+- ✅ **ทุก endpoints** ต้อง authentication ตามค่าเริ่มต้น
+- ✅ ใช้ `@Public()` decorator สำหรับ endpoints ที่ไม่ต้องการ auth
+
+**Public Endpoints (ใช้ @Public() decorator):**
+- `/auth/login`, `/auth/register`, `/auth/init-admin` - Authentication endpoints
+- **SSE Endpoints** - Server-Sent Events (EventSource API ไม่รองรับ custom headers):
+  - `/task-runner/logs` - OCR task logs
+  - `/label-runner/logs` - Auto-label logs
+  - `/parse-runner/logs` - Parse data logs
+  - `/files/events` - File processing events
+- **Preview Endpoints** - Image/PDF previews (HTML `<img>` tag ไม่รองรับ custom headers):
+  - `/files/:id/preview` - Raw file preview
+  - `/labeled-files/:id/preview` - Labeled file preview
+
+**Note:** SSE และ Preview endpoints ใช้ `@Public()` เพราะ browser EventSource และ `<img>` tag ไม่สามารถส่ง Authorization header ได้ แต่ frontend มี route guard อยู่แล้ว
+
+#### JwtAuthGuard (Global)
 ```typescript
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
-  // Validate JWT token
+  constructor(private reflector: Reflector) {
+    super();
+  }
+
+  canActivate(context: ExecutionContext) {
+    // Check if route is marked as public
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    if (isPublic) {
+      return true; // Skip auth for @Public() routes
+    }
+
+    return super.canActivate(context); // Validate JWT token
+  }
 }
+```
+
+**Configuration (app.module.ts):**
+```typescript
+@Module({
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard, // ← Global guard
+    },
+  ],
+})
+export class AppModule {}
 ```
 
 #### RolesGuard

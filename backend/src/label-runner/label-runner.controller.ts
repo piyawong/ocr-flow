@@ -1,4 +1,5 @@
 import { Controller, Post, Get, Param, ParseIntPipe, Sse } from '@nestjs/common';
+import { Public } from '../auth/decorators/public.decorator';
 import { LabelRunnerService } from './label-runner.service';
 import { Observable, map } from 'rxjs';
 
@@ -60,6 +61,7 @@ export class LabelRunnerController {
     return { message: 'Templates reloaded' };
   }
 
+  @Public()
   @Sse('logs')
   streamLogs(): Observable<MessageEvent> {
     return this.labelRunnerService.getLogObservable().pipe(
