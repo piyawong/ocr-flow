@@ -8,10 +8,10 @@ import { LogMessage } from '@/components/shared/Terminal';
 import { NumberTicker } from '@/components/ui/number-ticker';
 import { BlurFade } from '@/components/ui/blur-fade';
 import { StageBadge } from '@/components/shared/StageBadge';
+import { fetchWithAuth } from '@/lib/api';
 
 interface GroupedFile {
   id: number;
-import { fetchWithAuth } from '@/lib/api';
   groupId: number;
   orderInGroup: number;
   originalRawFileId: number;
