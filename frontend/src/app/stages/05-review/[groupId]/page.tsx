@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermission } from '@/hooks/usePermission';
+import { fetchWithAuth } from '@/lib/api';
 import Image from 'next/image';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
@@ -83,7 +84,7 @@ export default function FinalReviewDetailPage() {
     const fetchDetail = async () => {
       try {
         setLoading(true);
-        const res = await fetch(`${API_URL}/files/final-review-groups/${groupId}`);
+        const res = await fetchWithAuth(`/files/final-review-groups/${groupId}`);
         const data = await res.json();
         console.log('📊 Final Review Group Detail:', data);
         console.log('  - Stage 03 files:', data?.stage03?.labeledFiles?.length || 0);
@@ -108,9 +109,8 @@ export default function FinalReviewDetailPage() {
 
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_URL}/files/final-review-groups/${groupId}/approve`, {
+      const res = await fetchWithAuth(`/files/final-review-groups/${groupId}/approve`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reviewerName: user.name,
           notes: notes || undefined,
@@ -123,7 +123,7 @@ export default function FinalReviewDetailPage() {
       }
 
       // Refresh data
-      const updatedRes = await fetch(`${API_URL}/files/final-review-groups/${groupId}`);
+      const updatedRes = await fetchWithAuth(`/files/final-review-groups/${groupId}`);
       const updatedData = await updatedRes.json();
       setDetail(updatedData);
 

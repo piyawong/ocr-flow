@@ -36,8 +36,11 @@ export async function fetchWithAuth(
 ): Promise<Response> {
   const token = getAccessToken();
 
+  // Don't set Content-Type for FormData - browser will set it automatically with boundary
+  const isFormData = options.body instanceof FormData;
+
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    ...(!isFormData && { 'Content-Type': 'application/json' }),
     ...options.headers,
   };
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { fetchWithAuth } from '@/lib/api';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
 
@@ -9,7 +10,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState({ rawFiles: 0 });
 
   useEffect(() => {
-    fetch(`${API_URL}/files`)
+    fetchWithAuth('/files')
       .then((res) => res.json())
       .then((data) => setStats({ rawFiles: data.count }))
       .catch(console.error);

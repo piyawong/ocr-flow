@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermission } from '@/hooks/usePermission';
+import { fetchWithAuth } from '@/lib/api';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
 
@@ -224,7 +225,7 @@ export default function GroupDetailPage() {
     const fetchGroupDetail = async () => {
       try {
         setLoading(true);
-        const res = await fetch(`${API_URL}/files/parsed-group/${groupId}`);
+        const res = await fetchWithAuth(`/files/parsed-group/${groupId}`);
         if (!res.ok) {
           throw new Error('Failed to fetch group detail');
         }
@@ -274,7 +275,7 @@ export default function GroupDetailPage() {
 
     setReParsing(true);
     try {
-      const res = await fetch(`${API_URL}/parse-runner/parse/${groupId}?force=true`, {
+      const res = await fetchWithAuth(`/parse-runner/parse/${groupId}?force=true`, {
         method: 'POST',
       });
 
@@ -336,9 +337,8 @@ export default function GroupDetailPage() {
 
     try {
       // Step 1: Save edited data first
-      const saveRes = await fetch(`${API_URL}/files/parsed-group/${groupId}/update`, {
+      const saveRes = await fetchWithAuth(`/files/parsed-group/${groupId}/update`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           foundationInstrument: editedFoundation,
           committeeMembers: editedMembers,
@@ -353,9 +353,8 @@ export default function GroupDetailPage() {
       }
 
       // Step 2: Mark as reviewed
-      const reviewRes = await fetch(`${API_URL}/files/parsed-group/${groupId}/mark-reviewed`, {
+      const reviewRes = await fetchWithAuth(`/files/parsed-group/${groupId}/mark-reviewed`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reviewer, notes: saveNotes || undefined }),
       });
 

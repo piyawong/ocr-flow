@@ -36,8 +36,8 @@ function ReviewContent() {
 
     const fetchFiles = async () => {
       try {
-        const res = await fetch(
-          `${API}/labeled-files/group/${groupId}/by-template?name=${encodeURIComponent(template)}`
+        const res = await fetchWithAuth(
+          `/labeled-files/group/${groupId}/by-template?name=${encodeURIComponent(template)}`
         );
         if (!res.ok) throw new Error('Failed to fetch files');
         const data = await res.json();

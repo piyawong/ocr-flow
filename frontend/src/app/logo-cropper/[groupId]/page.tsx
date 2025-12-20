@@ -300,9 +300,8 @@ export default function LogoCropperPage() {
 
     setSaving(true);
     try {
-      const res = await fetch(`${API_URL}/files/parsed-group/${groupId}/upload-logo`, {
+      const res = await fetchWithAuth(`/files/parsed-group/${groupId}/upload-logo`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageData: croppedPreview }),
       });
 
