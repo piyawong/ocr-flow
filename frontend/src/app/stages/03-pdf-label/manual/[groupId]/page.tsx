@@ -41,6 +41,7 @@ interface LabeledFile {
   matchReason: string;
   documentId: number | null;
   pageInDocument: number | null;
+  documentDate: string | null;
 }
 
 interface Template {
@@ -411,6 +412,96 @@ const SortablePageItem = React.memo(function SortablePageItem({
   );
 });
 
+/**
+ * Convert page labels to document ranges
+ * Extracts document ranges from labeled pages
+ */
+function convertPagesToDocuments(
+  pages: PageLabel[],
+  documentDates: Record<string, string | null>
+): Array<{
+  templateName: string;
+  category: string;
+  startPage: number;
+  endPage: number;
+  documentDate?: string | null;
+}> {
+  const documentRanges: Array<{
+    templateName: string;
+    category: string;
+    startPage: number;
+    endPage: number;
+    documentDate?: string | null;
+  }> = [];
+
+  let currentDoc: {
+    templateName: string;
+    category: string;
+    startPage: number;
+    endPage: number;
+    documentNumber: number;
+  } | null = null;
+
+  pages.forEach((page, idx) => {
+    if (page.labelStatus === 'start' || page.labelStatus === 'single') {
+      // Close previous document
+      if (currentDoc) {
+        const dateKey = `${currentDoc.documentNumber}_${currentDoc.templateName}`;
+        documentRanges.push({
+          ...currentDoc,
+          documentDate: documentDates[dateKey] || null,
+        });
+      }
+
+      // Start new document
+      currentDoc = {
+        templateName: page.templateName!,
+        category: page.category || '',
+        startPage: page.orderInGroup,
+        endPage: page.orderInGroup,
+        documentNumber: page.documentId || 0,
+      };
+
+      // Single page document -> close immediately
+      if (page.labelStatus === 'single') {
+        const dateKey = `${currentDoc.documentNumber}_${currentDoc.templateName}`;
+        documentRanges.push({
+          ...currentDoc,
+          documentDate: documentDates[dateKey] || null,
+        });
+        currentDoc = null;
+      }
+    } else if (page.labelStatus === 'continue' || page.labelStatus === 'end') {
+      // Extend current document
+      if (currentDoc) {
+        currentDoc.endPage = page.orderInGroup;
+
+        // End page -> close document
+        if (page.labelStatus === 'end') {
+          const dateKey = `${currentDoc.documentNumber}_${currentDoc.templateName}`;
+          documentRanges.push({
+            ...currentDoc,
+            documentDate: documentDates[dateKey] || null,
+          });
+          currentDoc = null;
+        }
+      }
+    }
+    // unmatched pages are not included in documents
+  });
+
+  // Close any remaining open document (shouldn't happen normally)
+  if (currentDoc) {
+    const dateKey = `${currentDoc.documentNumber}_${currentDoc.templateName}`;
+    documentRanges.push({
+      ...currentDoc,
+      documentDate: documentDates[dateKey] || null,
+    });
+  }
+
+  return documentRanges;
+}
+
 // Find all matches in text
 function findAllMatches(text: string, pattern: string, threshold: number = 75): Array<{ start: number; end: number; score: number; matchedText: string }> {
   if (!pattern || pattern.length < 2 || !text) return [];
@@ -765,6 +856,22 @@ export default function ManualLabelPage() {
           pageInDocument: f.pageInDocument,
           isModified: false,
         }));
+
+        // Extract document dates from response
+        const dates: Record<string, string | null> = {};
+        files.forEach(f => {
+          if (f.documentId !== null && f.templateName) {
+            const key = `${f.documentId}_${f.templateName}`;
+            if (f.documentDate) {
+              console.log(`📅 Found date for ${key}:`, f.documentDate);
+              dates[key] = f.documentDate;
+            } else {
+              console.log(`⚠️ No date for ${key}`);
+            }
+          }
+        });
+        console.log('📅 Final documentDates:', dates);
+        setDocumentDates(dates);
 
         setPages(pagesData);
         setOriginalOrder(pagesData.map(p => p.id)); // Save original order
@@ -1123,36 +1230,20 @@ export default function ManualLabelPage() {
         );
       }
 
-      // 3. Save labels (with document dates - NEW!)
+      // 3. ✅ NEW: Save labels as documents (document-based)
       if (modifiedPages.length > 0 || Object.keys(documentDates).length > 0) {
-        // Build documents array from documentDates state
-        const documentsPayload = Object.entries(documentDates).map(([key, date]) => {
-          const [docNum, templateName] = key.split('_');
-          return {
-            documentNumber: parseInt(docNum),
-            templateName: templateName,
-            documentDate: date, // "YYYY-MM-DD" or null
-          };
-        });
+        // Convert page labels to document ranges
+        const documentRanges = convertPagesToDocuments(pages, documentDates);
 
-        const res = await fetchWithAuth(`/labeled-files/group/${groupId}/pages`, {
-          method: 'PATCH',
+        const res = await fetchWithAuth(`/labeled-files/group/${groupId}/documents`, {
+          method: 'POST',
           body: JSON.stringify({
-            updates: modifiedPages.map(p => ({
-              id: p.id,
-              templateName: p.templateName,
-              category: p.category,
-              labelStatus: p.labelStatus,
-              matchReason: 'manual',
-              documentId: p.documentId,
-              pageInDocument: p.pageInDocument,
-            })),
-            documents: documentsPayload, // NEW: Send document dates
+            documents: documentRanges,
           }),
         });
 
         if (!res.ok) {
-          throw new Error('Failed to save labels');
+          throw new Error('Failed to save documents');
         }
 
         setPages(prev => prev.map(p => ({ ...p, isModified: false })));
@@ -1194,7 +1285,7 @@ export default function ManualLabelPage() {
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, pages, tempRotations, originalOrder, groupId]);
+  }, [isSaving, pages, tempRotations, originalOrder, groupId, documentDates, user]);
 
   // Get all labeled documents (for Documents tab)
   const getLabeledDocuments = useCallback(() => {
