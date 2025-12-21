@@ -26,15 +26,15 @@
 
 ### กลไกหลัก
 ```
-OCR Text → Normalize → Pattern Match → Label Status → Database (labeled_files)
+OCR Text → Normalize → Pattern Match → Document Ranges → Database (documents table)
 ```
 
-### สถานะที่เป็นไปได้
-- `start` - หน้าแรกของเอกสารหลายหน้า
-- `continue` - หน้ากลางของเอกสาร
-- `end` - หน้าสุดท้ายของเอกสาร
-- `single` - เอกสารหน้าเดียว
-- `unmatched` - ไม่เจอ template ที่ตรงกัน
+> **✅ Storage:** ผลลัพธ์ถูกเก็บใน `documents` table (ไม่ใช่ labeled_files แล้ว)
+
+### Document Types
+- **Single-page document** - เอกสาร 1 หน้า (startPage = endPage)
+- **Multi-page document** - เอกสารหลายหน้า (startPage < endPage)
+- **Unmatched pages** - หน้าที่ไม่ match template ใดๆ (ไม่สร้าง document record)
 
 ---
 

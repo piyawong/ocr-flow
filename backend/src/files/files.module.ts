@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { File } from './file.entity';
 import { Group } from './group.entity';
-import { LabeledFile } from '../labeled-files/labeled-file.entity';
 import { FoundationInstrument } from './foundation-instrument.entity';
 import { CharterSection } from './charter-section.entity';
 import { CharterArticle } from './charter-article.entity';
@@ -17,7 +16,6 @@ import { MinioModule } from '../minio/minio.module';
     TypeOrmModule.forFeature([
       File,
       Group,
-      LabeledFile,
       FoundationInstrument,
       CharterSection,
       CharterArticle,

@@ -5,11 +5,9 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
-  OneToMany,
   JoinColumn,
 } from 'typeorm';
 import { Group } from '../files/group.entity';
-import { LabeledFile } from './labeled-file.entity';
 
 @Entity('documents')
 export class Document {
@@ -38,13 +36,27 @@ export class Document {
   @Column({ default: 0 })
   pageCount: number; // จำนวนหน้าทั้งหมดของ document นี้
 
+  @Column({ nullable: true })
+  startPage: number; // หน้าแรกของ document (orderInGroup)
+
+  @Column({ nullable: true })
+  endPage: number; // หน้าสุดท้ายของ document (orderInGroup)
+
+  // Review tracking
+  @Column({ type: 'boolean', default: false })
+  isUserReviewed: boolean; // User reviewed this document?
+
+  @Column({ nullable: true })
+  reviewer: string; // Name of the reviewer
+
+  @Column({ type: 'text', nullable: true })
+  reviewNotes: string; // Review notes for this document
+
   @CreateDateColumn()
   createdAt: Date;
 
   @UpdateDateColumn()
   updatedAt: Date;
 
-  // Relation to labeled_files (one document has many pages)
-  @OneToMany(() => LabeledFile, (file) => file.document)
-  pages: LabeledFile[];
+  // NOTE: pages are computed dynamically from files table using startPage/endPage
 }

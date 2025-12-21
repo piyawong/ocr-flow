@@ -1,7 +1,7 @@
 # Database Schema - รายละเอียดฉบับสมบูรณ์
 
 > **สำหรับ:** OCR Flow v2 Database Documentation
-> **อัปเดตล่าสุด:** 2025-12-19
+> **อัปเดตล่าสุด:** 2025-12-21
 
 ---
 
@@ -13,7 +13,7 @@
    - [0. users - Authentication](#0-users---authentication)
    - [1. files - Upload + Grouping](#1-files---upload--grouping)
    - [2. groups - Metadata + Status Tracking](#2-groups---metadata--status-tracking)
-   - [3. labeled_files - Label Results](#3-labeled_files---label-results)
+   - [3. documents - Label Results (Main)](#3-documents---labeled-documents-main-label-storage)
    - [4. templates - Auto Label Configuration](#4-templates---auto-label-configuration)
    - [5. foundation_instruments - ตราสารมูลนิธิ](#5-foundation_instruments---ตราสารมูลนิธิ)
    - [6. charter_sections - หมวดของตราสาร](#6-charter_sections---หมวดของตราสาร)
@@ -40,7 +40,7 @@
 - **หมวดหมู่:**
   - **Authentication:** 1 ตาราง (users)
   - **File Management:** 2 ตาราง (files, groups)
-  - **Labeling:** 2 ตาราง (labeled_files, templates)
+  - **Labeling:** 2 ตาราง (documents, templates)
   - **Parsed Data:** 5 ตาราง (foundation_instruments, charter_sections, charter_articles, charter_sub_items, committee_members)
 
 ---
@@ -124,24 +124,23 @@
             │                │                   │
             ▼                ▼                   │
 ┌──────────────────┐  ┌─────────────────────┐   │
-│ labeled_files    │  │ foundation_instr... │   │
+│ documents        │  │ foundation_instr... │   │
 ├──────────────────┤  ├─────────────────────┤   │
 │ id (PK)          │  │ id (PK)             │   │
 │ group_id (FK)    │  │ group_id (FK,UNIQUE)│   │
-│ order_in_group   │  │ name                │   │
-│ grouped_file_id  │  │ short_name          │   │
-│ original_name    │  │ address             │   │
-│ storage_path     │  │ logo_description    │   │
-│ ocr_text         │  └─────────────────────┘   │
-│ template_name    │              │              │
-│ category         │              │              │
-│ label_status     │              ▼              │
-│ match_reason     │  ┌─────────────────────┐   │
-│ document_id      │  │  charter_sections   │   │
-│ page_in_document │  ├─────────────────────┤   │
-│ is_user_reviewed │  │ id (PK)             │   │
-│ reviewer         │  │ foundation_instr... │   │
-└──────────────────┘  │ number              │   │
+│ document_number  │  │ name                │   │
+│ template_name    │  │ short_name          │   │
+│ category         │  │ address             │   │
+│ document_date    │  │ logo_description    │   │
+│ start_page       │  └─────────────────────┘   │
+│ end_page         │              │              │
+│ page_count       │              ▼              │
+│ is_user_reviewed │  ┌─────────────────────┐   │
+│ reviewer         │  │  charter_sections   │   │
+│ review_notes     │  ├─────────────────────┤   │
+└──────────────────┘  │ id (PK)             │   │
+                      │ foundation_instr... │   │
+                      │ number              │   │
                       │ title               │   │
                       │ order_index         │   │
                       └─────────────────────┘   │
@@ -250,23 +249,21 @@ erDiagram
         timestamp updated_at
     }
 
-    labeled_files {
+    documents {
         int id PK
         int group_id FK
-        int order_in_group
-        int grouped_file_id
-        varchar original_name
-        varchar storage_path
-        text ocr_text
+        int document_number
         varchar template_name
         varchar category
-        varchar label_status
-        text match_reason
-        int document_id
-        int page_in_document
+        date document_date
+        int start_page
+        int end_page
+        int page_count
         boolean is_user_reviewed
         varchar reviewer
+        text review_notes
         timestamp created_at
+        timestamp updated_at
     }
 
     templates {
@@ -332,7 +329,7 @@ erDiagram
     }
 
     files ||--o{ groups : "group_id"
-    groups ||--o{ labeled_files : "group_id (CASCADE)"
+    groups ||--o{ documents : "group_id (CASCADE)"
     groups ||--|| foundation_instruments : "group_id (CASCADE, UNIQUE)"
     groups ||--o{ committee_members : "group_id (CASCADE)"
     foundation_instruments ||--o{ charter_sections : "foundation_instrument_id (CASCADE)"
@@ -564,7 +561,7 @@ Stage 05: Final Approval
 
 **Relations:**
 - OneToMany → `files` (ผ่าน `files.group_id`)
-- OneToMany → `labeled_files` (CASCADE DELETE)
+- OneToMany → `documents` (CASCADE DELETE)
 - OneToOne → `foundation_instruments` (CASCADE DELETE)
 - OneToMany → `committee_members` (CASCADE DELETE)
 
@@ -576,37 +573,39 @@ Stage 05: Final Approval
 
 ---
 
-### 3. labeled_files - Label Results
+### 3. documents - Labeled Documents (Main Label Storage)
 
-**วัตถุประสงค์:** เก็บผลลัพธ์จากการ label ไฟล์แต่ละไฟล์ (Stage 03)
+**วัตถุประสงค์:** เก็บ label หลักของเอกสารที่ถูก auto-label (แทน labeled_files)
+
+> **✅ สำคัญ:** ตารางนี้คือที่เก็บ label หลักของระบบ แทนที่ labeled_files pattern เก่า
 
 **SQL Schema:**
 ```sql
-CREATE TABLE labeled_files (
+CREATE TABLE documents (
   id SERIAL PRIMARY KEY,
   group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-  order_in_group INTEGER NOT NULL,
-  grouped_file_id INTEGER NOT NULL,
-  original_name VARCHAR(255) NOT NULL,
-  storage_path VARCHAR(500) NOT NULL,
-  ocr_text TEXT NULL,
+  document_number INTEGER NOT NULL,  -- Auto-increment per group (1, 2, 3, ...)
 
-  -- Label results
+  -- Label information
   template_name VARCHAR(255) NULL,
   category VARCHAR(255) NULL,
-  label_status VARCHAR(50) DEFAULT 'unmatched',  -- 'start' | 'continue' | 'end' | 'single' | 'unmatched'
-  match_reason TEXT NULL,
+  document_date DATE NULL,           -- วันที่เอกสาร (parsed from content)
 
-  -- Document tracking
-  document_id INTEGER NULL,
-  page_in_document INTEGER NULL,
+  -- Page range in group
+  start_page INTEGER NULL,           -- หน้าแรกของเอกสาร (1-based)
+  end_page INTEGER NULL,             -- หน้าสุดท้ายของเอกสาร (1-based)
+  page_count INTEGER NOT NULL DEFAULT 0,
 
   -- User review tracking
   is_user_reviewed BOOLEAN DEFAULT FALSE,
   reviewer VARCHAR(255) NULL,
+  review_notes TEXT NULL,
 
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE INDEX idx_documents_group_id ON documents(group_id);
 ```
 
 **ฟิลด์สำคัญ:**
@@ -614,50 +613,35 @@ CREATE TABLE labeled_files (
 | ฟิลด์ | ประเภท | คำอธิบาย | Constraints |
 |------|--------|---------|-------------|
 | `id` | SERIAL | Primary key | PRIMARY KEY |
-| `group_id` | INTEGER | Foreign key to groups | NOT NULL, REFERENCES groups(id) ON DELETE CASCADE |
-| `order_in_group` | INTEGER | ลำดับของไฟล์ใน group | NOT NULL |
-| `grouped_file_id` | INTEGER | ID ของไฟล์ใน files table | NOT NULL |
-| `original_name` | VARCHAR(255) | ชื่อไฟล์ต้นฉบับ | NOT NULL |
-| `storage_path` | VARCHAR(500) | Path ใน MinIO | NOT NULL |
-| `ocr_text` | TEXT | ข้อความจาก OCR | NULL |
-| `template_name` | VARCHAR(255) | ชื่อ template ที่ match | NULL |
+| `groupId` | INTEGER | Foreign key to groups | NOT NULL, REFERENCES groups(id) ON DELETE CASCADE |
+| `documentNumber` | INTEGER | เลขที่เอกสารใน group (1, 2, 3, ...) | NOT NULL |
+| `templateName` | VARCHAR(255) | ชื่อ template ที่ match | NULL |
 | `category` | VARCHAR(255) | หมวดหมู่ของเอกสาร | NULL |
-| `label_status` | VARCHAR(50) | สถานะการ match | DEFAULT 'unmatched' |
-| `match_reason` | TEXT | เหตุผลที่ match/unmatch | NULL |
-| `document_id` | INTEGER | ID ของเอกสาร (auto-increment ต่อ group) | NULL |
-| `page_in_document` | INTEGER | หน้าที่ของไฟล์นี้ในเอกสาร | NULL |
-| `is_user_reviewed` | BOOLEAN | User review label นี้แล้วหรือยัง | DEFAULT FALSE |
-| `reviewer` | VARCHAR(255) | ชื่อหรือ ID ของผู้ review | NULL |
-| `created_at` | TIMESTAMP | วันที่สร้าง | DEFAULT NOW() |
+| `documentDate` | DATE | วันที่เอกสาร (parsed) | NULL |
+| `startPage` | INTEGER | หน้าแรกของเอกสาร (1-based) | NULL |
+| `endPage` | INTEGER | หน้าสุดท้ายของเอกสาร | NULL |
+| `pageCount` | INTEGER | จำนวนหน้าทั้งหมด | NOT NULL, DEFAULT 0 |
+| `isUserReviewed` | BOOLEAN | User review แล้วหรือยัง | DEFAULT FALSE |
+| `reviewer` | VARCHAR(255) | ชื่อผู้ review | NULL |
+| `reviewNotes` | TEXT | หมายเหตุจากการ review | NULL |
 
-**Label Status:**
+**ตัวอย่างข้อมูล:**
 
-| Status | คำอธิบาย |
-|--------|---------|
-| `start` | หน้าแรกของเอกสารหลายหน้า |
-| `continue` | หน้ากลางของเอกสารหลายหน้า |
-| `end` | หน้าสุดท้ายของเอกสารหลายหน้า |
-| `single` | เอกสารหน้าเดียว |
-| `unmatched` | ไม่ match template ใดๆ |
-
-**Document ID Logic:**
-- `document_id` เป็น auto-increment ต่อ group
-- ตัวอย่าง: Group 1 มี 3 เอกสาร → document_id = 1, 2, 3
-- `page_in_document` นับจาก 1 (หน้าแรก = 1, หน้าที่ 2 = 2, ...)
+| id | groupId | documentNumber | templateName | startPage | endPage | pageCount |
+|----|---------|----------------|--------------|-----------|---------|-----------|
+| 1  | 1       | 1              | ตราสาร        | 1         | 7       | 7         |
+| 2  | 1       | 2              | บัญชีรายชื่อกรรมการ | 8  | 8       | 1         |
+| 3  | 1       | 3              | ขออนุญาตจดทะเบียน | 9    | 10      | 2         |
 
 **CASCADE DELETE:**
-- ⚠️ เมื่อ delete group → labeled_files ที่เกี่ยวข้องจะถูก delete อัตโนมัติ
-- ไม่จำเป็นต้องเรียก `POST /labeled-files/clear` ก่อน
-- Database จะดูแล referential integrity โดยอัตโนมัติ
+- ⚠️ เมื่อ delete group → documents จะถูก delete อัตโนมัติ
 
 **Relations:**
-- `group_id` → `groups.id` (Many-to-One, CASCADE DELETE)
+- `groupId` → `groups.id` (Many-to-One, CASCADE DELETE)
 
 **Indexes:**
 - Primary Key: `id`
 - Index: `group_id` (for faster joins)
-- Index: `label_status` (for filtering by status)
-- Index: `is_user_reviewed` (for filtering reviewed/unreviewed)
 
 ---
 
@@ -989,7 +973,7 @@ CREATE TABLE committee_members (
 | ตาราง | Foreign Key | อ้างอิง | ประเภท | Cascade |
 |-------|------------|---------|--------|---------|
 | `files` | `group_id` | `groups.id` | Many-to-One | ❌ |
-| `labeled_files` | `group_id` | `groups.id` | Many-to-One | ✅ CASCADE DELETE |
+| `documents` | `group_id` | `groups.id` | Many-to-One | ✅ CASCADE DELETE |
 | `foundation_instruments` | `group_id` | `groups.id` | One-to-One | ✅ CASCADE DELETE |
 | `committee_members` | `group_id` | `groups.id` | Many-to-One | ✅ CASCADE DELETE |
 | `charter_sections` | `foundation_instrument_id` | `foundation_instruments.id` | Many-to-One | ✅ CASCADE DELETE |
@@ -1001,7 +985,7 @@ CREATE TABLE committee_members (
 ```
 groups (1)
 ├─────> files (N) - No CASCADE
-├─────> labeled_files (N) - CASCADE DELETE
+├─────> documents (N) - CASCADE DELETE
 ├─────> foundation_instruments (1) - CASCADE DELETE
 │       └─────> charter_sections (N) - CASCADE DELETE
 │               └─────> charter_articles (N) - CASCADE DELETE
@@ -1016,7 +1000,7 @@ groups (1)
 ### ⚠️ CASCADE DELETE Behavior
 
 **1. DELETE groups → CASCADE:**
-- ✅ `labeled_files` ทั้งหมดจะถูก delete อัตโนมัติ
+- ✅ `documents` ทั้งหมดจะถูก delete อัตโนมัติ
 - ✅ `foundation_instruments` จะถูก delete อัตโนมัติ
   - ✅ `charter_sections` → `charter_articles` → `charter_sub_items` จะถูก delete ตามไปด้วย
 - ✅ `committee_members` ทั้งหมดจะถูก delete อัตโนมัติ
@@ -1041,7 +1025,7 @@ groups (1)
 ```
 1. DELETE FROM groups; (ลบทุก groups)
    │
-   ├─> CASCADE DELETE → labeled_files (ทุกรายการ)
+   ├─> CASCADE DELETE → documents (ทุกรายการ)
    ├─> CASCADE DELETE → foundation_instruments
    │   └─> CASCADE DELETE → charter_sections
    │       └─> CASCADE DELETE → charter_articles
@@ -1059,7 +1043,6 @@ groups (1)
 ```
 
 **⚠️ สิ่งสำคัญ:**
-- ไม่จำเป็นต้องเรียก `POST /labeled-files/clear` ก่อน
 - Database จะดูแล referential integrity โดยอัตโนมัติ
 - Files ยังคงอยู่ใน MinIO (ไม่ถูกลบ)
 
@@ -1086,9 +1069,8 @@ groups (1)
 | `groups` | `is_complete` | Filter incomplete groups |
 | `groups` | `is_auto_labeled` | Filter labeled groups |
 | `groups` | `is_final_approved` | Filter approved groups |
-| `labeled_files` | `group_id` | Faster joins with groups |
-| `labeled_files` | `label_status` | Filter by status |
-| `labeled_files` | `is_user_reviewed` | Filter reviewed/unreviewed |
+| `documents` | `group_id` | Faster joins with groups |
+| `documents` | `is_user_reviewed` | Filter reviewed/unreviewed |
 | `templates` | `is_active` | Filter active templates |
 | `templates` | `sort_order` | Sorting templates |
 | `charter_sections` | `foundation_instrument_id` | Faster joins |
@@ -1112,10 +1094,9 @@ CREATE INDEX idx_groups_is_complete ON groups(is_complete);
 CREATE INDEX idx_groups_is_auto_labeled ON groups(is_auto_labeled);
 CREATE INDEX idx_groups_is_final_approved ON groups(is_final_approved);
 
--- labeled_files
-CREATE INDEX idx_labeled_files_group_id ON labeled_files(group_id);
-CREATE INDEX idx_labeled_files_label_status ON labeled_files(label_status);
-CREATE INDEX idx_labeled_files_is_user_reviewed ON labeled_files(is_user_reviewed);
+-- documents
+CREATE INDEX idx_documents_group_id ON documents(group_id);
+CREATE INDEX idx_documents_is_user_reviewed ON documents(is_user_reviewed);
 
 -- templates
 CREATE INDEX idx_templates_is_active ON templates(is_active);
@@ -1149,7 +1130,7 @@ CREATE INDEX idx_committee_members_order_index ON committee_members(order_index)
 | `users` | 8 | - | - |
 | `files` | 13 | 1 FK | ❌ |
 | `groups` | 21 | - | - |
-| `labeled_files` | 15 | 1 FK | ✅ |
+| `documents` | 13 | 1 FK | ✅ |
 | `templates` | 12 | - | - |
 | `foundation_instruments` | 7 | 1 FK | ✅ |
 | `charter_sections` | 5 | 1 FK | ✅ |
@@ -1166,5 +1147,5 @@ CREATE INDEX idx_committee_members_order_index ON committee_members(order_index)
 ---
 
 **สร้างโดย:** OCR Flow Development Team
-**อัปเดตล่าสุด:** 2025-12-19
+**อัปเดตล่าสุด:** 2025-12-21
 **เวอร์ชัน:** 2.0

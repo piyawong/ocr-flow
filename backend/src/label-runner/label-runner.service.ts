@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ReplaySubject } from 'rxjs';
 import { FilesService } from '../files/files.service';
 import { LabeledFilesService } from '../labeled-files/labeled-files.service';
-import { LabelStatus } from '../labeled-files/labeled-file.entity';
+import { LabelStatus } from '../labeled-files/types';
 import { TemplatesService } from '../templates/templates.service';
 import {
   Template,
@@ -138,16 +138,14 @@ export class LabelRunnerService {
       // 2. Re-process the group
       await this.processGroup(groupId);
 
-      // 3. Get stats
-      const labeledFiles = await this.labeledFilesService.findByGroup(groupId);
-      const matched = labeledFiles.filter(f => f.labelStatus !== 'unmatched').length;
-      const total = labeledFiles.length;
+      // 3. ✅ NEW: Get stats from documents + files
+      const summary = await this.labeledFilesService.getGroupSummary(groupId);
 
       return {
         success: true,
-        matched,
-        total,
-        message: `Re-labeled group ${groupId}: ${matched}/${total} pages matched`,
+        matched: summary.matchedPages,
+        total: summary.totalPages,
+        message: `Re-labeled group ${groupId}: ${summary.matchedPages}/${summary.totalPages} pages matched`,
       };
     } catch (error) {
       this.log(`Error re-labeling group ${groupId}: ${error.message}`, 'error');
@@ -175,46 +173,34 @@ export class LabelRunnerService {
     const logCallback: LogCallback = (message, type) => this.log(message, type);
 
     // Use shared utility to process files
+    const fileData = files.map(f => ({
+      id: f.id,
+      orderInGroup: f.orderInGroup,
+      originalName: f.originalName,
+      storagePath: f.storagePath,
+      ocrText: f.ocrText,
+    }));
+
     const result = processFilesForLabeling(
-      files.map(f => ({
-        id: f.id,
-        orderInGroup: f.orderInGroup,
-        originalName: f.originalName,
-        storagePath: f.storagePath,
-        ocrText: f.ocrText,
-      })),
+      fileData,
       this.templates,
       logCallback,
     );
 
-    // Save labels to database
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const label = result.pageLabels[i];
+    // ✅ NEW: Extract document ranges from page labels
+    const documentRanges = this.labeledFilesService.extractDocumentRanges(
+      result.pageLabels,
+      fileData,
+    );
 
-      await this.labeledFilesService.createLabeledFile({
-        groupId,
-        orderInGroup: file.orderInGroup,
-        groupedFileId: file.id,
-        originalName: file.originalName,
-        storagePath: file.storagePath,
-        ocrText: file.ocrText,
-        templateName: label.templateName || undefined,
-        category: label.category || undefined,
-        labelStatus: label.status as LabelStatus,
-        matchReason: label.matchReason,
-        documentId: label.documentId || undefined,
-        pageInDocument: label.pageInDocument || undefined,
-      });
+    this.log(`Group ${groupId}: Found ${documentRanges.length} documents`, 'info');
+
+    // Save documents
+    for (const range of documentRanges) {
+      await this.labeledFilesService.createDocumentWithPages(groupId, range, files);
     }
 
-    // NEW: Link labeled_files to documents table (create documents records)
-    try {
-      await this.labeledFilesService.linkFilesToDocuments(groupId);
-      this.log(`Group ${groupId}: Created documents records`, 'info');
-    } catch (err) {
-      this.log(`Group ${groupId}: Error linking files to documents: ${err.message}`, 'error');
-    }
+    // Unmatched pages are computed dynamically from files not covered by any document
 
     // Summary
     this.log(

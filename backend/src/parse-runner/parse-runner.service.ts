@@ -422,8 +422,8 @@ export class ParseRunnerService {
     this.log(`--- Processing Group ${groupId} ---`);
 
     try {
-      // Get all labeled files for this group
-      const files = await this.labeledFilesService.findByGroup(groupId);
+      // ✅ NEW: Get pages with labels (merge files + documents)
+      const files = await this.labeledFilesService.getGroupPagesWithLabels(groupId);
       if (files.length === 0) {
         this.log(`Group ${groupId}: No files found`, 'warning');
         return;
@@ -633,8 +633,8 @@ export class ParseRunnerService {
         };
       }
 
-      // Get all labeled files for this group
-      const files = await this.labeledFilesService.findByGroup(groupId);
+      // ✅ NEW: Get pages with labels (merge files + documents)
+      const files = await this.labeledFilesService.getGroupPagesWithLabels(groupId);
       if (files.length === 0) {
         return {
           success: false,

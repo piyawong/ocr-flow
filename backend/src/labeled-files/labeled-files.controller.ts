@@ -1,18 +1,16 @@
-import { Controller, Get, Param, ParseIntPipe, Post, Patch, Body, Res, NotFoundException, Query } from '@nestjs/common';
-import { Response } from 'express';
-import { Public } from '../auth/decorators/public.decorator';
+import { Controller, Get, Param, ParseIntPipe, Post, Body, Query } from '@nestjs/common';
 import { LabeledFilesService } from './labeled-files.service';
-import { LabelStatus } from './labeled-file.entity';
 
 @Controller('labeled-files')
 export class LabeledFilesController {
   constructor(private readonly labeledFilesService: LabeledFilesService) {}
 
-  @Get()
-  async findAll() {
-    const files = await this.labeledFilesService.findAll();
-    return { files };
-  }
+  // ❌ DEPRECATED: Use getGroupPagesWithLabels() instead
+  // @Get()
+  // async findAll() {
+  //   const files = await this.labeledFilesService.findAll();
+  //   return { files };
+  // }
 
   @Get('processed-groups')
   async getProcessedGroups() {
@@ -30,7 +28,8 @@ export class LabeledFilesController {
 
   @Get('group/:groupNumber')
   async findByGroup(@Param('groupNumber', ParseIntPipe) groupNumber: number) {
-    return this.labeledFilesService.findByGroup(groupNumber);
+    // Get group pages with labels (merges files + documents)
+    return this.labeledFilesService.getGroupPagesWithLabels(groupNumber);
   }
 
   @Get('group/:groupNumber/summary')
@@ -52,75 +51,37 @@ export class LabeledFilesController {
     return this.labeledFilesService.getTemplates();
   }
 
-  // Get labeled files by template name for a specific group
-  @Get('group/:groupId/by-template')
-  async findByGroupAndTemplate(
-    @Param('groupId', ParseIntPipe) groupId: number,
-    @Query('name') templateName: string,
-  ) {
-    const files = await this.labeledFilesService.findByGroupAndTemplate(
-      groupId,
-      templateName,
-    );
-    return { files };
-  }
+  // NOTE: findByGroupAndTemplate removed - use getGroupPagesWithLabels() and filter client-side
 
-  // Preview a labeled file by ID
-  @Public()
-  @Get(':id/preview')
-  async getPreview(
-    @Param('id', ParseIntPipe) id: number,
-    @Res() res: Response,
-  ) {
-    const file = await this.labeledFilesService.findById(id);
-    if (!file) {
-      throw new NotFoundException('Labeled file not found');
-    }
+  // NOTE: Preview endpoint removed - use files API /files/:id/preview instead
 
-    const buffer = await this.labeledFilesService.getFileBuffer(file.storagePath);
-    const mimeType = file.originalName.toLowerCase().endsWith('.pdf')
-      ? 'application/pdf'
-      : file.originalName.match(/\.(jpg|jpeg)$/i)
-        ? 'image/jpeg'
-        : file.originalName.match(/\.(png)$/i)
-          ? 'image/png'
-          : 'application/octet-stream';
-
-    res.set({
-      'Content-Type': mimeType,
-      'Content-Length': buffer.length,
-      'Cache-Control': 'public, max-age=3600',
-    });
-    res.send(buffer);
-  }
-
-  // Manual Label: Update page labels for a group
-  @Patch('group/:groupId/pages')
-  async updatePageLabels(
-    @Param('groupId', ParseIntPipe) groupId: number,
-    @Body() body: {
-      updates: {
-        id: number;
-        templateName?: string;
-        category?: string;
-        labelStatus?: LabelStatus;
-        matchReason?: string;
-        documentId?: number;
-        pageInDocument?: number;
-      }[];
-      documents?: {
-        documentNumber: number;
-        templateName: string;
-        documentDate: string | null;
-      }[];
-    },
-  ) {
-    return this.labeledFilesService.updatePageLabels(
-      groupId,
-      body.updates,
-      body.documents, // NEW: Pass document dates
-    );
-  }
+  // ❌ DEPRECATED: Use POST /group/:groupId/documents instead
+  // @Patch('group/:groupId/pages')
+  // async updatePageLabels(
+  //   @Param('groupId', ParseIntPipe) groupId: number,
+  //   @Body() body: {
+  //     updates: {
+  //       id: number;
+  //       templateName?: string;
+  //       category?: string;
+  //       labelStatus?: LabelStatus;
+  //       matchReason?: string;
+  //       documentId?: number;
+  //       pageInDocument?: number;
+  //     }[];
+  //     documents?: {
+  //       documentNumber: number;
+  //       templateName: string;
+  //       documentDate: string | null;
+  //     }[];
+  //   },
+  // ) {
+  //   return this.labeledFilesService.updatePageLabels(
+  //     groupId,
+  //     body.updates,
+  //     body.documents,
+  //   );
+  // }
 
   // Mark all files in a group as reviewed by a user
   @Post('group/:groupId/mark-reviewed')
@@ -134,5 +95,46 @@ export class LabeledFilesController {
       body.notes,
       body.markAsReviewed ?? true, // Default to true for backward compatibility
     );
+  }
+
+  // ========================================================================
+  // DOCUMENT-BASED LABELING ENDPOINTS (NEW)
+  // ========================================================================
+
+  /**
+   * Get all documents for a group (with page ranges)
+   */
+  @Get('group/:groupId/documents')
+  async getGroupDocuments(@Param('groupId', ParseIntPipe) groupId: number) {
+    const documents = await this.labeledFilesService.getDocumentsByGroup(groupId);
+    return { documents };
+  }
+
+  /**
+   * Update documents for a group (document-based labeling)
+   * Clears existing labels and creates new documents with pages
+   */
+  @Post('group/:groupId/documents')
+  async updateGroupDocuments(
+    @Param('groupId', ParseIntPipe) groupId: number,
+    @Body()
+    body: {
+      documents: {
+        id?: number; // null = create new, มีค่า = update existing (not implemented yet)
+        templateName: string;
+        category: string;
+        startPage: number;
+        endPage: number;
+        documentDate?: string;
+      }[];
+    },
+  ) {
+    // Use service method to update documents
+    const result = await this.labeledFilesService.updateGroupDocuments(
+      groupId,
+      body.documents,
+    );
+
+    return result;
   }
 }

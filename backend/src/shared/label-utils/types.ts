@@ -78,3 +78,15 @@ export interface FileForLabeling {
   storagePath: string;
   ocrText: string | null;
 }
+
+/**
+ * Document range for document-based labeling
+ */
+export interface DocumentRange {
+  templateName: string;
+  category: string;
+  startPage: number;  // orderInGroup of first page
+  endPage: number;    // orderInGroup of last page
+  pageCount: number;
+  documentDate?: Date | null;
+}

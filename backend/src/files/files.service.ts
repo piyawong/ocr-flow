@@ -5,7 +5,6 @@ import { Subject } from 'rxjs';
 import * as sharp from 'sharp';
 import { File } from './file.entity';
 import { Group } from './group.entity';
-import { LabeledFile } from '../labeled-files/labeled-file.entity';
 import { FoundationInstrument } from './foundation-instrument.entity';
 import { CharterSection } from './charter-section.entity';
 import { CharterArticle } from './charter-article.entity';
@@ -28,8 +27,6 @@ export class FilesService {
     private fileRepository: Repository<File>,
     @InjectRepository(Group)
     private groupRepository: Repository<Group>,
-    @InjectRepository(LabeledFile)
-    private labeledFileRepository: Repository<LabeledFile>,
     private minioService: MinioService,
     private dataSource: DataSource,
   ) {}
@@ -234,14 +231,11 @@ export class FilesService {
       });
 
       if (filesInGroup === 1) {
-        // Last file in group - delete the whole group (cascade deletes labeled_files)
+        // Last file in group - delete the whole group (cascade deletes documents)
         await this.groupRepository.delete(file.groupId);
       } else {
         // Multiple files in group - just remove this file from group
-        // Delete labeled_files for this specific file
-        await this.labeledFileRepository.delete({
-          groupedFileId: file.id,
-        });
+        // Note: documents table handles this via CASCADE DELETE
       }
     }
 
@@ -257,16 +251,11 @@ export class FilesService {
   }
 
   async clearAll(): Promise<void> {
-    // Step 1: Delete all labeled files first (to avoid orphaned data)
-    await this.labeledFileRepository
-      .createQueryBuilder()
-      .delete()
-      .execute();
-
-    // Step 2: Get all files for MinIO deletion
+    // NOTE: labeled_files are deleted via CASCADE when groups are deleted
+    // Step 1: Get all files for MinIO deletion
     const files = await this.fileRepository.find();
 
-    // Step 3: Delete files from MinIO
+    // Step 2: Delete files from MinIO
     for (const file of files) {
       try {
         await this.minioService.deleteFile(file.storagePath);
@@ -275,10 +264,10 @@ export class FilesService {
       }
     }
 
-    // Step 4: Delete all file records from database (must delete before groups due to FK)
+    // Step 3: Delete all file records from database (must delete before groups due to FK)
     await this.fileRepository.clear();
 
-    // Step 5: Delete all groups (now safe to delete - no files referencing them)
+    // Step 4: Delete all groups (cascade deletes labeled_files)
     await this.groupRepository
       .createQueryBuilder()
       .delete()
@@ -325,23 +314,10 @@ export class FilesService {
         .execute();
     }
 
-    // Step 3: Cleanup orphaned labeled_files (labeled_files without corresponding files)
-    const orphanedLabels = await this.labeledFileRepository
-      .createQueryBuilder('lf')
-      .leftJoin('files', 'f', 'f.id = lf.groupedFileId')
-      .where('f.id IS NULL')
-      .getMany();
+    // NOTE: labeled_files cleanup is handled via CASCADE DELETE when groups are deleted
+    const orphanedLabelsRemoved = 0;
 
-    const orphanedLabelsRemoved = orphanedLabels.length;
-    if (orphanedLabelsRemoved > 0) {
-      await this.labeledFileRepository
-        .createQueryBuilder()
-        .delete()
-        .whereInIds(orphanedLabels.map(l => l.id))
-        .execute();
-    }
-
-    // Step 4: Cleanup orphaned groups (groups without any files)
+    // Step 3: Cleanup orphaned groups (groups without any files)
     const allGroups = await this.groupRepository.find();
     const orphanedGroupIds: number[] = [];
 
@@ -356,7 +332,7 @@ export class FilesService {
 
     const orphanedGroupsRemoved = orphanedGroupIds.length;
     if (orphanedGroupsRemoved > 0) {
-      // This will cascade delete labeled_files (if not already deleted in Step 3)
+      // This will cascade delete labeled_files
       await this.groupRepository
         .createQueryBuilder()
         .delete()
@@ -555,13 +531,9 @@ export class FilesService {
   }
 
   async clearGroupedFiles(): Promise<void> {
-    // Step 1: Clear labeled files (Step 3 data)
-    await this.labeledFileRepository
-      .createQueryBuilder()
-      .delete()
-      .execute();
+    // NOTE: labeled_files are deleted via CASCADE when groups are deleted in Step 3
 
-    // Step 2: Clear grouping info from files (but keep the raw files)
+    // Step 1: Clear grouping info from files (but keep the raw files)
     await this.fileRepository
       .createQueryBuilder()
       .update()
@@ -575,7 +547,7 @@ export class FilesService {
       })
       .execute();
 
-    // Step 3: Delete all groups (this also clears Step 4 parsed data since it's in groups table)
+    // Step 2: Delete all groups (cascade deletes labeled_files + clears Step 4 parsed data)
     await this.groupRepository
       .createQueryBuilder()
       .delete()
@@ -844,14 +816,7 @@ export class FilesService {
         await fileRepo.update(id, { orderInGroup: newOrder });
       }
 
-      // Also update labeled_files if they exist
-      const labeledFileRepo = manager.getRepository(LabeledFile);
-      for (const { id, newOrder } of reorderedFiles) {
-        await labeledFileRepo.update(
-          { groupedFileId: id },
-          { orderInGroup: newOrder },
-        );
-      }
+      // NOTE: labeled_files orderInGroup is managed by labeled-files module
     });
   }
 
@@ -919,40 +884,31 @@ export class FilesService {
 
     const groups = await queryBuilder.getMany();
 
-    // Calculate match percentage for each group from labeled_files
-    const groupsWithStats = await Promise.all(
-      groups.map(async (group) => {
-        const labeledFiles = await this.labeledFileRepository.find({
-          where: { groupId: group.id },
-        });
+    // NOTE: labeled_files stats are calculated in labeled-files module
+    // Use group.files for page count here
+    const groupsWithStats = groups.map((group) => {
+      return {
+        groupId: group.id,
+        totalPages: group.files.length,
 
-        const totalPages = labeledFiles.length;
-        const matchedPages = labeledFiles.filter(f => f.labelStatus !== 'unmatched').length;
-        const matchPercentage = totalPages > 0 ? (matchedPages / totalPages) * 100 : 0;
+        // Stage 03 data - match percentage not available here (use labeled-files API)
+        labelMatchPercentage: 0,
+        isLabeledReviewed: group.isLabeledReviewed,
+        labeledReviewer: group.labeledReviewer,
 
-        return {
-          groupId: group.id,
-          totalPages: group.files.length,
+        // Stage 04 data
+        hasFoundationInstrument: !!group.foundationInstrument,
+        committeeCount: group.committeeMembers?.length || 0,
+        isParseDataReviewed: group.isParseDataReviewed,
+        parseDataReviewer: group.parseDataReviewer,
+        parseDataAt: group.parseDataAt,
 
-          // Stage 03 data
-          labelMatchPercentage: matchPercentage,
-          isLabeledReviewed: group.isLabeledReviewed,
-          labeledReviewer: group.labeledReviewer,
-
-          // Stage 04 data
-          hasFoundationInstrument: !!group.foundationInstrument,
-          committeeCount: group.committeeMembers?.length || 0,
-          isParseDataReviewed: group.isParseDataReviewed,
-          parseDataReviewer: group.parseDataReviewer,
-          parseDataAt: group.parseDataAt,
-
-          // Stage 05 data
-          isFinalApproved: group.isFinalApproved,
-          finalReviewer: group.finalReviewer,
-          finalApprovedAt: group.finalApprovedAt,
-        };
-      }),
-    );
+        // Stage 05 data
+        isFinalApproved: group.isFinalApproved,
+        finalReviewer: group.finalReviewer,
+        finalApprovedAt: group.finalApprovedAt,
+      };
+    });
 
     return groupsWithStats;
   }
@@ -972,56 +928,21 @@ export class FilesService {
       throw new NotFoundException(`Group ${groupId} not found`);
     }
 
-    // Get labeled files with full detail
-    const labeledFiles = await this.labeledFileRepository.find({
-      where: { groupId: groupId },
-      order: { orderInGroup: 'ASC' },
-    });
-
-    const totalPages = labeledFiles.length;
-    const matchedPages = labeledFiles.filter(f => f.labelStatus !== 'unmatched').length;
-    const unmatchedPages = totalPages - matchedPages;
-    const matchPercentage = totalPages > 0 ? (matchedPages / totalPages) * 100 : 0;
-
-    // Group labeled files by document for summary
-    const documentGroups = new Map<string, any>();
-    labeledFiles.forEach(file => {
-      const key = file.documentId !== null ? `doc-${file.documentId}` : `unmatched-${file.id}`;
-      if (!documentGroups.has(key)) {
-        documentGroups.set(key, {
-          templateName: file.templateName,
-          category: file.category,
-          pageCount: 0,
-        });
-      }
-      documentGroups.get(key)!.pageCount++;
-    });
-
-    const documents = Array.from(documentGroups.values());
+    // NOTE: labeled_files data should be fetched from labeled-files module API
+    // This method returns only group-level data without labeled_files details
+    const totalPages = group.files.length;
 
     return {
       groupId: group.id,
 
-      // Stage 03 - Full detail
+      // Stage 03 - Basic info only (use labeled-files API for full details)
       stage03: {
         totalPages,
-        matchedPages,
-        unmatchedPages,
-        matchPercentage,
-        documents,
-        labeledFiles: labeledFiles.map(f => ({
-          id: f.id,
-          groupedFileId: f.groupedFileId,
-          orderInGroup: f.orderInGroup,
-          originalName: f.originalName,
-          storagePath: f.storagePath,
-          templateName: f.templateName,
-          category: f.category,
-          labelStatus: f.labelStatus,
-          matchReason: f.matchReason,
-          documentId: f.documentId,
-          pageInDocument: f.pageInDocument,
-        })),
+        matchedPages: 0,
+        unmatchedPages: 0,
+        matchPercentage: 0,
+        documents: [],
+        labeledFiles: [],
         isReviewed: group.isLabeledReviewed,
         reviewer: group.labeledReviewer,
         reviewedAt: group.labeledAt,

@@ -1,18 +1,17 @@
 import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { LabeledFile, LabelStatus } from './labeled-file.entity';
+import { LabelStatus } from './types';
 import { Document } from './document.entity';
 import { Group } from '../files/group.entity';
 import { MinioService } from '../minio/minio.service';
 import { TemplatesService } from '../templates/templates.service';
 import { ParseRunnerService } from '../parse-runner/parse-runner.service';
+import { FilesService } from '../files/files.service';
 
 @Injectable()
 export class LabeledFilesService {
   constructor(
-    @InjectRepository(LabeledFile)
-    private labeledFileRepository: Repository<LabeledFile>,
     @InjectRepository(Document)
     private documentRepository: Repository<Document>,
     @InjectRepository(Group)
@@ -21,53 +20,57 @@ export class LabeledFilesService {
     private templatesService: TemplatesService,
     @Inject(forwardRef(() => ParseRunnerService))
     private parseRunnerService: ParseRunnerService,
+    @Inject(forwardRef(() => FilesService))
+    private filesService: FilesService,
   ) {}
 
-  async createLabeledFile(data: {
-    groupId: number;
-    orderInGroup: number;
-    groupedFileId: number;
-    originalName: string;
-    storagePath: string;
-    ocrText: string;
-    templateName?: string;
-    category?: string;
-    labelStatus: LabelStatus;
-    matchReason?: string;
-    documentId?: number;
-    pageInDocument?: number;
-  }): Promise<LabeledFile> {
-    const labeledFile = this.labeledFileRepository.create(data);
-    return this.labeledFileRepository.save(labeledFile);
-  }
+  // ❌ DEPRECATED: No longer needed (using documents table)
+  // async createLabeledFile(data: {
+  //   groupId: number;
+  //   orderInGroup: number;
+  //   groupedFileId: number;
+  //   originalName: string;
+  //   storagePath: string;
+  //   ocrText: string;
+  //   templateName?: string;
+  //   category?: string;
+  //   labelStatus: LabelStatus;
+  //   matchReason?: string;
+  //   documentId?: number;
+  //   pageInDocument?: number;
+  // }): Promise<LabeledFile> {
+  //   const labeledFile = this.labeledFileRepository.create(data);
+  //   return this.labeledFileRepository.save(labeledFile);
+  // }
 
-  async findAll(): Promise<LabeledFile[]> {
-    return this.labeledFileRepository.find({
-      order: { groupId: 'ASC', orderInGroup: 'ASC' },
-    });
-  }
+  // ❌ DEPRECATED: Use getGroupPagesWithLabels() instead
+  // async findAll(): Promise<LabeledFile[]> {
+  //   return this.labeledFileRepository.find({
+  //     order: { groupId: 'ASC', orderInGroup: 'ASC' },
+  //   });
+  // }
 
-  async findByGroup(groupId: number): Promise<LabeledFile[]> {
-    return this.labeledFileRepository.find({
-      where: { groupId },
-      order: { orderInGroup: 'ASC' },
-      relations: ['document'], // Include document relation
-    });
-  }
+  // ❌ DEPRECATED: Use getGroupPagesWithLabels() instead
+  // async findByGroup(groupId: number): Promise<LabeledFile[]> {
+  //   return this.labeledFileRepository.find({
+  //     where: { groupId },
+  //     order: { orderInGroup: 'ASC' },
+  //     relations: ['document'], // Include document relation
+  //   });
+  // }
 
-  async findByGroupAndTemplate(
-    groupId: number,
-    templateName: string,
-  ): Promise<LabeledFile[]> {
-    return this.labeledFileRepository.find({
-      where: { groupId, templateName },
-      order: { orderInGroup: 'ASC' },
-    });
-  }
+  // ❌ DEPRECATED: labeled_files table removed
+  // async findByGroupAndTemplate(
+  //   groupId: number,
+  //   templateName: string,
+  // ): Promise<any[]> {
+  //   // Use getGroupPagesWithLabels() instead
+  // }
 
-  async findById(id: number): Promise<LabeledFile | null> {
-    return this.labeledFileRepository.findOne({ where: { id } });
-  }
+  // ❌ DEPRECATED: labeled_files table removed
+  // async findById(id: number): Promise<any | null> {
+  //   // Use files or documents table directly
+  // }
 
   async getFileBuffer(storagePath: string): Promise<Buffer> {
     return this.minioService.getFile(storagePath);
@@ -80,34 +83,37 @@ export class LabeledFilesService {
     matchPercentage: number;
     documents: { templateName: string; category: string; pageCount: number }[];
   }> {
-    const files = await this.findByGroup(groupId);
+    // Calculate from documents + files
+    const files = await this.filesService.findByGroup(groupId);
+    const documents = await this.documentRepository.find({
+      where: { groupId },
+      order: { documentNumber: 'ASC' },
+    });
+
     const totalPages = files.length;
-    const matchedPages = files.filter(f => f.labelStatus !== 'unmatched').length;
+
+    // Count matched pages (pages covered by documents)
+    let matchedPages = 0;
+    for (const doc of documents) {
+      matchedPages += (doc.endPage - doc.startPage + 1);
+    }
+
     const unmatchedPages = totalPages - matchedPages;
     const matchPercentage = totalPages > 0 ? (matchedPages / totalPages) * 100 : 0;
 
-    // Group by document
-    const documentMap = new Map<string, { templateName: string; category: string; pageCount: number }>();
-    for (const file of files) {
-      if (file.templateName && file.labelStatus !== 'unmatched') {
-        const key = `${file.documentId}-${file.templateName}`;
-        if (!documentMap.has(key)) {
-          documentMap.set(key, {
-            templateName: file.templateName,
-            category: file.category || '',
-            pageCount: 0,
-          });
-        }
-        documentMap.get(key)!.pageCount++;
-      }
-    }
+    // Documents summary
+    const documentsSummary = documents.map(doc => ({
+      templateName: doc.templateName,
+      category: doc.category || '',
+      pageCount: doc.endPage - doc.startPage + 1,
+    }));
 
     return {
       totalPages,
       matchedPages,
       unmatchedPages,
       matchPercentage,
-      documents: Array.from(documentMap.values()),
+      documents: documentsSummary,
     };
   }
 
@@ -123,26 +129,11 @@ export class LabeledFilesService {
       reviewer: string | null;
     }[]
   > {
-    const allFiles = await this.findAll();
-    const groupMap = new Map<number, LabeledFile[]>();
-
-    for (const file of allFiles) {
-      if (!groupMap.has(file.groupId)) {
-        groupMap.set(file.groupId, []);
-      }
-      groupMap.get(file.groupId)!.push(file);
-    }
-
-    // Fetch isParseData status from groups table
-    const groupIds = Array.from(groupMap.keys());
+    // Calculate from groups + files + documents
     const groups = await this.groupRepository.find({
-      where: groupIds.map(id => ({ id })),
-      select: ['id', 'isParseData'],
+      where: { isAutoLabeled: true }, // Only labeled groups
+      select: ['id', 'isParseData', 'isLabeledReviewed', 'labeledReviewer'],
     });
-    const parseDataMap = new Map<number, boolean>();
-    for (const group of groups) {
-      parseDataMap.set(group.id, group.isParseData || false);
-    }
 
     const summaries: {
       groupId: number;
@@ -155,22 +146,26 @@ export class LabeledFilesService {
       reviewer: string | null;
     }[] = [];
 
-    for (const [groupId, files] of groupMap) {
-      // ✅ Check if all files in group are reviewed
-      const allReviewed = files.every(f => f.isUserReviewed);
-      const reviewer = files.find(f => f.reviewer)?.reviewer || null;
-
-      // ✅ Filter: By default, only show groups that have at least one file with isUserReviewed = false
-      // If includeReviewed is true, show all groups
-      if (!options?.includeReviewed) {
-        const hasUnreviewedFiles = files.some(f => !f.isUserReviewed);
-        if (!hasUnreviewedFiles) {
-          continue; // Skip this group if all files are reviewed
-        }
+    for (const group of groups) {
+      // Filter: By default, only show unreviewed groups
+      if (!options?.includeReviewed && group.isLabeledReviewed) {
+        continue;
       }
 
+      // Get files and documents for this group
+      const files = await this.filesService.findByGroup(group.id);
+      const documents = await this.documentRepository.find({
+        where: { groupId: group.id },
+      });
+
       const totalPages = files.length;
-      const matchedPages = files.filter(f => f.labelStatus !== 'unmatched').length;
+
+      // Count matched pages (pages covered by documents)
+      let matchedPages = 0;
+      for (const doc of documents) {
+        matchedPages += (doc.endPage - doc.startPage + 1);
+      }
+
       const matchPercentage = totalPages > 0 ? (matchedPages / totalPages) * 100 : 0;
 
       let status: 'matched' | 'has_unmatched' | 'all_unmatched';
@@ -183,14 +178,14 @@ export class LabeledFilesService {
       }
 
       summaries.push({
-        groupId,
+        groupId: group.id,
         totalPages,
         matchedPages,
         matchPercentage,
         status,
-        isParseData: parseDataMap.get(groupId) || false,
-        isReviewed: allReviewed,
-        reviewer,
+        isParseData: group.isParseData || false,
+        isReviewed: group.isLabeledReviewed || false,
+        reviewer: group.labeledReviewer || null,
       });
     }
 
@@ -198,20 +193,8 @@ export class LabeledFilesService {
   }
 
   async clearAll(): Promise<void> {
-    // Delete files from MinIO first
-    const files = await this.labeledFileRepository.find();
-    for (const file of files) {
-      if (file.storagePath) {
-        try {
-          await this.minioService.deleteFile(file.storagePath);
-        } catch (e) {
-          // Ignore deletion errors (file might not exist)
-        }
-      }
-    }
-
-    // Clear DB
-    await this.labeledFileRepository.clear();
+    // Delete all documents (files in MinIO are preserved in files table)
+    await this.documentRepository.clear();
 
     // Reset labeled status in groups table (using QueryBuilder to update all)
     await this.groupRepository
@@ -224,57 +207,57 @@ export class LabeledFilesService {
       .execute();
   }
 
-  async clearByGroup(groupId: number): Promise<void> {
-    // ✅ FIX: Do NOT delete files from MinIO!
-    // labeled_files.storagePath points to the ORIGINAL file in raw/
-    // Deleting would destroy the source files!
-    // We only need to clear the label metadata from database.
-
-    // Clear labeled_files records from database
-    await this.labeledFileRepository.delete({ groupId });
-
-    // Reset labeled status for this group
-    await this.groupRepository.update(
-      { id: groupId },
-      {
-        isAutoLabeled: false,
-        labeledAt: null,
-      }
-    );
-  }
 
   async getProcessedGroups(): Promise<number[]> {
-    const result = await this.labeledFileRepository
-      .createQueryBuilder('lf')
-      .select('DISTINCT lf.groupId', 'groupId')
+    // Get distinct group IDs from documents table
+    const result = await this.documentRepository
+      .createQueryBuilder('doc')
+      .select('DISTINCT doc.groupId', 'groupId')
       .getRawMany();
     return result.map(r => r.groupId);
   }
 
   async isGroupProcessed(groupId: number): Promise<boolean> {
-    const count = await this.labeledFileRepository.count({
+    // Check if documents exist for this group
+    const count = await this.documentRepository.count({
       where: { groupId },
     });
     return count > 0;
   }
 
   async isGroup100Matched(groupId: number): Promise<boolean> {
-    const files = await this.findByGroup(groupId);
+    // ✅ NEW: Compare total pages vs matched pages from documents
+    const files = await this.filesService.findByGroup(groupId);
+    const documents = await this.documentRepository.find({
+      where: { groupId },
+    });
+
     if (files.length === 0) return false;
-    const matchedCount = files.filter(f => f.labelStatus !== 'unmatched').length;
-    return matchedCount === files.length;
+
+    // Count matched pages (pages covered by documents)
+    let matchedPages = 0;
+    for (const doc of documents) {
+      matchedPages += (doc.endPage - doc.startPage + 1);
+    }
+
+    return matchedPages === files.length;
   }
 
   async isGroupUserReviewed(groupId: number): Promise<boolean> {
-    const files = await this.findByGroup(groupId);
-    if (files.length === 0) return false;
-    // Check if all files in the group have been user reviewed
-    const reviewedCount = files.filter(f => f.isUserReviewed === true).length;
-    return reviewedCount === files.length;
+    // ✅ NEW: Check if ALL documents in group are reviewed
+    const documents = await this.documentRepository.find({
+      where: { groupId },
+    });
+
+    if (documents.length === 0) return false;
+
+    // All documents must be reviewed
+    return documents.every(doc => doc.isUserReviewed === true);
   }
 
   async getGroupOcrTexts(groupId: number): Promise<Map<number, string>> {
-    const files = await this.findByGroup(groupId);
+    // ✅ NEW: Get from files table directly
+    const files = await this.filesService.findByGroup(groupId);
     const ocrTexts = new Map<number, string>();
     for (const file of files) {
       ocrTexts.set(file.orderInGroup, file.ocrText || '');
@@ -288,104 +271,68 @@ export class LabeledFilesService {
     startPage: number;
     endPage: number;
   }>> {
-    const files = await this.findByGroup(groupId);
-    const documents = new Map<string, {
+    // ✅ NEW: Get from documents table directly
+    const documents = await this.documentRepository.find({
+      where: { groupId },
+      order: { documentNumber: 'ASC' },
+    });
+
+    const files = await this.filesService.findByGroup(groupId);
+    const filesMap = new Map(files.map(f => [f.orderInGroup, f]));
+
+    const result = new Map<string, {
       pages: number[];
       ocrTexts: Map<number, string>;
       startPage: number;
       endPage: number;
     }>();
 
-    // Group files by documentId and templateName
-    for (const file of files) {
-      if (file.templateName && file.documentId) {
-        const key = `${file.templateName}_${file.documentId}`;
-        if (!documents.has(key)) {
-          documents.set(key, {
-            pages: [],
-            ocrTexts: new Map(),
-            startPage: file.orderInGroup,
-            endPage: file.orderInGroup,
-          });
+    for (const doc of documents) {
+      const key = `${doc.templateName}_${doc.documentNumber}`;
+      const pages: number[] = [];
+      const ocrTexts = new Map<number, string>();
+
+      // Get OCR texts for pages in this document
+      for (let pageNum = doc.startPage; pageNum <= doc.endPage; pageNum++) {
+        pages.push(pageNum);
+        const file = filesMap.get(pageNum);
+        if (file) {
+          ocrTexts.set(pageNum, file.ocrText || '');
         }
-        const doc = documents.get(key)!;
-        doc.pages.push(file.orderInGroup);
-        doc.ocrTexts.set(file.orderInGroup, file.ocrText || '');
-        doc.startPage = Math.min(doc.startPage, file.orderInGroup);
-        doc.endPage = Math.max(doc.endPage, file.orderInGroup);
       }
+
+      result.set(key, {
+        pages,
+        ocrTexts,
+        startPage: doc.startPage,
+        endPage: doc.endPage,
+      });
     }
 
-    return documents;
+    return result;
   }
 
-  // Manual Label: Update page labels
-  async updatePageLabels(
-    groupId: number,
-    updates: {
-      id: number;
-      templateName?: string;
-      category?: string;
-      labelStatus?: LabelStatus;
-      matchReason?: string;
-      documentId?: number;
-      pageInDocument?: number;
-    }[],
-    documentDates?: {
-      documentNumber: number; // Same as documentId
-      templateName: string;
-      documentDate: string | null; // "YYYY-MM-DD" or null
-    }[],
-  ): Promise<{ updated: number }> {
-    let updatedCount = 0;
-
-    // Step 1: Update labeled_files records
-    for (const update of updates) {
-      const result = await this.labeledFileRepository.update(
-        { id: update.id, groupId },
-        {
-          templateName: update.templateName,
-          category: update.category,
-          labelStatus: update.labelStatus,
-          matchReason: update.matchReason || 'manual',
-          documentId: update.documentId,
-          pageInDocument: update.pageInDocument,
-        },
-      );
-      if (result.affected) {
-        updatedCount += result.affected;
-      }
-    }
-
-    // Step 2: Link labeled_files to documents table
-    await this.linkFilesToDocuments(groupId);
-
-    // Step 3: Update document dates if provided
-    if (documentDates && documentDates.length > 0) {
-      for (const docDate of documentDates) {
-        const doc = await this.createOrUpdateDocument({
-          groupId,
-          documentNumber: docDate.documentNumber,
-          templateName: docDate.templateName,
-          documentDate: docDate.documentDate ? new Date(docDate.documentDate) : null,
-        });
-
-        // Update documentTableId for all pages in this document
-        await this.labeledFileRepository.update(
-          {
-            groupId,
-            documentId: docDate.documentNumber,
-            templateName: docDate.templateName,
-          },
-          {
-            documentTableId: doc.id,
-          },
-        );
-      }
-    }
-
-    return { updated: updatedCount };
-  }
+  // ❌ DEPRECATED: Use updateGroupDocuments() instead (document-based)
+  // async updatePageLabels(
+  //   groupId: number,
+  //   updates: {
+  //     id: number;
+  //     templateName?: string;
+  //     category?: string;
+  //     labelStatus?: LabelStatus;
+  //     matchReason?: string;
+  //     documentId?: number;
+  //     pageInDocument?: number;
+  //   }[],
+  //   documentDates?: {
+  //     documentNumber: number;
+  //     templateName: string;
+  //     documentDate: string | null;
+  //   }[],
+  // ): Promise<{ updated: number }> {
+  //   // Old page-based logic - no longer used
+  //   return { updated: 0 };
+  // }
 
   // Get all templates from database
   async getTemplates(): Promise<{ name: string; category: string }[]> {
@@ -400,64 +347,18 @@ export class LabeledFilesService {
   // DOCUMENT CRUD METHODS (NEW)
   // ========================================================================
 
-  /**
-   * Create or update a document record
-   * Used when user manually labels pages
-   */
-  async createOrUpdateDocument(data: {
-    groupId: number;
-    documentNumber: number; // Same as old documentId
-    templateName: string;
-    category?: string;
-    documentDate?: Date | null;
-  }): Promise<Document> {
-    // Check if document already exists
-    const existing = await this.documentRepository.findOne({
-      where: {
-        groupId: data.groupId,
-        documentNumber: data.documentNumber,
-        templateName: data.templateName,
-      },
-    });
+  // ❌ DEPRECATED: Documents created directly with startPage/endPage
+  // async createOrUpdateDocument(data: {
+  //   groupId: number;
+  //   documentNumber: number;
+  //   templateName: string;
+  //   category?: string;
+  //   documentDate?: Date | null;
+  // }): Promise<Document> {
+  //   // Old logic - no longer used
+  //   return null as any;
+  // }
 
-    if (existing) {
-      // Update existing document
-      await this.documentRepository.update(existing.id, {
-        documentDate: data.documentDate,
-        category: data.category,
-      });
-      return this.documentRepository.findOne({ where: { id: existing.id } })!;
-    } else {
-      // Create new document
-      const doc = this.documentRepository.create({
-        groupId: data.groupId,
-        documentNumber: data.documentNumber,
-        templateName: data.templateName,
-        category: data.category,
-        documentDate: data.documentDate,
-        pageCount: 0, // Will be updated later
-      });
-      return this.documentRepository.save(doc);
-    }
-  }
-
-  /**
-   * Get all documents for a group (with page counts)
-   */
-  async getDocumentsByGroup(groupId: number): Promise<Document[]> {
-    const documents = await this.documentRepository.find({
-      where: { groupId },
-      order: { documentNumber: 'ASC' },
-      relations: ['pages'],
-    });
-
-    // Update page counts
-    for (const doc of documents) {
-      doc.pageCount = doc.pages?.length || 0;
-    }
-
-    return documents;
-  }
 
   /**
    * Update document date only
@@ -487,49 +388,37 @@ export class LabeledFilesService {
     await this.documentRepository.delete(documentId);
   }
 
-  /**
-   * Link labeled_files to documents after labeling
-   * This is called after creating labeled_files to set documentTableId
-   */
-  async linkFilesToDocuments(groupId: number): Promise<void> {
-    const files = await this.findByGroup(groupId);
+  // ❌ DEPRECATED: No longer needed (documents created directly)
+  // async linkFilesToDocuments(groupId: number): Promise<void> {
+  //   const files = await this.findByGroup(groupId);
+  //   for (const file of files) {
+  //     if (file.documentId && file.templateName && !file.documentTableId) {
+  //       const doc = await this.createOrUpdateDocument({
+  //         groupId,
+  //         documentNumber: file.documentId,
+  //         templateName: file.templateName,
+  //         category: file.category,
+  //       });
+  //       await this.labeledFileRepository.update(file.id, {
+  //         documentTableId: doc.id,
+  //       });
+  //     }
+  //   }
+  //   await this.updateDocumentPageCounts(groupId);
+  // }
 
-    for (const file of files) {
-      if (file.documentId && file.templateName && !file.documentTableId) {
-        // Find or create document
-        const doc = await this.createOrUpdateDocument({
-          groupId,
-          documentNumber: file.documentId,
-          templateName: file.templateName,
-          category: file.category,
-        });
-
-        // Link file to document
-        await this.labeledFileRepository.update(file.id, {
-          documentTableId: doc.id,
-        });
-      }
-    }
-
-    // Update page counts
-    await this.updateDocumentPageCounts(groupId);
-  }
-
-  /**
-   * Update page counts for all documents in a group
-   */
-  async updateDocumentPageCounts(groupId: number): Promise<void> {
-    const documents = await this.documentRepository.find({
-      where: { groupId },
-    });
-
-    for (const doc of documents) {
-      const pageCount = await this.labeledFileRepository.count({
-        where: { documentTableId: doc.id },
-      });
-      await this.documentRepository.update(doc.id, { pageCount });
-    }
-  }
+  // ❌ DEPRECATED: pageCount calculated from endPage - startPage + 1
+  // async updateDocumentPageCounts(groupId: number): Promise<void> {
+  //   const documents = await this.documentRepository.find({
+  //     where: { groupId },
+  //   });
+  //   for (const doc of documents) {
+  //     const pageCount = await this.labeledFileRepository.count({
+  //       where: { documentTableId: doc.id },
+  //     });
+  //     await this.documentRepository.update(doc.id, { pageCount });
+  //   }
+  // }
 
   // Mark all files in a group as reviewed by a user
   async markGroupAsReviewed(
@@ -540,13 +429,14 @@ export class LabeledFilesService {
   ): Promise<{ updated: number; marked: boolean; parsed?: boolean; parseMessage?: string }> {
     let result;
 
-    // Only update isUserReviewed when markAsReviewed is true
+    // Update documents with review information
     if (markAsReviewed) {
-      result = await this.labeledFileRepository.update(
+      result = await this.documentRepository.update(
         { groupId },
         {
           isUserReviewed: true,
           reviewer,
+          reviewNotes: notes || null,
         },
       );
 
@@ -606,5 +496,287 @@ export class LabeledFilesService {
       parsed,
       parseMessage,
     };
+  }
+
+  // ========================================================================
+  // DOCUMENT-BASED LABELING METHODS (NEW)
+  // ========================================================================
+
+  /**
+   * Extract document ranges from page labels
+   * Converts page-by-page labels to document ranges
+   */
+  extractDocumentRanges(
+    pageLabels: any[],
+    files: any[],
+  ): {
+    templateName: string;
+    category: string;
+    startPage: number;
+    endPage: number;
+    pageCount: number;
+  }[] {
+    const ranges: {
+      templateName: string;
+      category: string;
+      startPage: number;
+      endPage: number;
+      pageCount: number;
+    }[] = [];
+    let currentRange: {
+      templateName: string;
+      category: string;
+      startPage: number;
+      endPage: number;
+      pageCount: number;
+    } | null = null;
+
+    pageLabels.forEach((label, idx) => {
+      const orderInGroup = files[idx].orderInGroup;
+
+      if (label.status === 'start' || label.status === 'single') {
+        // เริ่ม document ใหม่
+        if (currentRange) ranges.push(currentRange);
+
+        currentRange = {
+          templateName: label.templateName!,
+          category: label.category,
+          startPage: orderInGroup,
+          endPage: orderInGroup,
+          pageCount: 1,
+        };
+
+        // ถ้า single page → ปิด document ทันที
+        if (label.status === 'single') {
+          ranges.push(currentRange);
+          currentRange = null;
+        }
+      } else if (label.status === 'continue' || label.status === 'end') {
+        // ขยาย document ปัจจุบัน
+        if (currentRange) {
+          currentRange.endPage = orderInGroup;
+          currentRange.pageCount++;
+
+          // ถ้า end → ปิด document
+          if (label.status === 'end') {
+            ranges.push(currentRange);
+            currentRange = null;
+          }
+        }
+      }
+      // unmatched → skip (ไม่เป็น document)
+    });
+
+    // Handle incomplete document (shouldn't happen in practice)
+    if (currentRange) {
+      ranges.push(currentRange);
+    }
+
+    return ranges;
+  }
+
+  /**
+   * Get next document number for a group
+   */
+  private async getNextDocumentNumber(groupId: number): Promise<number> {
+    const maxDoc = await this.documentRepository.findOne({
+      where: { groupId },
+      order: { documentNumber: 'DESC' },
+    });
+    return (maxDoc?.documentNumber || 0) + 1;
+  }
+
+  /**
+   * Create a document with its pages (document-based labeling)
+   * ✅ NEW: Only creates document record (no labeled_files)
+   */
+  async createDocumentWithPages(
+    groupId: number,
+    range: {
+      templateName: string;
+      category: string;
+      startPage: number;
+      endPage: number;
+      pageCount: number;
+      documentDate?: string | null;
+    },
+    allFiles: any[],
+  ): Promise<Document> {
+    // Get next document number
+    const documentNumber = await this.getNextDocumentNumber(groupId);
+
+    // Create document record
+    const document = await this.documentRepository.save({
+      groupId,
+      documentNumber,
+      templateName: range.templateName,
+      category: range.category,
+      startPage: range.startPage,
+      endPage: range.endPage,
+      pageCount: range.pageCount,
+      documentDate: range.documentDate ? new Date(range.documentDate) : null,
+      isUserReviewed: false,
+      reviewer: null,
+      reviewNotes: null,
+    });
+
+    return document;
+  }
+
+  /**
+   * Get all documents for a group (with page ranges)
+   */
+  async getDocumentsByGroup(groupId: number): Promise<any[]> {
+    const documents = await this.documentRepository.find({
+      where: { groupId },
+      order: { documentNumber: 'ASC' },
+    });
+
+    return documents.map((doc) => ({
+      id: doc.id,
+      documentNumber: doc.documentNumber,
+      templateName: doc.templateName,
+      category: doc.category,
+      startPage: doc.startPage,
+      endPage: doc.endPage,
+      pageCount: doc.pageCount,
+      documentDate: doc.documentDate,
+      isUserReviewed: doc.isUserReviewed,
+      reviewer: doc.reviewer,
+      reviewNotes: doc.reviewNotes,
+      createdAt: doc.createdAt,
+    }));
+  }
+
+  /**
+   * ✅ NEW: Get pages with labels (merge files + documents)
+   * This replaces the old labeled_files table
+   */
+  async getGroupPagesWithLabels(groupId: number): Promise<any[]> {
+    // 1. Get all files in the group
+    const files = await this.filesService.findByGroup(groupId);
+
+    // 2. Get all documents in the group
+    const documents = await this.documentRepository.find({
+      where: { groupId },
+      order: { documentNumber: 'ASC' },
+    });
+
+    // 3. Merge: for each file, find which document it belongs to
+    const pages = files.map((file) => {
+      // Find document that contains this page
+      const document = documents.find(
+        (doc) => file.orderInGroup >= doc.startPage && file.orderInGroup <= doc.endPage,
+      );
+
+      if (document) {
+        // Calculate labelStatus based on position
+        let labelStatus: 'start' | 'continue' | 'end' | 'single';
+        const isStart = file.orderInGroup === document.startPage;
+        const isEnd = file.orderInGroup === document.endPage;
+        const isSingle = document.startPage === document.endPage;
+
+        if (isSingle) {
+          labelStatus = 'single';
+        } else if (isStart) {
+          labelStatus = 'start';
+        } else if (isEnd) {
+          labelStatus = 'end';
+        } else {
+          labelStatus = 'continue';
+        }
+
+        return {
+          id: file.id, // Use file.id as page id
+          groupId: file.groupId,
+          orderInGroup: file.orderInGroup,
+          groupedFileId: file.id,
+          originalName: file.originalName,
+          storagePath: file.storagePath,
+          ocrText: file.ocrText,
+          templateName: document.templateName,
+          category: document.category,
+          labelStatus,
+          matchReason: `document ${document.documentNumber}`,
+          documentId: document.documentNumber,
+          pageInDocument: file.orderInGroup - document.startPage + 1,
+          documentDate: document.documentDate, // Add document date
+          isUserReviewed: document.isUserReviewed,
+          reviewer: document.reviewer,
+          createdAt: file.createdAt,
+        };
+      } else {
+        // Unmatched page
+        return {
+          id: file.id,
+          groupId: file.groupId,
+          orderInGroup: file.orderInGroup,
+          groupedFileId: file.id,
+          originalName: file.originalName,
+          storagePath: file.storagePath,
+          ocrText: file.ocrText,
+          templateName: null,
+          category: null,
+          labelStatus: 'unmatched',
+          matchReason: 'no document matched',
+          documentId: null,
+          pageInDocument: null,
+          isUserReviewed: false,
+          reviewer: null,
+          createdAt: file.createdAt,
+        };
+      }
+    });
+
+    return pages;
+  }
+
+  /**
+   * Clear labeled files by group (for relabeling)
+   * ✅ NEW: Only delete documents (no labeled_files table)
+   */
+  async clearByGroup(groupId: number): Promise<void> {
+    // Delete documents only
+    await this.documentRepository.delete({ groupId });
+  }
+
+  /**
+   * Update documents for a group (document-based labeling)
+   * Used by API endpoint
+   */
+  async updateGroupDocuments(
+    groupId: number,
+    documents: {
+      id?: number;
+      templateName: string;
+      category: string;
+      startPage: number;
+      endPage: number;
+      documentDate?: string;
+    }[],
+  ): Promise<{ success: boolean; documentsCreated: number }> {
+    // Get files from this group
+    const files = await this.filesService.findByGroup(groupId);
+
+    // Clear existing labels
+    await this.clearByGroup(groupId);
+
+    // Create new documents with pages
+    for (const doc of documents) {
+      await this.createDocumentWithPages(
+        groupId,
+        {
+          templateName: doc.templateName,
+          category: doc.category,
+          startPage: doc.startPage,
+          endPage: doc.endPage,
+          pageCount: doc.endPage - doc.startPage + 1,
+          documentDate: doc.documentDate || null,
+        },
+        files,
+      );
+    }
+
+    return { success: true, documentsCreated: documents.length };
   }
 }

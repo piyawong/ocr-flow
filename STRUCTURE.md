@@ -226,7 +226,8 @@ docker-compose up -d
 | **users** | Authentication | [database-detailed.md](./database-detailed.md#0-users-authentication) |
 | **files** | Upload tracking | [database-detailed.md](./database-detailed.md#1-files-รวม-stage-01--stage-02) |
 | **groups** | Grouping metadata | [database-detailed.md](./database-detailed.md#2-groups-stage-02-metadata--stage-03-status--stage-04-review--stage-05-approval) |
-| **labeled_files** | Label results | [database-detailed.md](./database-detailed.md#3-labeled_files-stage-03) |
+| **documents** | **Label results (Main)** | [database-detailed.md](./database-detailed.md#31-documents---labeled-documents-main-label-storage) |
+| **labeled_files** | Page-to-Document mapping | [database-detailed.md](./database-detailed.md#3-labeled_files---page-to-document-mapping) |
 | **templates** | Auto label config | [database-detailed.md](./database-detailed.md#4-templates-auto-label-configuration) |
 | **foundation_instruments** | ตราสาร (parsed) | [database-detailed.md](./database-detailed.md#5-foundation_instruments-parsed-data-ตราสาร) |
 | **charter_sections** | หมวดตราสาร | [database-detailed.md](./database-detailed.md#6-charter_sections-หมวดต่างๆ-ของตราสาร) |
