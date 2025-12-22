@@ -79,6 +79,23 @@ export default function GroupDocumentsPage() {
           }
           catGroups[category].push(group);
         });
+
+        // Sort documents within each category by document date (oldest to newest)
+        Object.keys(catGroups).forEach((category) => {
+          catGroups[category].sort((a: any, b: any) => {
+            const dateA = a.files[0]?.documentDate;
+            const dateB = b.files[0]?.documentDate;
+
+            // Documents without date go to the end
+            if (!dateA && !dateB) return 0;
+            if (!dateA) return 1;
+            if (!dateB) return -1;
+
+            // Sort by date (oldest first)
+            return new Date(dateA).getTime() - new Date(dateB).getTime();
+          });
+        });
+
         setCategoryGroups(catGroups);
 
         // Expand categories that contain the first selected file
@@ -244,8 +261,27 @@ export default function GroupDocumentsPage() {
             Group {groupId} • {labeledFiles.length} Documents
           </h1>
         </div>
-        <div className="text-sm text-text-secondary">
-          {currentFile && `Page ${currentFile.orderInGroup} of ${labeledFiles.length}`}
+        <div className="flex items-center gap-3 text-sm text-text-secondary">
+          {currentFile && (
+            <>
+              <span>Page {currentFile.orderInGroup} of {labeledFiles.length}</span>
+              {currentFile.documentDate && (
+                <>
+                  <span className="text-border-color">•</span>
+                  <div className="flex items-center gap-1.5">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <span>{new Date(currentFile.documentDate).toLocaleDateString('th-TH', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric'
+                    }).replace('พ.ศ.', '').trim()}</span>
+                  </div>
+                </>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -315,13 +351,14 @@ export default function GroupDocumentsPage() {
                           const firstFile = docGroup.files[0];
                           const firstFileIndex = labeledFiles.findIndex((f: any) => f.id === firstFile.id);
                           const isDocSelected = currentSelectedFile && currentSelectedFile.templateName === docGroup.templateName;
+                          const documentDate = firstFile?.documentDate;
 
                           return (
                             <div
                               key={docGroup.templateName || 'unmatched'}
                               className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
                                 isDocSelected
-                                  ? 'bg-accent text-white'
+                                  ? 'bg-blue-500 dark:bg-accent text-white'
                                   : 'hover:bg-accent-light text-text-primary'
                               }`}
                               onClick={() => setSelectedFileIndex(firstFileIndex)}
@@ -334,9 +371,21 @@ export default function GroupDocumentsPage() {
                                 <div className="text-sm font-medium truncate">
                                   {docGroup.templateName || 'Unmatched'}
                                 </div>
-                                <div className={`text-xs truncate ${isDocSelected ? 'text-white/70' : 'text-text-secondary'}`}>
+                                <div className={`text-xs truncate ${isDocSelected ? 'text-white/80' : 'text-text-secondary'}`}>
                                   {docGroup.files.length} {docGroup.files.length === 1 ? 'page' : 'pages'}
                                 </div>
+                                {documentDate && (
+                                  <div className={`text-xs truncate flex items-center gap-1 mt-0.5 ${isDocSelected ? 'text-white/70' : 'text-text-secondary'}`}>
+                                    <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                    <span>{new Date(documentDate).toLocaleDateString('th-TH', {
+                                      day: 'numeric',
+                                      month: 'short',
+                                      year: 'numeric'
+                                    }).replace('พ.ศ.', '').trim()}</span>
+                                  </div>
+                                )}
                               </div>
                               {isDocSelected && (
                                 <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
@@ -359,13 +408,14 @@ export default function GroupDocumentsPage() {
                 const firstFileIndex = labeledFiles.findIndex((f: any) => f.id === firstFile.id);
                 const currentSelectedFile = labeledFiles[selectedFileIndex];
                 const isSelected = currentSelectedFile && currentSelectedFile.templateName === docGroup.templateName;
+                const documentDate = firstFile?.documentDate;
 
                 return (
                   <div
                     key={docGroup.templateName || 'unmatched-root'}
                     className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
                       isSelected
-                        ? 'bg-accent text-white'
+                        ? 'bg-blue-500 dark:bg-accent text-white'
                         : 'hover:bg-accent-light text-text-primary'
                     }`}
                     onClick={() => setSelectedFileIndex(firstFileIndex)}
@@ -378,9 +428,21 @@ export default function GroupDocumentsPage() {
                       <div className="text-sm font-medium truncate">
                         {docGroup.templateName || 'Unmatched'}
                       </div>
-                      <div className={`text-xs truncate ${isSelected ? 'text-white/70' : 'text-text-secondary'}`}>
+                      <div className={`text-xs truncate ${isSelected ? 'text-white/80' : 'text-text-secondary'}`}>
                         {docGroup.files.length} {docGroup.files.length === 1 ? 'page' : 'pages'}
                       </div>
+                      {documentDate && (
+                        <div className={`text-xs truncate flex items-center gap-1 mt-0.5 ${isSelected ? 'text-white/70' : 'text-text-secondary'}`}>
+                          <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          <span>{new Date(documentDate).toLocaleDateString('th-TH', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric'
+                          }).replace('พ.ศ.', '').trim()}</span>
+                        </div>
+                      )}
                     </div>
                     {isSelected && (
                       <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
@@ -400,7 +462,7 @@ export default function GroupDocumentsPage() {
           <div className="flex-1 overflow-hidden">
             {currentFile && (
               <ImageViewer
-                src={`${API_URL}/labeled-files/${currentFile.id}/preview`}
+                src={`${API_URL}/files/${currentFile.groupedFileId}/preview`}
                 alt={currentFile.originalName}
                 onPrevious={() => {
                   if (selectedFileIndex > 0) {
@@ -442,7 +504,7 @@ export default function GroupDocumentsPage() {
                     >
                       <div className="h-20 bg-bg-secondary rounded overflow-hidden border-2" style={{ borderColor: isSelected ? color : 'transparent' }}>
                         <img
-                          src={`${API_URL}/labeled-files/${file.id}/preview`}
+                          src={`${API_URL}/files/${file.groupedFileId}/preview`}
                           alt={file.originalName}
                           className="w-full h-full object-contain"
                         />
@@ -462,17 +524,31 @@ export default function GroupDocumentsPage() {
         <div className="w-16 sm:w-40 md:w-56 lg:w-72 xl:w-80 bg-card-bg border-l border-border-color overflow-y-auto overflow-x-hidden">
           <div className="p-4">
             <div className="mb-3 flex items-start justify-between">
-              <div>
+              <div className="flex-1">
                 <h3 className="text-sm font-semibold text-text-primary mb-1">OCR Result</h3>
                 {currentFile && (
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{ backgroundColor: getTemplateColor(currentFile.templateName) }}
-                    ></span>
-                    <span className="text-xs text-text-secondary">
-                      {currentFile.templateName || 'Unmatched'}
-                    </span>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full"
+                        style={{ backgroundColor: getTemplateColor(currentFile.templateName) }}
+                      ></span>
+                      <span className="text-xs text-text-secondary">
+                        {currentFile.templateName || 'Unmatched'}
+                      </span>
+                    </div>
+                    {currentFile.documentDate && (
+                      <div className="flex items-center gap-2 text-xs text-text-secondary">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <span>{new Date(currentFile.documentDate).toLocaleDateString('th-TH', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric'
+                        })}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
