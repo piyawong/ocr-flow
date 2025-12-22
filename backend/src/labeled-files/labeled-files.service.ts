@@ -1,6 +1,6 @@
 import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { LabelStatus } from './types';
 import { Document } from './document.entity';
 import { Group } from '../files/group.entity';
@@ -8,6 +8,12 @@ import { MinioService } from '../minio/minio.service';
 import { TemplatesService } from '../templates/templates.service';
 import { ParseRunnerService } from '../parse-runner/parse-runner.service';
 import { FilesService } from '../files/files.service';
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import {
+  ActivityAction,
+  ActivityEntityType,
+  ActivityStage,
+} from '../activity-logs/activity-log.entity';
 
 @Injectable()
 export class LabeledFilesService {
@@ -16,12 +22,14 @@ export class LabeledFilesService {
     private documentRepository: Repository<Document>,
     @InjectRepository(Group)
     private groupRepository: Repository<Group>,
+    private dataSource: DataSource,
     private minioService: MinioService,
     private templatesService: TemplatesService,
     @Inject(forwardRef(() => ParseRunnerService))
     private parseRunnerService: ParseRunnerService,
     @Inject(forwardRef(() => FilesService))
     private filesService: FilesService,
+    private activityLogsService: ActivityLogsService,
   ) {}
 
   // ❌ DEPRECATED: No longer needed (using documents table)
@@ -117,7 +125,11 @@ export class LabeledFilesService {
     };
   }
 
-  async getAllGroupsSummary(options?: { includeReviewed?: boolean }): Promise<
+  async getAllGroupsSummary(options?: {
+    includeReviewed?: boolean;
+    userId?: number;
+    userRole?: string;
+  }): Promise<
     {
       groupId: number;
       totalPages: number;
@@ -127,13 +139,24 @@ export class LabeledFilesService {
       isParseData: boolean;
       isReviewed: boolean;
       reviewer: string | null;
+      lockedBy: number | null;
+      lockedByName: string | null;
+      lockedAt: Date | null;
     }[]
   > {
+    console.log('🔑 getAllGroupsSummary options:', {
+      includeReviewed: options?.includeReviewed,
+      userId: options?.userId,
+      userRole: options?.userRole,
+    });
+
     // Calculate from groups + files + documents
     const groups = await this.groupRepository.find({
       where: { isAutoLabeled: true }, // Only labeled groups
-      select: ['id', 'isParseData', 'isLabeledReviewed', 'labeledReviewer'],
+      select: ['id', 'isParseData', 'isLabeledReviewed', 'labeledReviewer', 'lockedBy', 'lockedAt'],
     });
+
+    console.log(`📦 Total labeled groups found: ${groups.length}`);
 
     const summaries: {
       groupId: number;
@@ -144,13 +167,24 @@ export class LabeledFilesService {
       isParseData: boolean;
       isReviewed: boolean;
       reviewer: string | null;
+      lockedBy: number | null;
+      lockedByName: string | null;
+      lockedAt: Date | null;
     }[] = [];
 
     for (const group of groups) {
       // Filter: By default, only show unreviewed groups
       if (!options?.includeReviewed && group.isLabeledReviewed) {
+        console.log(`⏭️  Group ${group.id}: Skipped (already reviewed, includeReviewed=false)`);
         continue;
       }
+
+      // ✅ Don't hide locked groups - show them with lock status
+      // Frontend will disable the button instead
+      console.log(`📋 Group ${group.id}: Including with lock status:`, {
+        lockedBy: group.lockedBy,
+        lockedAt: group.lockedAt,
+      });
 
       // Get files and documents for this group
       const files = await this.filesService.findByGroup(group.id);
@@ -177,6 +211,18 @@ export class LabeledFilesService {
         status = 'has_unmatched';
       }
 
+      // Fetch locked user info if locked
+      let lockedByName: string | null = null;
+      if (group.lockedBy) {
+        const lockedUser = await this.dataSource
+          .getRepository('users')
+          .findOne({
+            where: { id: group.lockedBy },
+            select: ['name'],
+          });
+        lockedByName = lockedUser?.name || null;
+      }
+
       summaries.push({
         groupId: group.id,
         totalPages,
@@ -186,6 +232,9 @@ export class LabeledFilesService {
         isParseData: group.isParseData || false,
         isReviewed: group.isLabeledReviewed || false,
         reviewer: group.labeledReviewer || null,
+        lockedBy: group.lockedBy || null,
+        lockedByName,
+        lockedAt: group.lockedAt || null,
       });
     }
 
@@ -366,7 +415,39 @@ export class LabeledFilesService {
   async updateDocumentDate(
     documentId: number,
     documentDate: Date | null,
+    userId?: number,
+    userName?: string,
   ): Promise<Document> {
+    // Get old document to compare
+    const oldDocument = await this.documentRepository.findOne({
+      where: { id: documentId },
+    });
+
+    if (oldDocument && (userId || userName)) {
+      // Format dates for display
+      const oldDateStr = oldDocument.documentDate
+        ? new Date(oldDocument.documentDate).toLocaleDateString('th-TH')
+        : 'ไม่ระบุ';
+      const newDateStr = documentDate
+        ? new Date(documentDate).toLocaleDateString('th-TH')
+        : 'ไม่ระบุ';
+
+      // Log the change
+      await this.activityLogsService.create({
+        userId,
+        userName: userName || 'Unknown User',
+        action: ActivityAction.UPDATE,
+        entityType: ActivityEntityType.DOCUMENT,
+        entityId: documentId,
+        groupId: oldDocument.groupId,
+        stage: ActivityStage.STAGE_03_PDF_LABEL,
+        fieldName: 'documentDate',
+        oldValue: oldDocument.documentDate ? oldDocument.documentDate.toISOString() : null,
+        newValue: documentDate ? documentDate.toISOString() : null,
+        description: `Updated ${oldDocument.templateName} date: ${oldDateStr} → ${newDateStr}`,
+      });
+    }
+
     await this.documentRepository.update(documentId, { documentDate });
     return this.documentRepository.findOne({ where: { id: documentId } })!;
   }
@@ -426,6 +507,7 @@ export class LabeledFilesService {
     reviewer: string,
     notes?: string,
     markAsReviewed: boolean = true,
+    userId?: number,
   ): Promise<{ updated: number; marked: boolean; parsed?: boolean; parseMessage?: string }> {
     let result;
 
@@ -449,6 +531,34 @@ export class LabeledFilesService {
           labeledNotes: notes || null,
         },
       );
+
+      // Get documents to build detailed description
+      const documents = await this.documentRepository.find({
+        where: { groupId },
+        order: { documentNumber: 'ASC' },
+      });
+
+      // Build detailed description with document labels
+      const docSummary = documents.map((doc) => {
+        const dateStr = doc.documentDate
+          ? ` (${new Date(doc.documentDate).toLocaleDateString('th-TH')})`
+          : '';
+        return `${doc.templateName}${dateStr}`;
+      }).join(', ');
+
+      const description = `Reviewed and approved PDF labels: ${docSummary}${notes ? ` | Notes: ${notes}` : ''}`;
+
+      // Log the review action
+      await this.activityLogsService.create({
+        userId,
+        userName: reviewer,
+        action: ActivityAction.REVIEW,
+        entityType: ActivityEntityType.GROUP,
+        entityId: groupId,
+        groupId,
+        stage: ActivityStage.STAGE_03_PDF_LABEL,
+        description,
+      });
     } else {
       result = { affected: 0 };
 
@@ -457,6 +567,22 @@ export class LabeledFilesService {
         { id: groupId },
         { labeledNotes: notes || null },
       );
+
+      // Log notes update
+      if (notes) {
+        await this.activityLogsService.create({
+          userId,
+          userName: reviewer,
+          action: ActivityAction.UPDATE,
+          entityType: ActivityEntityType.GROUP,
+          entityId: groupId,
+          groupId,
+          stage: ActivityStage.STAGE_03_PDF_LABEL,
+          fieldName: 'labeledNotes',
+          newValue: notes,
+          description: `Updated review notes`,
+        });
+      }
     }
 
     // Auto-trigger parse data if marked as reviewed and 100% matched
@@ -741,6 +867,101 @@ export class LabeledFilesService {
   }
 
   /**
+   * Check if new documents overlap with existing documents
+   * Returns list of existing documents that will be deleted/affected
+   */
+  async checkDocumentOverlap(
+    groupId: number,
+    newDocuments: {
+      templateName: string;
+      category: string;
+      startPage: number;
+      endPage: number;
+    }[],
+  ): Promise<{
+    hasOverlap: boolean;
+    affectedDocuments: {
+      id: number;
+      documentNumber: number;
+      templateName: string;
+      category: string;
+      startPage: number;
+      endPage: number;
+      pageCount: number;
+      overlapType: 'full' | 'partial';
+      overlapPages: { start: number; end: number };
+    }[];
+  }> {
+    // Get existing documents
+    const existingDocuments = await this.documentRepository.find({
+      where: { groupId },
+      order: { documentNumber: 'ASC' },
+    });
+
+    if (existingDocuments.length === 0) {
+      return { hasOverlap: false, affectedDocuments: [] };
+    }
+
+    const affectedDocuments: {
+      id: number;
+      documentNumber: number;
+      templateName: string;
+      category: string;
+      startPage: number;
+      endPage: number;
+      pageCount: number;
+      overlapType: 'full' | 'partial';
+      overlapPages: { start: number; end: number };
+    }[] = [];
+
+    // Check each new document against existing documents
+    for (const newDoc of newDocuments) {
+      for (const existingDoc of existingDocuments) {
+        // Check if ranges overlap
+        const hasOverlap = !(
+          newDoc.endPage < existingDoc.startPage ||
+          newDoc.startPage > existingDoc.endPage
+        );
+
+        if (hasOverlap) {
+          // Calculate overlap range
+          const overlapStart = Math.max(newDoc.startPage, existingDoc.startPage);
+          const overlapEnd = Math.min(newDoc.endPage, existingDoc.endPage);
+
+          // Determine overlap type
+          const isFullOverlap =
+            overlapStart === existingDoc.startPage && overlapEnd === existingDoc.endPage;
+
+          // Check if this document is already in affected list
+          const alreadyAdded = affectedDocuments.some((d) => d.id === existingDoc.id);
+
+          if (!alreadyAdded) {
+            affectedDocuments.push({
+              id: existingDoc.id,
+              documentNumber: existingDoc.documentNumber,
+              templateName: existingDoc.templateName,
+              category: existingDoc.category,
+              startPage: existingDoc.startPage,
+              endPage: existingDoc.endPage,
+              pageCount: existingDoc.pageCount,
+              overlapType: isFullOverlap ? 'full' : 'partial',
+              overlapPages: {
+                start: overlapStart,
+                end: overlapEnd,
+              },
+            });
+          }
+        }
+      }
+    }
+
+    return {
+      hasOverlap: affectedDocuments.length > 0,
+      affectedDocuments,
+    };
+  }
+
+  /**
    * Update documents for a group (document-based labeling)
    * Used by API endpoint
    */
@@ -754,7 +975,15 @@ export class LabeledFilesService {
       endPage: number;
       documentDate?: string;
     }[],
+    userId?: number,
+    userName?: string,
   ): Promise<{ success: boolean; documentsCreated: number }> {
+    // Get old documents for comparison (before clearing)
+    const oldDocuments = await this.documentRepository.find({
+      where: { groupId },
+      order: { documentNumber: 'ASC' },
+    });
+
     // Get files from this group
     const files = await this.filesService.findByGroup(groupId);
 
@@ -775,6 +1004,73 @@ export class LabeledFilesService {
         },
         files,
       );
+    }
+
+    // Log the document changes
+    if (userId || userName) {
+      // Check if group was already reviewed
+      const group = await this.groupRepository.findOne({ where: { id: groupId } });
+      const wasReviewed = group?.isLabeledReviewed || false;
+
+      // Only log if:
+      // 1. Already reviewed (editing after review)
+      // AND
+      // 2. There were old documents
+      //
+      // Do NOT log if wasReviewed = false (first-time review)
+      // because REVIEW log will be created by markGroupAsReviewed()
+      const shouldLog = oldDocuments.length > 0 && wasReviewed;
+
+      if (shouldLog) {
+        // Build old documents summary
+        const oldSummary = oldDocuments.map((doc) => {
+          const dateStr = doc.documentDate
+            ? ` (${new Date(doc.documentDate).toLocaleDateString('th-TH')})`
+            : '';
+          return `${doc.templateName}${dateStr}`;
+        }).join(', ');
+
+        // Build new documents summary
+        const newSummary = documents.map((doc) => {
+          const dateStr = doc.documentDate
+            ? ` (${new Date(doc.documentDate).toLocaleDateString('th-TH')})`
+            : '';
+          return `${doc.templateName}${dateStr}`;
+        }).join(', ');
+
+        // Build description based on whether it was reviewed
+        let description: string;
+        if (wasReviewed) {
+          // If already reviewed, this is an EDIT
+          description = `Edited PDF labels after review | Old: ${oldSummary} | New: ${newSummary}`;
+        } else {
+          // Normal update
+          description = `Updated PDF labels (${oldDocuments.length} → ${documents.length} documents) | New: ${newSummary}`;
+        }
+
+        await this.activityLogsService.create({
+          userId,
+          userName: userName || 'Unknown User',
+          action: ActivityAction.UPDATE,
+          entityType: ActivityEntityType.GROUP,
+          entityId: groupId,
+          groupId,
+          stage: ActivityStage.STAGE_03_PDF_LABEL,
+          description,
+        });
+      }
+
+      // Reset reviewed status if it was edited after review
+      if (wasReviewed) {
+        await this.groupRepository.update(
+          { id: groupId },
+          {
+            isLabeledReviewed: false,
+            labeledReviewer: null,
+            labeledNotes: null,
+          },
+        );
+      }
     }
 
     return { success: true, documentsCreated: documents.length };

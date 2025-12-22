@@ -10,6 +10,7 @@ import { CommitteeMember } from './committee-member.entity';
 import { FilesService } from './files.service';
 import { FilesController } from './files.controller';
 import { MinioModule } from '../minio/minio.module';
+import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { MinioModule } from '../minio/minio.module';
       CommitteeMember,
     ]),
     MinioModule,
+    ActivityLogsModule,
   ],
   providers: [FilesService],
   controllers: [FilesController],

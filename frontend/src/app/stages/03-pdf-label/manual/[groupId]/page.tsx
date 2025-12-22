@@ -4,9 +4,13 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermission } from '@/hooks/usePermission';
-import { DocumentDateModal } from '@/components/DocumentDateModal';
-import { ThaiDatePicker } from '@/components/ThaiDatePicker';
+import { DocumentDatePicker } from '@/components/DocumentDatePicker';
 import { fetchWithAuth, API_URL } from '@/lib/api';
+import { RightPanelContent } from './components/RightPanelContent';
+import { TemplateSelectionModal } from './components/TemplateSelectionModal';
+import { ReviewNotesModal } from './components/ReviewNotesModal';
+import { MissingDatesModal } from './components/MissingDatesModal';
+import { OverlapWarningModal } from './components/OverlapWarningModal';
 import {
   DndContext,
   closestCenter,
@@ -426,29 +430,34 @@ function convertPagesToDocuments(
   endPage: number;
   documentDate?: string | null;
 }> {
-  const documentRanges: Array<{
+  type DocRange = {
     templateName: string;
     category: string;
     startPage: number;
     endPage: number;
     documentDate?: string | null;
-  }> = [];
+  };
 
-  let currentDoc: {
+  type CurrentDoc = {
     templateName: string;
     category: string;
     startPage: number;
     endPage: number;
     documentNumber: number;
-  } | null = null;
+  };
+
+  const documentRanges: DocRange[] = [];
+  let currentDoc: CurrentDoc | null = null;
 
   pages.forEach((page, idx) => {
     if (page.labelStatus === 'start' || page.labelStatus === 'single') {
       // Close previous document
       if (currentDoc) {
-        const dateKey = `${currentDoc.documentNumber}_${currentDoc.templateName}`;
+        const { documentNumber, templateName, ...docWithoutNumber } = currentDoc;
+        const dateKey = `${documentNumber}_${templateName}`;
         documentRanges.push({
-          ...currentDoc,
+          ...docWithoutNumber,
+          templateName,
           documentDate: documentDates[dateKey] || null,
         });
       }
@@ -464,9 +473,11 @@ function convertPagesToDocuments(
 
       // Single page document -> close immediately
       if (page.labelStatus === 'single') {
-        const dateKey = `${currentDoc.documentNumber}_${currentDoc.templateName}`;
+        const { documentNumber, templateName, ...docWithoutNumber } = currentDoc;
+        const dateKey = `${documentNumber}_${templateName}`;
         documentRanges.push({
-          ...currentDoc,
+          ...docWithoutNumber,
+          templateName,
           documentDate: documentDates[dateKey] || null,
         });
         currentDoc = null;
@@ -478,9 +489,11 @@ function convertPagesToDocuments(
 
         // End page -> close document
         if (page.labelStatus === 'end') {
-          const dateKey = `${currentDoc.documentNumber}_${currentDoc.templateName}`;
+          const { documentNumber, templateName, ...docWithoutNumber } = currentDoc;
+          const dateKey = `${documentNumber}_${templateName}`;
           documentRanges.push({
-            ...currentDoc,
+            ...docWithoutNumber,
+            templateName,
             documentDate: documentDates[dateKey] || null,
           });
           currentDoc = null;
@@ -492,9 +505,12 @@ function convertPagesToDocuments(
 
   // Close any remaining open document (shouldn't happen normally)
   if (currentDoc) {
-    const dateKey = `${currentDoc.documentNumber}_${currentDoc.templateName}`;
+    const doc = currentDoc as CurrentDoc; // Type assertion for destructuring
+    const { documentNumber, templateName, ...docWithoutNumber } = doc;
+    const dateKey = `${documentNumber}_${templateName}`;
     documentRanges.push({
-      ...currentDoc,
+      ...docWithoutNumber,
+      templateName,
       documentDate: documentDates[dateKey] || null,
     });
   }
@@ -587,17 +603,6 @@ export default function ManualLabelPage() {
 
   // Document dates tracking (NEW!)
   const [documentDates, setDocumentDates] = useState<Record<string, string | null>>({}); // key = `${documentId}_${templateName}`
-  const [documentDateModal, setDocumentDateModal] = useState<{
-    isOpen: boolean;
-    documentNumber: number;
-    templateName: string;
-    initialDate: string | null;
-  }>({
-    isOpen: false,
-    documentNumber: 0,
-    templateName: '',
-    initialDate: null,
-  });
   const [pendingTemplateSelection, setPendingTemplateSelection] = useState<{
     template: Template;
     startPage: number;
@@ -609,6 +614,29 @@ export default function ManualLabelPage() {
   const [documentsWithMissingDates, setDocumentsWithMissingDates] = useState<DocumentWithMissingDate[]>([]);
   const [editingDocId, setEditingDocId] = useState<number | null>(null);
   const [tempDate, setTempDate] = useState('');
+
+  // Overlap detection states
+  const [showOverlapModal, setShowOverlapModal] = useState(false);
+  const [overlappedDocuments, setOverlappedDocuments] = useState<Array<{
+    id: number;
+    documentNumber: number;
+    templateName: string;
+    category: string;
+    startPage: number;
+    endPage: number;
+    pageCount: number;
+    overlapType: 'full' | 'partial';
+    overlapPages: { start: number; end: number };
+  }>>([]);
+
+  // Pending template assignment (for overlap confirmation)
+  const [pendingAssignment, setPendingAssignment] = useState<{
+    template: Template;
+    startPage: number;
+    endPage: number;
+    documentNumber: number;
+    date: string | null;
+  } | null>(null);
 
   // Reset editing states when modal closes
   useEffect(() => {
@@ -817,76 +845,143 @@ export default function ManualLabelPage() {
     setHasUnsavedChanges(true);
   };
 
-  // Fetch data
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const [filesRes, templatesRes, summaryRes] = await Promise.all([
-          fetchWithAuth(`/labeled-files/group/${groupId}`),
-          fetchWithAuth(`/labeled-files/templates`),
-          fetchWithAuth(`/labeled-files/summary`),
-        ]);
+  // Fetch data function (extracted to useCallback for reuse)
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [filesRes, templatesRes, summaryRes] = await Promise.all([
+        fetchWithAuth(`/labeled-files/group/${groupId}`),
+        fetchWithAuth(`/labeled-files/templates`),
+        fetchWithAuth(`/labeled-files/summary`),
+      ]);
 
-        const files: LabeledFile[] = await filesRes.json();
-        const templatesList: Template[] = await templatesRes.json();
-        const summaryData = await summaryRes.json();
+      const files: LabeledFile[] = await filesRes.json();
+      const templatesList: Template[] = await templatesRes.json();
+      const summaryData = await summaryRes.json();
 
-        // Extract groups with their match percentages (API returns array directly)
-        if (Array.isArray(summaryData)) {
-          const groups = summaryData.map((g: { groupId: number; matchPercentage: number }) => ({
-            groupId: g.groupId,
-            matchPercentage: Math.round(g.matchPercentage),
-          }));
-          setAllGroups(groups.sort((a: { groupId: number }, b: { groupId: number }) => a.groupId - b.groupId));
-        }
-
-        const pagesData = files.map(f => ({
-          id: f.id,
-          groupedFileId: f.groupedFileId,
-          orderInGroup: f.orderInGroup,
-          originalName: f.originalName,
-          storagePath: f.storagePath,
-          ocrText: f.ocrText,
-          templateName: f.templateName,
-          category: f.category,
-          labelStatus: f.labelStatus,
-          matchReason: f.matchReason,
-          documentId: f.documentId,
-          pageInDocument: f.pageInDocument,
-          isModified: false,
+      // Extract groups with their match percentages (API returns array directly)
+      if (Array.isArray(summaryData)) {
+        const groups = summaryData.map((g: { groupId: number; matchPercentage: number }) => ({
+          groupId: g.groupId,
+          matchPercentage: Math.round(g.matchPercentage),
         }));
-
-        // Extract document dates from response
-        const dates: Record<string, string | null> = {};
-        files.forEach(f => {
-          if (f.documentId !== null && f.templateName) {
-            const key = `${f.documentId}_${f.templateName}`;
-            if (f.documentDate) {
-              console.log(`📅 Found date for ${key}:`, f.documentDate);
-              dates[key] = f.documentDate;
-            } else {
-              console.log(`⚠️ No date for ${key}`);
-            }
-          }
-        });
-        console.log('📅 Final documentDates:', dates);
-        setDocumentDates(dates);
-
-        setPages(pagesData);
-        setOriginalOrder(pagesData.map(p => p.id)); // Save original order
-        setTemplates(templatesList);
-        setLoading(false);
-      } catch (err) {
-        console.error('Error fetching data:', err);
-        setLoading(false);
+        setAllGroups(groups.sort((a: { groupId: number }, b: { groupId: number }) => a.groupId - b.groupId));
       }
-    };
 
+      const pagesData = files.map(f => ({
+        id: f.id,
+        groupedFileId: f.groupedFileId,
+        orderInGroup: f.orderInGroup,
+        originalName: f.originalName,
+        storagePath: f.storagePath,
+        ocrText: f.ocrText,
+        templateName: f.templateName,
+        category: f.category,
+        labelStatus: f.labelStatus,
+        matchReason: f.matchReason,
+        documentId: f.documentId,
+        pageInDocument: f.pageInDocument,
+        isModified: false,
+      }));
+
+      // Extract document dates from response
+      const dates: Record<string, string | null> = {};
+      files.forEach(f => {
+        if (f.documentId !== null && f.templateName) {
+          const key = `${f.documentId}_${f.templateName}`;
+          if (f.documentDate) {
+            console.log(`📅 Found date for ${key}:`, f.documentDate);
+            dates[key] = f.documentDate;
+          } else {
+            console.log(`⚠️ No date for ${key}`);
+          }
+        }
+      });
+      console.log('📅 Final documentDates:', dates);
+      setDocumentDates(dates);
+
+      setPages(pagesData);
+      setOriginalOrder(pagesData.map(p => p.id)); // Save original order
+      setTemplates(templatesList);
+      setLoading(false);
+    } catch (err) {
+      console.error('Error fetching data:', err);
+      setLoading(false);
+    }
+  }, [groupId]);
+
+  // Fetch data on mount and when groupId changes
+  useEffect(() => {
     if (groupId) {
       fetchData();
     }
-  }, [groupId]);
+  }, [groupId, fetchData]);
+
+  // ✅ Lock group on mount, unlock on unmount
+  useEffect(() => {
+    if (!groupId) return;
+
+    let lockAcquired = false;
+
+    // Try to lock the group
+    const lockGroup = async () => {
+      try {
+        const res = await fetchWithAuth(`/files/group/${groupId}/lock`, {
+          method: 'POST',
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          if (res.status === 409) {
+            // Group is locked by another user
+            alert(
+              `⚠️ This group is currently being edited by ${error.lockedByName}.\n\n` +
+              `You cannot edit it until they finish.\n\n` +
+              `Returning to group list...`
+            );
+            router.push('/stages/03-pdf-label');
+            return;
+          }
+          throw new Error('Failed to lock group');
+        }
+
+        lockAcquired = true;
+        console.log('✅ Group locked successfully');
+      } catch (err) {
+        console.error('Failed to lock group:', err);
+        alert('Failed to lock group. Returning to list.');
+        router.push('/stages/03-pdf-label');
+      }
+    };
+
+    lockGroup();
+
+    // Heartbeat: Renew lock every 5 minutes
+    const heartbeatInterval = setInterval(async () => {
+      if (lockAcquired) {
+        try {
+          await fetchWithAuth(`/files/group/${groupId}/lock/renew`, {
+            method: 'PUT',
+          });
+          console.log('✅ Lock renewed');
+        } catch (err) {
+          console.error('Failed to renew lock:', err);
+        }
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+
+    // Unlock on unmount
+    return () => {
+      clearInterval(heartbeatInterval);
+
+      if (lockAcquired) {
+        // Unlock group (fire and forget)
+        fetchWithAuth(`/files/group/${groupId}/lock`, {
+          method: 'DELETE',
+        }).catch((err) => console.error('Failed to unlock group:', err));
+      }
+    };
+  }, [groupId, router]);
 
   // Navigation functions
   const goToNextFolder = () => {
@@ -1077,56 +1172,140 @@ export default function ManualLabelPage() {
     return maxDocId + 1;
   };
 
+  // ✅ NEW: Check overlap from local state
+  const checkOverlapLocal = (start: number, end: number): {
+    hasOverlap: boolean;
+    affectedDocuments: Array<{
+      id: number;
+      documentNumber: number;
+      templateName: string;
+      category: string;
+      startPage: number;
+      endPage: number;
+      pageCount: number;
+      overlapType: 'full' | 'partial';
+      overlapPages: { start: number; end: number };
+    }>;
+  } => {
+    // Build list of existing documents from current pages state
+    const documentsMap = new Map<string, {
+      documentId: number;
+      templateName: string;
+      category: string;
+      startIdx: number;
+      endIdx: number;
+    }>();
+
+    pages.forEach((page, idx) => {
+      if (page.documentId !== null && page.templateName) {
+        const key = `${page.documentId}_${page.templateName}`;
+        if (!documentsMap.has(key)) {
+          documentsMap.set(key, {
+            documentId: page.documentId,
+            templateName: page.templateName,
+            category: page.category || '',
+            startIdx: idx,
+            endIdx: idx,
+          });
+        } else {
+          const doc = documentsMap.get(key)!;
+          doc.endIdx = idx;
+        }
+      }
+    });
+
+    const affectedDocuments: Array<{
+      id: number;
+      documentNumber: number;
+      templateName: string;
+      category: string;
+      startPage: number;
+      endPage: number;
+      pageCount: number;
+      overlapType: 'full' | 'partial';
+      overlapPages: { start: number; end: number };
+    }> = [];
+
+    // Check each existing document for overlap
+    documentsMap.forEach((doc) => {
+      // Check if ranges overlap
+      const hasOverlap = !(end < doc.startIdx || start > doc.endIdx);
+
+      if (hasOverlap) {
+        // Calculate overlap range
+        const overlapStart = Math.max(start, doc.startIdx);
+        const overlapEnd = Math.min(end, doc.endIdx);
+
+        // Determine overlap type
+        const isFullOverlap = (
+          overlapStart === doc.startIdx &&
+          overlapEnd === doc.endIdx
+        );
+
+        affectedDocuments.push({
+          id: doc.documentId,
+          documentNumber: doc.documentId,
+          templateName: doc.templateName,
+          category: doc.category,
+          startPage: doc.startIdx + 1, // Convert to 1-based
+          endPage: doc.endIdx + 1,
+          pageCount: doc.endIdx - doc.startIdx + 1,
+          overlapType: isFullOverlap ? 'full' : 'partial',
+          overlapPages: {
+            start: overlapStart + 1, // Convert to 1-based
+            end: overlapEnd + 1,
+          },
+        });
+      }
+    });
+
+    return {
+      hasOverlap: affectedDocuments.length > 0,
+      affectedDocuments,
+    };
+  };
+
   const handleTemplateSelect = (template: Template) => {
     if (startPage === null || endPage === null) return;
 
-    // Get document number for this selection
+    // ✅ Check overlap from local state (faster than API call)
+    const overlapResult = checkOverlapLocal(startPage, endPage);
+
+    if (overlapResult.hasOverlap) {
+      // Show warning modal
+      const documentNumber = getNextDocumentNumber();
+      setOverlappedDocuments(overlapResult.affectedDocuments);
+      setPendingAssignment({
+        template,
+        startPage,
+        endPage,
+        documentNumber,
+        date: null,
+      });
+      setShowOverlapModal(true);
+      setIsTemplateModalOpen(false);
+      return; // Stop here, wait for user confirmation
+    }
+
+    // No overlap, proceed directly
     const documentNumber = getNextDocumentNumber();
-    const key = `${documentNumber}_${template.name}`;
-
-    // Save pending selection
-    setPendingTemplateSelection({
-      template,
-      startPage,
-      endPage,
-    });
-
-    // Show date modal
-    setDocumentDateModal({
-      isOpen: true,
-      documentNumber,
-      templateName: template.name,
-      initialDate: documentDates[key] || null,
-    });
+    assignTemplateToPages(template, startPage, endPage, documentNumber, null);
 
     // Close template modal
     setIsTemplateModalOpen(false);
   };
 
-  // Handle document date confirmation
-  const handleDocumentDateConfirm = (date: string | null) => {
-    // Case 1: Just editing existing document date (no template selection pending)
-    if (!pendingTemplateSelection) {
-      // Get current document info from modal state
-      const { documentNumber, templateName } = documentDateModal;
-      const key = `${documentNumber}_${templateName}`;
-
-      // Update document date only
-      setDocumentDates(prev => ({
-        ...prev,
-        [key]: date,
-      }));
-
-      setHasUnsavedChanges(true);
-      setDocumentDateModal(prev => ({ ...prev, isOpen: false }));
-      return;
-    }
-
-    // Case 2: Selecting new template + setting date (original flow)
-    const { template, startPage: start, endPage: end } = pendingTemplateSelection;
+  // Helper function to assign template to pages
+  const assignTemplateToPages = useCallback((
+    template: Template,
+    start: number,
+    end: number,
+    documentNumber: number,
+    date: string | null,
+    clearAffectedDocumentIds?: number[], // ✅ NEW: IDs of documents to clear
+  ) => {
     const pageCount = end - start + 1;
     const isSingle = pageCount === 1;
-    const documentNumber = getNextDocumentNumber();
 
     // Save document date
     const key = `${documentNumber}_${template.name}`;
@@ -1135,40 +1314,69 @@ export default function ManualLabelPage() {
       [key]: date,
     }));
 
-    // Apply template to pages
-    setPages(prev => prev.map((page, idx) => {
-      if (idx >= start && idx <= end) {
-        let status: PageLabel['labelStatus'];
-        if (isSingle) {
-          status = 'single';
-        } else if (idx === start) {
-          status = 'start';
-        } else if (idx === end) {
-          status = 'end';
-        } else {
-          status = 'continue';
-        }
-
-        return {
-          ...page,
-          templateName: template.name,
-          category: template.category,
-          labelStatus: status,
-          documentId: documentNumber,
-          pageInDocument: idx - start + 1,
-          isModified: true,
-        };
+    // ✅ Apply template to pages (2 passes to handle overlap correctly)
+    setPages(prev => {
+      // Pass 1: Clear pages that belong to affected documents
+      let updatedPages = prev;
+      if (clearAffectedDocumentIds && clearAffectedDocumentIds.length > 0) {
+        updatedPages = prev.map((page) => {
+          if (page.documentId !== null && clearAffectedDocumentIds.includes(page.documentId)) {
+            // Clear this page (remove template)
+            return {
+              ...page,
+              templateName: null,
+              category: null,
+              labelStatus: 'unmatched',
+              documentId: null,
+              pageInDocument: null,
+              isModified: true,
+            };
+          }
+          return page;
+        });
       }
-      return page;
-    }));
+
+      // Pass 2: Assign new template to selected pages
+      return updatedPages.map((page, idx) => {
+        if (idx >= start && idx <= end) {
+          let status: PageLabel['labelStatus'];
+          if (isSingle) {
+            status = 'single';
+          } else if (idx === start) {
+            status = 'start';
+          } else if (idx === end) {
+            status = 'end';
+          } else {
+            status = 'continue';
+          }
+
+          return {
+            ...page,
+            templateName: template.name,
+            category: template.category,
+            labelStatus: status,
+            documentId: documentNumber,
+            pageInDocument: idx - start + 1,
+            isModified: true,
+          };
+        }
+        return page;
+      });
+    });
 
     setHasUnsavedChanges(true);
     setStartPage(null);
     setEndPage(null);
     setPendingTemplateSelection(null);
+    // setDocumentDateModal(prev => ({ ...prev, isOpen: false })); // Commented out - using inline picker now
+    setPendingAssignment(null);
 
     // ✅ Don't auto-jump to next unmatched page - keep focus on current page
-  };
+  }, []);
+
+  // ✅ REMOVED: handleDocumentDateConfirm() - no longer needed
+  // Overlap check is now done in handleTemplateSelect() using checkOverlapLocal()
+  // Date editing is done inline using DocumentDatePicker
 
   // Perform actual save (called after notes modal if needed)
   const performSave = useCallback(async (notes?: string) => {
@@ -1230,7 +1438,8 @@ export default function ManualLabelPage() {
         );
       }
 
-      // 3. ✅ NEW: Save labels as documents (document-based)
+      // 3. ✅ Save labels as documents (document-based)
+      // Note: Overlap check is done at label time (handleTemplateSelect), not here
       if (modifiedPages.length > 0 || Object.keys(documentDates).length > 0) {
         // Convert page labels to document ranges
         const documentRanges = convertPagesToDocuments(pages, documentDates);
@@ -1271,9 +1480,19 @@ export default function ManualLabelPage() {
       // Success message
       const notesMessage = notes ? `\nNotes: ${notes}` : '';
       if (is100Matched) {
+        // ✅ Unlock group before redirecting
+        await fetchWithAuth(`/files/group/${groupId}/lock`, {
+          method: 'DELETE',
+        }).catch((err) => console.error('Failed to unlock group:', err));
+
         alert(`✅ Changes saved successfully!\nReviewed by: ${reviewerName}\n100% matched (${matchedCount}/${totalCount} pages)${notesMessage}`);
+        // Redirect back to 03-pdf-label after successful 100% save
+        router.push('/stages/03-pdf-label');
       } else {
         alert(`✅ Changes saved successfully!${notesMessage}\n⚠️ Not marked as reviewed: Only ${matchedCount}/${totalCount} pages matched (${((matchedCount/totalCount)*100).toFixed(1)}%)\nPlease label all pages to 100% before marking as reviewed.`);
+
+        // ✅ Reload data to reflect changes (since we're staying on this page)
+        await fetchData();
       }
 
       setHasUnsavedChanges(false);
@@ -1285,7 +1504,7 @@ export default function ManualLabelPage() {
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, pages, tempRotations, originalOrder, groupId, documentDates, user]);
+  }, [isSaving, pages, tempRotations, originalOrder, groupId, documentDates, user, fetchData, router]);
 
   // Get all labeled documents (for Documents tab)
   const getLabeledDocuments = useCallback(() => {
@@ -1927,639 +2146,46 @@ export default function ManualLabelPage() {
         </div>
 
         {/* Right Panel - Compact Info */}
-        <div className="w-64 bg-card-bg border-l border-border-color flex flex-col">
-          {/* Tabs */}
-          <div className="flex border-b border-border-color">
-            {[
-              { id: 'info', label: 'Info' },
-              { id: 'templates', label: 'Templates' },
-              { id: 'ocr', label: 'OCR' },
-              { id: 'documents', label: 'Documents' },
-            ].map(tab => {
-              const missingDocsCount = tab.id === 'documents' ? getDocumentsWithMissingDates().length : 0;
-              const hasWarning = missingDocsCount > 0;
-
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setRightPanelTab(tab.id as typeof rightPanelTab)}
-                  className={`relative flex-1 px-3 py-2 text-xs font-medium transition-colors ${
-                    rightPanelTab === tab.id
-                      ? 'text-text-primary border-b-2 border-accent'
-                      : 'text-text-secondary hover:text-text-primary'
-                  }`}
-                >
-                  {tab.label}
-                  {/* Warning Dot */}
-                  {hasWarning && (
-                    <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-warning rounded-full"></span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Tab Content */}
-          <div className="flex-1 overflow-y-auto p-3">
-            {rightPanelTab === 'info' && currentPage && (
-              <div className="space-y-4">
-                {/* Current Page Info */}
-                <div>
-                  <div className="text-xs text-text-secondary uppercase tracking-wider mb-2">Current Page</div>
-                  <div className="p-3 bg-bg-secondary rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-lg font-semibold text-text-primary">Page {selectedPageIndex + 1}</span>
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                        currentPage.labelStatus === 'unmatched'
-                          ? 'bg-danger/20 text-danger'
-                          : 'bg-success/20 text-success'
-                      }`}>
-                        {currentPage.labelStatus}
-                      </span>
-                    </div>
-                    {/* Template Name with Edit Date Button */}
-                    {currentPage.templateName && (
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm text-text-primary font-medium">{currentPage.templateName}</div>
-                          {currentPage.category && (
-                            <div className="text-xs text-text-secondary mt-1">{currentPage.category}</div>
-                          )}
-                        </div>
-                        {/* Edit Date Button */}
-                        {currentPage.documentId !== null && (
-                          <button
-                            onClick={() => {
-                              const dateKey = `${currentPage.documentId}_${currentPage.templateName}`;
-                              setDocumentDateModal({
-                                isOpen: true,
-                                documentNumber: currentPage.documentId!,
-                                templateName: currentPage.templateName!,
-                                initialDate: documentDates[dateKey] || null,
-                              });
-                            }}
-                            className="p-1.5 rounded-lg hover:bg-bg-tertiary transition-colors flex-shrink-0"
-                            title="Edit document date"
-                          >
-                            <svg className="w-4 h-4 text-text-secondary hover:text-accent transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {/* Document Date Display */}
-                    {currentPage.documentId !== null && currentPage.templateName && (() => {
-                      const dateKey = `${currentPage.documentId}_${currentPage.templateName}`;
-                      const docDate = documentDates[dateKey];
-
-                      return (
-                        <div className={`flex items-center gap-1.5 mt-2 pt-2 border-t border-border-color ${
-                          docDate ? 'text-accent' : 'text-text-secondary'
-                        }`}>
-                          <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                          <span className="text-xs font-medium">
-                            {docDate ? (
-                              new Date(docDate).toLocaleDateString('th-TH', {
-                                year: 'numeric',
-                                month: 'long',
-                                day: 'numeric'
-                              })
-                            ) : (
-                              'No date set'
-                            )}
-                          </span>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-
-                {/* Match Reason */}
-                {currentPage.labelStatus !== 'unmatched' && (
-                  <div>
-                    <div className="text-xs text-text-secondary uppercase tracking-wider mb-2">Label Reason</div>
-                    <div className="p-3 bg-bg-secondary rounded-lg select-text" style={{ userSelect: 'text' }}>
-                      <div className="flex items-center gap-2 mb-2">
-                        {/* Icon based on reason */}
-                        {currentPage.matchReason === 'manual' ? (
-                          <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
-                            <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                            </svg>
-                          </div>
-                        ) : currentPage.labelStatus === 'continue' ? (
-                          <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0">
-                            <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                            </svg>
-                          </div>
-                        ) : currentPage.labelStatus === 'single' ? (
-                          <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
-                            <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                          </div>
-                        ) : (
-                          <div className="w-8 h-8 rounded-lg bg-success/20 flex items-center justify-center flex-shrink-0">
-                            <svg className="w-4 h-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-text-primary">
-                            {currentPage.matchReason === 'manual' ? 'Manual Label' :
-                             currentPage.labelStatus === 'continue' ? 'Continue from previous' :
-                             currentPage.labelStatus === 'single' ? 'Single Page Match' :
-                             currentPage.labelStatus === 'start' ? 'First Page Match' :
-                             currentPage.labelStatus === 'end' ? 'Last Page Match' :
-                             'Pattern Match'}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Raw match reason - selectable */}
-                      {currentPage.matchReason && (
-                        <div className="mb-2 p-2 bg-bg-primary rounded border border-border-color">
-                          <div className="text-[10px] text-text-secondary uppercase mb-1">Match Data</div>
-                          <code className="text-xs text-accent break-all block leading-relaxed" style={{ userSelect: 'text' }}>
-                            {currentPage.matchReason}
-                          </code>
-                        </div>
-                      )}
-
-                      {/* Detailed reason */}
-                      <div className="pt-2 border-t border-border-color">
-                        <div className="text-xs text-text-secondary space-y-1 leading-relaxed" style={{ userSelect: 'text' }}>
-                          {currentPage.matchReason === 'manual' && (
-                            <p>Label ด้วยมือโดยผู้ใช้ในหน้า Manual Label</p>
-                          )}
-                          {currentPage.labelStatus === 'continue' && currentPage.matchReason !== 'manual' && (
-                            <p>หน้าต่อเนื่องจากหน้าก่อนหน้า (ไม่ใช่หน้าแรกหรือหน้าสุดท้าย)</p>
-                          )}
-                          {currentPage.labelStatus === 'single' && currentPage.matchReason !== 'manual' && (
-                            <p>เอกสารหน้าเดียว - match ทั้ง first และ last pattern</p>
-                          )}
-                          {currentPage.labelStatus === 'start' && currentPage.matchReason !== 'manual' && (
-                            <p>Match first_page_patterns ของ template</p>
-                          )}
-                          {currentPage.labelStatus === 'end' && currentPage.matchReason !== 'manual' && (
-                            <p>Match last_page_patterns ของ template</p>
-                          )}
-                          {currentPage.matchReason && currentPage.matchReason.includes('exact') && (
-                            <p className="text-success">Exact Match - พบคำตรงทั้งหมด (normalized)</p>
-                          )}
-                          {currentPage.matchReason && !currentPage.matchReason.includes('exact') && currentPage.matchReason !== 'manual' && (
-                            <p className="text-info">Match: {currentPage.matchReason}</p>
-                          )}
-                          {currentPage.labelStatus === 'continue' && currentPage.matchReason === 'manual' && (
-                            <p>หน้าต่อเนื่องที่ถูก label ด้วยมือ</p>
-                          )}
-                          {currentPage.labelStatus === 'start' && currentPage.matchReason === 'manual' && (
-                            <p>หน้าแรกของเอกสารที่ถูก label ด้วยมือ</p>
-                          )}
-                          {currentPage.labelStatus === 'end' && currentPage.matchReason === 'manual' && (
-                            <p>หน้าสุดท้ายของเอกสารที่ถูก label ด้วยมือ</p>
-                          )}
-                          {currentPage.labelStatus === 'single' && currentPage.matchReason === 'manual' && (
-                            <p>เอกสารหน้าเดียวที่ถูก label ด้วยมือ</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Quick Actions */}
-                <div>
-                  <div className="text-xs text-text-secondary uppercase tracking-wider mb-2">Quick Actions</div>
-                  <div className="space-y-1.5">
-                    <button
-                      onClick={() => {
-                        setStartPage(0);
-                        setEndPage(pages.length - 1);
-                        setIsTemplateModalOpen(true);
-                      }}
-                      className="w-full flex items-center gap-2 p-2 bg-bg-secondary hover:bg-accent/10 rounded-lg text-sm text-text-primary transition-colors"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                      </svg>
-                      Label All Pages
-                    </button>
-                    <button
-                      onClick={() => {
-                        const unmatchedIdx = pages.findIndex(p => p.labelStatus === 'unmatched');
-                        if (unmatchedIdx !== -1) {
-                          setSelectedPageIndex(unmatchedIdx);
-                          setStartPage(unmatchedIdx);
-                        }
-                      }}
-                      className="w-full flex items-center gap-2 p-2 bg-bg-secondary hover:bg-danger/10 rounded-lg text-sm text-text-primary transition-colors"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                      </svg>
-                      Go to Unmatched
-                    </button>
-                    <button
-                      onClick={async () => {
-                        if (!confirm('Re-run auto-label for this group? This will reset all manual changes.')) return;
-                        try {
-                          const res = await fetchWithAuth(`/label-runner/relabel/${groupId}`, { method: 'POST' });
-                          const data = await res.json();
-                          if (data.success) {
-                            alert(`Re-labeled: ${data.matched}/${data.total} pages matched`);
-                            window.location.reload();
-                          } else {
-                            alert(`Error: ${data.message}`);
-                          }
-                        } catch (err) {
-                          alert('Error re-labeling group');
-                        }
-                      }}
-                      className="w-full flex items-center gap-2 p-2 bg-bg-secondary hover:bg-accent/10 rounded-lg text-sm text-text-primary transition-colors"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                      Re-Auto-Label
-                    </button>
-                  </div>
-                </div>
-
-                {/* Stats */}
-                <div>
-                  <div className="text-xs text-text-secondary uppercase tracking-wider mb-2">Statistics</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="p-2 bg-bg-secondary rounded-lg text-center">
-                      <div className="text-lg font-semibold text-success">{matchedCount}</div>
-                      <div className="text-[10px] text-text-secondary">Matched</div>
-                    </div>
-                    <div className="p-2 bg-bg-secondary rounded-lg text-center">
-                      <div className="text-lg font-semibold text-danger">{pages.length - matchedCount}</div>
-                      <div className="text-[10px] text-text-secondary">Unmatched</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {rightPanelTab === 'templates' && (
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  placeholder="Search templates..."
-                  value={templateSearch}
-                  onChange={(e) => setTemplateSearch(e.target.value)}
-                  className="w-full px-3 py-2 bg-bg-secondary border border-border-color rounded-lg text-sm text-text-primary placeholder-text-secondary focus:outline-none focus:border-accent"
-                />
-                <div className="space-y-1">
-                  {filteredTemplates.slice(0, 15).map((template, idx) => (
-                    <div
-                      key={template.name}
-                      onClick={() => {
-                        if (startPage !== null && endPage !== null) {
-                          handleTemplateSelect(template);
-                        }
-                      }}
-                      className={`p-2 rounded-lg transition-colors ${
-                        startPage !== null && endPage !== null
-                          ? 'cursor-pointer hover:bg-accent/20'
-                          : 'opacity-50'
-                      } bg-bg-secondary`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 bg-hover-bg rounded text-xs flex items-center justify-center text-text-secondary">
-                          {idx + 1}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm text-text-primary truncate">{template.name.replace('.pdf', '')}</div>
-                          {template.category && (
-                            <div className="text-[10px] text-text-secondary truncate">{template.category}</div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {rightPanelTab === 'ocr' && currentPage?.ocrText && (
-              <div className="space-y-3">
-                {/* Search Input */}
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    placeholder="ค้นหาข้อความ (รองรับ fuzzy match)..."
-                    value={ocrSearch}
-                    onChange={(e) => setOcrSearch(e.target.value)}
-                    className="w-full px-3 py-2 bg-bg-secondary border border-border-color rounded-lg text-sm text-text-primary placeholder-text-secondary focus:outline-none focus:border-accent"
-                  />
-
-                  {/* Search Results Summary */}
-                  {ocrSearch.length >= 2 && (() => {
-                    const matches = findAllMatches(currentPage.ocrText, ocrSearch);
-                    const exactCount = matches.filter(m => m.score === 100).length;
-                    const fuzzyCount = matches.filter(m => m.score < 100).length;
-
-                    return (
-                      <div className="flex items-center gap-2 text-xs">
-                        {matches.length > 0 ? (
-                          <>
-                            <span className="px-2 py-1 bg-success/20 text-success rounded-full">
-                              พบ {matches.length} รายการ
-                            </span>
-                            {exactCount > 0 && (
-                              <span className="px-2 py-1 bg-accent/20 text-accent rounded-full">
-                                Exact: {exactCount}
-                              </span>
-                            )}
-                            {fuzzyCount > 0 && (
-                              <span className="px-2 py-1 bg-amber-500/20 text-amber-400 rounded-full">
-                                Fuzzy: {fuzzyCount}
-                              </span>
-                            )}
-                          </>
-                        ) : (
-                          <span className="px-2 py-1 bg-danger/20 text-danger rounded-full">
-                            ไม่พบข้อความ
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                {/* OCR Text with Highlighting */}
-                <div className="p-3 bg-bg-secondary rounded-lg">
-                  <pre className="text-xs text-text-secondary whitespace-pre-wrap font-mono leading-relaxed max-h-[calc(100vh-380px)] overflow-y-auto">
-                    {ocrSearch.length >= 2 ? (() => {
-                      const matches = findAllMatches(currentPage.ocrText, ocrSearch);
-                      if (matches.length === 0) return currentPage.ocrText;
-
-                      // Sort matches by start index
-                      const sortedMatches = [...matches].sort((a, b) => a.start - b.start);
-
-                      // Build highlighted text
-                      const parts: React.ReactNode[] = [];
-                      let lastIndex = 0;
-
-                      sortedMatches.forEach((match, idx) => {
-                        // Add text before match
-                        if (match.start > lastIndex) {
-                          parts.push(currentPage.ocrText.substring(lastIndex, match.start));
-                        }
-
-                        // Add highlighted match
-                        const isExact = match.score === 100;
-                        parts.push(
-                          <span
-                            key={idx}
-                            className={`relative group cursor-pointer rounded px-0.5 ${
-                              isExact
-                                ? 'bg-accent/40 text-accent'
-                                : 'bg-amber-500/40 text-amber-300'
-                            }`}
-                            title={`${isExact ? 'Exact Match' : `Fuzzy Match (${match.score}%)`}: "${match.matchedText}"`}
-                          >
-                            {currentPage.ocrText.substring(match.start, match.end)}
-                            <span className={`absolute -top-5 left-0 px-1.5 py-0.5 text-[9px] rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 ${
-                              isExact ? 'bg-accent text-white' : 'bg-amber-500 text-white'
-                            }`}>
-                              {isExact ? '100%' : `${match.score}%`}
-                            </span>
-                          </span>
-                        );
-
-                        lastIndex = match.end;
-                      });
-
-                      // Add remaining text
-                      if (lastIndex < currentPage.ocrText.length) {
-                        parts.push(currentPage.ocrText.substring(lastIndex));
-                      }
-
-                      return parts;
-                    })() : currentPage.ocrText}
-                  </pre>
-                </div>
-
-                {/* Help Text */}
-                <div className="text-[10px] text-text-secondary p-2 bg-bg-secondary/50 rounded-lg">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="w-3 h-3 rounded bg-accent/40"></span>
-                    <span>Exact Match (100%)</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded bg-amber-500/40"></span>
-                    <span>Fuzzy Match (≥75%)</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Documents Tab */}
-            {rightPanelTab === 'documents' && (() => {
-              const allDocs = getLabeledDocuments();
-              const missingDatesCount = allDocs.filter(d => !d.hasDate).length;
-
-              return (
-                <div className="space-y-3">
-                  {/* Header */}
-                  <div>
-                    <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wide">
-                      Labeled Documents
-                    </h3>
-                    <p className="text-[10px] text-text-secondary mt-1">
-                      {allDocs.length} document{allDocs.length !== 1 ? 's' : ''}
-                      {missingDatesCount > 0 && (
-                        <span className="text-warning ml-1">
-                          | {missingDatesCount} missing date{missingDatesCount !== 1 ? 's' : ''}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-
-                  {/* Document List */}
-                  {allDocs.length === 0 ? (
-                    <div className="text-center py-8 text-text-secondary text-xs">
-                      <svg className="w-12 h-12 mx-auto mb-2 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      <p>No labeled documents yet</p>
-                      <p className="text-[10px] mt-1">Apply templates to label documents</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {allDocs.map((doc) => {
-                        const dateKey = `${doc.documentId}_${doc.templateName}`;
-                        const currentDate = doc.date || '';
-
-                        return (
-                          <div
-                            key={dateKey}
-                            className={`relative bg-bg-secondary border rounded-lg p-3 overflow-hidden ${
-                              doc.hasDate
-                                ? 'border-border-color'
-                                : 'border-warning bg-warning/[0.03]'
-                            }`}
-                          >
-                            {/* Color Bar */}
-                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-accent"></div>
-
-                            {/* Content */}
-                            <div className="pl-2">
-                              {/* Header */}
-                              <div className="flex items-start justify-between gap-2 mb-1">
-                                <div className="flex-1 min-w-0">
-                                  <h4 className="text-xs font-medium text-text-primary truncate">
-                                    {doc.templateName.replace('.pdf', '')}
-                                  </h4>
-                                  {!doc.hasDate && (
-                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-semibold text-warning bg-warning/15 rounded-full uppercase mt-1">
-                                      <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                      </svg>
-                                      No Date
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-
-                              {/* Page Info */}
-                              <p className="text-[10px] text-text-secondary mb-2">
-                                Pages {doc.pageRange.start + 1}-{doc.pageRange.end + 1} ({doc.pageCount} page{doc.pageCount !== 1 ? 's' : ''})
-                              </p>
-
-                              {/* Date Input */}
-                              <div className="space-y-2">
-                                <ThaiDatePicker
-                                  value={currentDate}
-                                  onChange={(date) => {
-                                    setDocumentDates(prev => ({
-                                      ...prev,
-                                      [dateKey]: date || null,
-                                    }));
-                                  }}
-                                  placeholder="เลือกวันที่..."
-                                />
-                                {currentDate && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setDocumentDates(prev => ({
-                                        ...prev,
-                                        [dateKey]: null,
-                                      }));
-                                    }}
-                                    className="text-[10px] text-text-secondary hover:text-danger transition-colors underline"
-                                  >
-                                    ล้างวันที่
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Missing Summary Banner */}
-                  {missingDatesCount > 0 && (
-                    <div className="p-2.5 bg-warning/10 border border-warning/30 rounded-lg flex items-center gap-2">
-                      <svg className="w-4 h-4 text-warning flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                      </svg>
-                      <p className="text-[10px] font-medium text-warning flex-1">
-                        {missingDatesCount} document{missingDatesCount !== 1 ? 's' : ''} missing date{missingDatesCount !== 1 ? 's' : ''}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
-        </div>
+        <RightPanelContent
+          rightPanelTab={rightPanelTab}
+          setRightPanelTab={setRightPanelTab}
+          currentPage={currentPage}
+          selectedPageIndex={selectedPageIndex}
+          documentDates={documentDates}
+          setDocumentDates={setDocumentDates}
+          setHasUnsavedChanges={setHasUnsavedChanges}
+          matchedCount={matchedCount}
+          pages={pages}
+          templateSearch={templateSearch}
+          setTemplateSearch={setTemplateSearch}
+          filteredTemplates={filteredTemplates}
+          startPage={startPage}
+          endPage={endPage}
+          handleTemplateSelect={handleTemplateSelect}
+          setStartPage={setStartPage}
+          setEndPage={setEndPage}
+          setIsTemplateModalOpen={setIsTemplateModalOpen}
+          setSelectedPageIndex={setSelectedPageIndex}
+          groupId={groupId}
+          ocrSearch={ocrSearch}
+          setOcrSearch={setOcrSearch}
+          findAllMatches={findAllMatches}
+          getLabeledDocuments={getLabeledDocuments}
+          getDocumentsWithMissingDates={getDocumentsWithMissingDates}
+        />
       </div>
 
       {/* Template Modal */}
-      {isTemplateModalOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm">
-          <div className="bg-card-bg rounded-xl w-[500px] max-h-[70vh] overflow-hidden shadow-2xl border border-border-color">
-            <div className="p-4 border-b border-border-color">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-semibold text-text-primary">Select Template</h2>
-                <button
-                  onClick={() => setIsTemplateModalOpen(false)}
-                  className="text-text-secondary hover:text-text-primary transition-colors"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2 text-sm">
-                <span className="px-2 py-1 bg-success/20 text-success rounded">
-                  {(startPage ?? 0) + 1}
-                </span>
-                <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                </svg>
-                <span className="px-2 py-1 bg-danger/20 text-danger rounded">
-                  {(endPage ?? 0) + 1}
-                </span>
-                <span className="text-text-secondary">
-                  ({(endPage ?? 0) - (startPage ?? 0) + 1} pages)
-                </span>
-              </div>
-            </div>
-
-            <div className="p-3 border-b border-border-color">
-              <input
-                type="text"
-                placeholder="Search templates..."
-                value={templateSearch}
-                onChange={(e) => setTemplateSearch(e.target.value)}
-                autoFocus
-                className="w-full px-4 py-2.5 bg-bg-secondary border border-border-color rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:border-accent"
-              />
-            </div>
-
-            <div className="max-h-[350px] overflow-y-auto p-2">
-              {filteredTemplates.map((template, idx) => (
-                <div
-                  key={template.name}
-                  onClick={() => handleTemplateSelect(template)}
-                  className="flex items-center gap-3 p-3 rounded-lg cursor-pointer hover:bg-accent/20 transition-colors"
-                >
-                  <span className="w-6 h-6 bg-hover-bg rounded flex items-center justify-center text-xs text-text-secondary">
-                    {idx + 1}
-                  </span>
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-text-primary">{template.name.replace('.pdf', '')}</div>
-                    {template.category && (
-                      <div className="text-xs text-text-secondary">{template.category}</div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="p-3 border-t border-border-color bg-bg-secondary">
-              <p className="text-xs text-text-secondary text-center">
-                Press <kbd className="px-1.5 py-0.5 bg-hover-bg rounded">1-9</kbd> for quick select
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      <TemplateSelectionModal
+        isOpen={isTemplateModalOpen}
+        onClose={() => setIsTemplateModalOpen(false)}
+        startPage={startPage}
+        endPage={endPage}
+        templateSearch={templateSearch}
+        setTemplateSearch={setTemplateSearch}
+        filteredTemplates={filteredTemplates}
+        handleTemplateSelect={handleTemplateSelect}
+      />
 
       {/* Keyboard Shortcuts Modal */}
       {showShortcuts && (
@@ -2592,246 +2218,54 @@ export default function ManualLabelPage() {
       )}
 
       {/* Review Notes Modal */}
-      {showNotesModal && (() => {
-        const matchedCount = pages.filter(p => p.labelStatus !== 'unmatched').length;
-        const totalCount = pages.length;
-        const is100Matched = matchedCount === totalCount;
-
-        return (
-          <div
-            className="fixed top-0 left-0 right-0 bottom-0 bg-black/70 flex items-center justify-center z-[1000] backdrop-blur-sm"
-            onClick={() => {
-              setShowNotesModal(false);
-              setReviewNotes('');
-            }}
-          >
-            <div
-              className="bg-card-bg p-8 rounded-2xl max-w-[500px] w-[90%] shadow-[0_20px_60px_rgba(0,0,0,0.3)] border border-border-color"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h2 className="m-0 mb-4 text-xl text-text-primary">Add Review Notes</h2>
-              <p className="my-2 text-text-secondary text-[0.9rem]">
-                {is100Matched ? (
-                  <>This group is <strong className="text-[#27ca40]">100% matched</strong> and will be marked as reviewed. You can add optional notes about this review.</>
-                ) : (
-                  <>This group is <strong className="text-[#ffbd2e]">{((matchedCount/totalCount)*100).toFixed(1)}% matched</strong>. Add notes about your progress. It will <strong>not</strong> be marked as reviewed until 100% matched.</>
-                )}
-              </p>
-
-              <div className="mt-4">
-                <label className="block mb-2 text-[0.9rem] font-medium text-text-primary">
-                  Notes <span className="text-text-secondary font-normal">(optional)</span>
-                </label>
-                <textarea
-                  value={reviewNotes}
-                  onChange={(e) => setReviewNotes(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setShowNotesModal(false);
-                      setReviewNotes('');
-                    } else if (e.key === 'Enter' && !e.shiftKey) {
-                      // Enter without Shift = Submit form
-                      e.preventDefault();
-                      performSave(reviewNotes);
-                    }
-                    // Shift+Enter = Allow new line (default behavior)
-                  }}
-                  placeholder="Enter any notes or comments about this review..."
-                  rows={4}
-                  className="w-full px-4 py-2.5 border border-border-color bg-bg-secondary text-text-primary rounded-md text-[0.95rem] transition-all duration-200 focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent-rgb),0.1)] resize-vertical"
-                  autoFocus
-                />
-              </div>
-
-              <div className="flex gap-4 mt-6">
-                <button
-                  className="flex-1 bg-transparent text-text-primary border-2 border-border-color px-6 py-3 rounded-lg text-[0.95rem] font-semibold cursor-pointer transition-all duration-200 hover:bg-bg-tertiary hover:border-text-secondary"
-                  onClick={() => {
-                    setShowNotesModal(false);
-                    setReviewNotes('');
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="flex-1 bg-gradient-to-br from-[#3b82f6] to-[#2563eb] text-white border-none px-6 py-3 rounded-lg text-[0.95rem] font-semibold cursor-pointer transition-all duration-200 shadow-[0_2px_8px_rgba(59,130,246,0.25)] hover:-translate-y-px hover:shadow-[0_4px_16px_rgba(59,130,246,0.4)]"
-                  onClick={() => performSave(reviewNotes)}
-                >
-                  {is100Matched ? 'Save & Mark as Reviewed' : 'Save'}
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      <ReviewNotesModal
+        isOpen={showNotesModal}
+        onClose={() => setShowNotesModal(false)}
+        reviewNotes={reviewNotes}
+        setReviewNotes={setReviewNotes}
+        matchedCount={matchedCount}
+        totalCount={pages.length}
+        onSave={performSave}
+      />
 
       {/* Missing Dates Warning Modal (NEW!) */}
-      {showMissingDatesModal && documentsWithMissingDates.length > 0 && (() => {
-        const handleSetDate = (documentId: number, date: string) => {
-          const doc = documentsWithMissingDates.find(d => d.documentId === documentId);
-          if (doc) {
-            const key = `${documentId}_${doc.templateName}`;
-            setDocumentDates(prev => ({
-              ...prev,
-              [key]: date,
-            }));
-            // Remove from missing dates list
-            setDocumentsWithMissingDates(prev => prev.filter(d => d.documentId !== documentId));
-          }
-          setEditingDocId(null);
-          setTempDate('');
-        };
-
-        const handleSaveAnyway = () => {
+      <MissingDatesModal
+        isOpen={showMissingDatesModal}
+        onClose={() => setShowMissingDatesModal(false)}
+        documentsWithMissingDates={documentsWithMissingDates}
+        setDocumentsWithMissingDates={setDocumentsWithMissingDates}
+        documentDates={documentDates}
+        setDocumentDates={setDocumentDates}
+        onSaveAnyway={() => {
           setShowMissingDatesModal(false);
           setDocumentsWithMissingDates([]);
-          setShowNotesModal(true); // Continue to Review Notes Modal
-        };
-
-        return (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[1000]">
-            <div className="bg-card-bg rounded-2xl max-w-[520px] w-[90%] shadow-[0_20px_60px_rgba(0,0,0,0.3)] border border-border-color overflow-hidden">
-              {/* Header */}
-              <div className="px-6 py-5 border-b border-border-color bg-warning/5 relative">
-                <div className="flex items-center gap-3">
-                  <svg className="w-6 h-6 text-warning flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  <h2 className="text-lg font-semibold text-text-primary">
-                    Missing Document Dates
-                  </h2>
-                </div>
-                <button
-                  onClick={() => {
-                    setShowMissingDatesModal(false);
-                    setDocumentsWithMissingDates([]);
-                  }}
-                  className="absolute top-4 right-4 text-text-secondary hover:text-text-primary transition-colors"
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              {/* Body */}
-              <div className="px-6 py-4">
-                <p className="text-sm text-text-secondary mb-4">
-                  The following documents are missing dates:
-                </p>
-
-                {/* Document List */}
-                <div className="space-y-2 max-h-[240px] overflow-y-auto">
-                  {documentsWithMissingDates.map((doc) => (
-                    <div
-                      key={doc.documentId}
-                      className="flex items-center p-3 bg-bg-secondary border border-border-color rounded-xl hover:border-warning hover:bg-warning/5 transition-all"
-                    >
-                      {/* Icon */}
-                      <div className="w-9 h-9 rounded-lg bg-warning/15 flex items-center justify-center flex-shrink-0">
-                        <svg className="w-5 h-5 text-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                      </div>
-
-                      {/* Info */}
-                      <div className="flex-1 ml-3 min-w-0">
-                        <div className="text-sm font-medium text-text-primary truncate">
-                          {doc.templateName.replace('.pdf', '')}
-                        </div>
-                        <div className="text-xs text-text-secondary mt-0.5">
-                          Pages {doc.pageRange.start + 1}-{doc.pageRange.end + 1} ({doc.pageCount} pages)
-                        </div>
-                      </div>
-
-                      {/* Action */}
-                      {editingDocId === doc.documentId ? (
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="date"
-                            value={tempDate}
-                            onChange={(e) => setTempDate(e.target.value)}
-                            autoFocus
-                            className="w-[130px] px-2 py-1.5 text-xs bg-bg-primary border border-accent rounded text-text-primary"
-                          />
-                          <button
-                            onClick={() => {
-                              if (tempDate) handleSetDate(doc.documentId, tempDate);
-                            }}
-                            className="px-2 py-1.5 text-xs font-medium text-white bg-success rounded hover:bg-success/90 transition-colors"
-                          >
-                            ✓
-                          </button>
-                          <button
-                            onClick={() => {
-                              setEditingDocId(null);
-                              setTempDate('');
-                            }}
-                            className="px-2 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary transition-colors"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            setEditingDocId(doc.documentId);
-                            setTempDate('');
-                          }}
-                          className="px-3 py-1.5 text-xs font-medium text-warning bg-warning/10 border border-warning/30 rounded-lg hover:bg-warning/20 hover:border-warning transition-all"
-                        >
-                          Set Date
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Info Box */}
-                <div className="mt-4 p-3 bg-bg-tertiary rounded-lg border-l-[3px] border-l-info flex items-start gap-2.5">
-                  <svg className="w-4 h-4 text-info flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <p className="text-[13px] text-text-secondary leading-relaxed">
-                    You can set dates now or save without them. Documents without dates may need manual correction later.
-                  </p>
-                </div>
-              </div>
-
-              {/* Footer */}
-              <div className="px-6 py-5 border-t border-border-color bg-bg-secondary flex gap-3">
-                <button
-                  onClick={() => {
-                    setShowMissingDatesModal(false);
-                    setDocumentsWithMissingDates([]);
-                  }}
-                  className="flex-1 py-3 px-5 text-[15px] font-semibold text-text-primary bg-transparent border-2 border-border-color rounded-lg hover:bg-bg-tertiary hover:border-text-secondary transition-all duration-200"
-                >
-                  Go Back
-                </button>
-                <button
-                  onClick={handleSaveAnyway}
-                  className="flex-1 py-3 px-5 text-[15px] font-semibold text-white bg-gradient-to-br from-warning to-[#d97706] rounded-lg shadow-[0_2px_8px_rgba(245,158,11,0.25)] hover:-translate-y-px hover:shadow-[0_4px_16px_rgba(245,158,11,0.4)] transition-all duration-200"
-                >
-                  Save Without Dates
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Document Date Modal (NEW!) */}
-      <DocumentDateModal
-        isOpen={documentDateModal.isOpen}
-        onClose={() => {
-          setDocumentDateModal(prev => ({ ...prev, isOpen: false }));
-          setPendingTemplateSelection(null);
+          setShowNotesModal(true);
         }}
-        onConfirm={handleDocumentDateConfirm}
-        documentNumber={documentDateModal.documentNumber}
-        templateName={documentDateModal.templateName}
-        initialDate={documentDateModal.initialDate}
+      />
+
+      {/* Overlap Warning Modal */}
+      <OverlapWarningModal
+        isOpen={showOverlapModal}
+        overlappedDocuments={overlappedDocuments}
+        onCancel={() => {
+          setShowOverlapModal(false);
+          setOverlappedDocuments([]);
+          setPendingAssignment(null);
+        }}
+        onConfirm={() => {
+          setShowOverlapModal(false);
+          if (pendingAssignment) {
+            const { template, startPage, endPage, documentNumber, date } = pendingAssignment;
+
+            // ✅ Extract document IDs to clear (delete old documents)
+            const affectedDocumentIds = overlappedDocuments.map(doc => doc.id);
+
+            // ✅ Assign new template AND clear affected documents
+            assignTemplateToPages(template, startPage, endPage, documentNumber, date, affectedDocumentIds);
+          }
+          setOverlappedDocuments([]);
+          setPendingAssignment(null);
+        }}
       />
 
       {/* Custom Scrollbar Styles */}

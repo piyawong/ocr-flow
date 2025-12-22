@@ -1,5 +1,7 @@
 import { Controller, Get, Param, ParseIntPipe, Post, Body, Query } from '@nestjs/common';
 import { LabeledFilesService } from './labeled-files.service';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { User } from '../auth/user.entity';
 
 @Controller('labeled-files')
 export class LabeledFilesController {
@@ -19,9 +21,20 @@ export class LabeledFilesController {
   }
 
   @Get('summary')
-  async getAllSummary(@Query('includeReviewed') includeReviewed?: string) {
+  async getAllSummary(
+    @Query('includeReviewed') includeReviewed?: string,
+    @CurrentUser() user?: User,
+  ) {
+    console.log('📊 getAllSummary called with user:', {
+      userId: user?.id,
+      userRole: user?.role,
+      userName: user?.name,
+    });
+
     const options = {
       includeReviewed: includeReviewed === 'true',
+      userId: user?.id,
+      userRole: user?.role,
     };
     return this.labeledFilesService.getAllGroupsSummary(options);
   }
@@ -88,12 +101,14 @@ export class LabeledFilesController {
   async markGroupAsReviewed(
     @Param('groupId', ParseIntPipe) groupId: number,
     @Body() body: { reviewer: string; notes?: string; markAsReviewed?: boolean },
+    @CurrentUser() user?: User,
   ) {
     return this.labeledFilesService.markGroupAsReviewed(
       groupId,
       body.reviewer,
       body.notes,
       body.markAsReviewed ?? true, // Default to true for backward compatibility
+      user?.id,
     );
   }
 
@@ -108,6 +123,31 @@ export class LabeledFilesController {
   async getGroupDocuments(@Param('groupId', ParseIntPipe) groupId: number) {
     const documents = await this.labeledFilesService.getDocumentsByGroup(groupId);
     return { documents };
+  }
+
+  /**
+   * Check if new documents overlap with existing documents
+   * Returns list of existing documents that will be affected/deleted
+   */
+  @Post('group/:groupId/check-overlap')
+  async checkDocumentOverlap(
+    @Param('groupId', ParseIntPipe) groupId: number,
+    @Body()
+    body: {
+      documents: {
+        templateName: string;
+        category: string;
+        startPage: number;
+        endPage: number;
+      }[];
+    },
+  ) {
+    const result = await this.labeledFilesService.checkDocumentOverlap(
+      groupId,
+      body.documents,
+    );
+
+    return result;
   }
 
   /**
@@ -128,11 +168,14 @@ export class LabeledFilesController {
         documentDate?: string;
       }[];
     },
+    @CurrentUser() user?: User,
   ) {
     // Use service method to update documents
     const result = await this.labeledFilesService.updateGroupDocuments(
       groupId,
       body.documents,
+      user?.id,
+      user?.name,
     );
 
     return result;

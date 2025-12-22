@@ -38,6 +38,9 @@ interface GroupSummary {
   isParseData?: boolean;
   isReviewed: boolean;
   reviewer: string | null;
+  lockedBy: number | null;
+  lockedByName: string | null;
+  lockedAt: string | null;
 }
 
 interface GroupDetail {
@@ -104,7 +107,7 @@ export default function Stage03PdfLabel() {
   const [showRevertConfirm, setShowRevertConfirm] = useState(false);
   const [reverting, setReverting] = useState(false);
   const [matchFilter, setMatchFilter] = useState<'all' | '100' | 'not100'>('all');
-  const [reviewFilter, setReviewFilter] = useState<'unreviewed' | 'all'>('unreviewed');
+  const [reviewFilter, setReviewFilter] = useState<'unreviewed' | 'all'>('all'); // Default to 'all' for admin
   const [expandedOcrId, setExpandedOcrId] = useState<number | null>(null);
   const documentRefs = useRef<Map<number | null, HTMLDivElement>>(new Map());
 
@@ -120,9 +123,17 @@ export default function Stage03PdfLabel() {
   const fetchGroups = useCallback(async () => {
     try {
       // Fetch summary with isParseData flag
-      const includeReviewed = reviewFilter === 'all';
+      // Non-admin users ALWAYS see only unreviewed groups
+      const includeReviewed = user?.role === 'admin' && reviewFilter === 'all';
       const res = await fetchWithAuth(`/labeled-files/summary?includeReviewed=${includeReviewed}`);
-      const data: GroupSummary[] = await res.json();
+      const responseData = await res.json();
+
+      // ✅ Handle both array and object response formats
+      const data: GroupSummary[] = Array.isArray(responseData)
+        ? responseData
+        : (responseData.groups || []);
+
+      console.log('📊 Fetched groups:', data);
 
       // Filter: show only groups that are NOT yet parsed (isParseData = false or undefined)
       // For admin with "All Groups" filter, show everything including parsed groups
@@ -133,6 +144,7 @@ export default function Stage03PdfLabel() {
       setGroups(filteredGroups);
     } catch (err) {
       console.error('Error fetching label summary:', err);
+      setGroups([]); // Set to empty array on error
     }
   }, [reviewFilter, user?.role]);
 
@@ -230,11 +242,32 @@ export default function Stage03PdfLabel() {
     fetchGroups();
     fetchLogsHistory();
 
-    // Cleanup SSE connection on unmount
+    // ✅ SSE: Listen to GROUP_LOCKED and GROUP_UNLOCKED events
+    const groupEventsSource = new EventSource(`${API_URL}/files/events`);
+
+    groupEventsSource.onmessage = (event) => {
+      try {
+        const eventData = JSON.parse(event.data);
+
+        if (eventData.type === 'GROUP_LOCKED' || eventData.type === 'GROUP_UNLOCKED') {
+          console.log('🔄 Group lock status changed:', eventData);
+          fetchGroups();
+        }
+      } catch (err) {
+        console.error('Error parsing SSE event:', err);
+      }
+    };
+
+    groupEventsSource.onerror = (err) => {
+      console.error('SSE connection error:', err);
+    };
+
+    // Cleanup SSE connections on unmount
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
       }
+      groupEventsSource.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -326,7 +359,7 @@ export default function Stage03PdfLabel() {
   };
 
   // Filter groups based on match filter
-  const filteredGroups = groups.filter((group) => {
+  const filteredGroups = (groups || []).filter((group) => {
     if (matchFilter === '100') {
       return group.matchPercentage === 100;
     } else if (matchFilter === 'not100') {
@@ -335,9 +368,9 @@ export default function Stage03PdfLabel() {
     return true; // 'all'
   });
 
-  const totalGroups = groups.length;
-  const totalPages = groups.reduce((sum, g) => sum + g.totalPages, 0);
-  const totalMatched = groups.reduce((sum, g) => sum + g.matchedPages, 0);
+  const totalGroups = (groups || []).length;
+  const totalPages = (groups || []).reduce((sum, g) => sum + g.totalPages, 0);
+  const totalMatched = (groups || []).reduce((sum, g) => sum + g.matchedPages, 0);
   const overallMatchPercentage = totalPages > 0 ? (totalMatched / totalPages * 100) : 0;
 
   // Permission check UI
@@ -573,7 +606,7 @@ export default function Stage03PdfLabel() {
           )}
 
           {/* Groups Table */}
-          {groups.length === 0 ? (
+          {(groups || []).length === 0 ? (
             <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-12 text-center border border-border-color/50 shadow-sm">
               <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-blue-100 to-blue-50 border border-blue-200/50 flex items-center justify-center">
                 <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -624,13 +657,18 @@ export default function Stage03PdfLabel() {
                   <thead>
                     <tr className="bg-gradient-to-r from-accent/10 via-purple-500/5 to-transparent">
                       <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Group #</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Total Pages</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Matched</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Unmatched</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Match %</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Status</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Reviewed</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Reviewer</th>
+                      {user?.role === 'admin' && (
+                        <>
+                          <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Total Pages</th>
+                          <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Matched</th>
+                          <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Unmatched</th>
+                          <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Match %</th>
+                          <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Status</th>
+                          <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Reviewed</th>
+                          <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Reviewer</th>
+                          <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Locked By</th>
+                        </>
+                      )}
                       <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
@@ -647,70 +685,141 @@ export default function Stage03PdfLabel() {
                             Group {group.groupId}
                           </div>
                         </td>
-                        <td className="p-4 text-text-primary text-sm">{group.totalPages}</td>
-                        <td className="p-4 text-text-primary">
-                          <span className="text-emerald-400 font-bold text-sm">
-                            {group.matchedPages}
-                          </span>
-                        </td>
-                        <td className="p-4 text-text-primary">
-                          <span className="text-red-400 font-bold text-sm">
-                            {group.totalPages - group.matchedPages}
-                          </span>
-                        </td>
-                        <td className="p-4 text-text-primary">
-                          <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold border ${
-                            group.matchPercentage === 100
-                              ? 'bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 text-emerald-400 border-emerald-500/20'
-                              : 'bg-gradient-to-r from-amber-500/15 to-amber-500/5 text-amber-400 border-amber-500/20'
-                          }`}>
-                            <span className={`w-2 h-2 rounded-full ${group.matchPercentage === 100 ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
-                            {group.matchPercentage.toFixed(1)}%
-                          </div>
-                        </td>
-                        <td className="p-4 text-text-primary">
-                          <div className="flex items-center gap-2 text-sm font-semibold">
-                            {getStatusBadge(group.status)}
-                          </div>
-                        </td>
-                        <td className="p-4 text-text-primary">
-                          {group.isReviewed ? (
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 text-emerald-400 font-semibold text-xs border border-emerald-500/20">
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                                <path d="M5 13l4 4L19 7" />
-                              </svg>
-                              Reviewed
-                            </div>
-                          ) : (
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500/15 to-amber-500/5 text-amber-400 font-semibold text-xs border border-amber-500/20">
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                                <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                              Pending
-                            </div>
-                          )}
-                        </td>
-                        <td className="p-4 text-text-primary">
-                          {group.reviewer ? (
-                            <div className="flex items-center gap-2">
-                              <div className="w-7 h-7 rounded-lg bg-accent/20 flex items-center justify-center">
-                                <svg className="w-3.5 h-3.5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                  <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                </svg>
+                        {user?.role === 'admin' && (
+                          <>
+                            <td className="p-4 text-text-primary text-sm">{group.totalPages}</td>
+                            <td className="p-4 text-text-primary">
+                              <span className="text-emerald-400 font-bold text-sm">
+                                {group.matchedPages}
+                              </span>
+                            </td>
+                            <td className="p-4 text-text-primary">
+                              <span className="text-red-400 font-bold text-sm">
+                                {group.totalPages - group.matchedPages}
+                              </span>
+                            </td>
+                            <td className="p-4 text-text-primary">
+                              <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold border ${
+                                group.matchPercentage === 100
+                                  ? 'bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 text-emerald-400 border-emerald-500/20'
+                                  : 'bg-gradient-to-r from-amber-500/15 to-amber-500/5 text-amber-400 border-amber-500/20'
+                              }`}>
+                                <span className={`w-2 h-2 rounded-full ${group.matchPercentage === 100 ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+                                {group.matchPercentage.toFixed(1)}%
                               </div>
-                              <span className="font-medium text-sm">{group.reviewer}</span>
-                            </div>
-                          ) : (
-                            <span className="text-text-secondary italic text-xs">Not reviewed</span>
-                          )}
-                        </td>
+                            </td>
+                            <td className="p-4 text-text-primary">
+                              <div className="flex items-center gap-2 text-sm font-semibold">
+                                {getStatusBadge(group.status)}
+                              </div>
+                            </td>
+                            <td className="p-4 text-text-primary">
+                              {group.isReviewed ? (
+                                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 text-emerald-400 font-semibold text-xs border border-emerald-500/20">
+                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                    <path d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Reviewed
+                                </div>
+                              ) : (
+                                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500/15 to-amber-500/5 text-amber-400 font-semibold text-xs border border-amber-500/20">
+                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                    <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                  Pending
+                                </div>
+                              )}
+                            </td>
+                            <td className="p-4 text-text-primary">
+                              {group.reviewer ? (
+                                <div className="flex items-center gap-2">
+                                  <div className="w-7 h-7 rounded-lg bg-accent/20 flex items-center justify-center">
+                                    <svg className="w-3.5 h-3.5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                      <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                    </svg>
+                                  </div>
+                                  <span className="font-medium text-sm">{group.reviewer}</span>
+                                </div>
+                              ) : (
+                                <span className="text-text-secondary italic text-xs">Not reviewed</span>
+                              )}
+                            </td>
+                            <td className="p-4 text-text-primary">
+                              {group.lockedBy ? (
+                                <div className="flex items-center gap-2">
+                                  <div className="w-7 h-7 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                                    <svg className="w-3.5 h-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                    </svg>
+                                  </div>
+                                  <div className="flex flex-col">
+                                    <span className="font-medium text-sm text-amber-400">{group.lockedByName || 'Unknown'}</span>
+                                    {group.lockedAt && (
+                                      <span className="text-[10px] text-text-secondary">
+                                        {new Date(group.lockedAt).toLocaleTimeString()}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-text-secondary italic text-xs">-</span>
+                              )}
+                            </td>
+                          </>
+                        )}
                         <td className="p-4 text-text-primary">
-                          <Button
-                            size="sm"
-                            onClick={() => router.push(`/stages/03-pdf-label/manual/${group.groupId}`)}
-                          >
-                            Review
-                          </Button>
+                          {(() => {
+                            const isLockedByOther = group.lockedBy && group.lockedBy !== user?.id;
+                            const LOCK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+                            const lockAge = group.lockedAt ? Date.now() - new Date(group.lockedAt).getTime() : 0;
+                            const isLockExpired = lockAge > LOCK_TIMEOUT_MS;
+
+                            if (isLockedByOther) {
+                              if (isLockExpired) {
+                                // ✅ Lock expired - User can take over
+                                return (
+                                  <div className="flex flex-col gap-1">
+                                    <Button
+                                      size="sm"
+                                      onClick={() => router.push(`/stages/03-pdf-label/manual/${group.groupId}`)}
+                                      className="bg-amber-500 hover:bg-amber-600"
+                                    >
+                                      ⚠️ Take Over
+                                    </Button>
+                                    <span className="text-[10px] text-amber-400 font-medium">
+                                      Lock expired
+                                    </span>
+                                  </div>
+                                );
+                              } else {
+                                // ✅ Still locked - Disabled
+                                return (
+                                  <div className="flex flex-col gap-1">
+                                    <Button
+                                      size="sm"
+                                      disabled
+                                      className="opacity-50 cursor-not-allowed"
+                                    >
+                                      🔒 Locked
+                                    </Button>
+                                    <span className="text-[10px] text-amber-400 font-medium">
+                                      {group.lockedByName || 'In use'}
+                                    </span>
+                                  </div>
+                                );
+                              }
+                            }
+
+                            // ✅ Not locked or locked by self - Normal button
+                            return (
+                              <Button
+                                size="sm"
+                                onClick={() => router.push(`/stages/03-pdf-label/manual/${group.groupId}`)}
+                              >
+                                Review
+                              </Button>
+                            );
+                          })()}
                         </td>
                       </tr>
                     ))}
@@ -718,7 +827,7 @@ export default function Stage03PdfLabel() {
                 </table>
               </div>
 
-              {filteredGroups.length === 0 && groups.length > 0 && (
+              {filteredGroups.length === 0 && (groups || []).length > 0 && (
                 <div className="bg-bg-secondary/50 rounded-xl p-8 text-center border border-border-color/30">
                   <p className="m-0 mb-2 text-text-primary text-base font-semibold">No groups match the current filter</p>
                   <p className="m-0 text-text-secondary text-sm">Try changing the filter to see more results</p>

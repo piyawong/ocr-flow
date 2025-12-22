@@ -1,6 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { format } from 'date-fns';
+import { th } from 'date-fns/locale';
+import { Calendar as CalendarIcon } from 'lucide-react';
+import { Calendar } from './ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { cn } from '@/lib/utils';
 
 interface ThaiDatePickerProps {
   value: string; // YYYY-MM-DD format (ค.ศ.)
@@ -11,26 +17,20 @@ interface ThaiDatePickerProps {
   onKeyDown?: (e: React.KeyboardEvent) => void;
 }
 
-const THAI_MONTHS = [
-  'มกราคม',
-  'กุมภาพันธ์',
-  'มีนาคม',
-  'เมษายน',
-  'พฤษภาคม',
-  'มิถุนายน',
-  'กรกฎาคม',
-  'สิงหาคม',
-  'กันยายน',
-  'ตุลาคม',
-  'พฤศจิกายน',
-  'ธันวาคม',
-];
-
 // Helper: แปลง ค.ศ. -> พ.ศ.
 const yearCEtoBE = (ce: number): number => ce + 543;
 
 // Helper: แปลง พ.ศ. -> ค.ศ.
 const yearBEtoCE = (be: number): number => be - 543;
+
+// Format date to Thai format (DD MMMM YYYY พ.ศ.)
+const formatThaiDate = (date: Date | null): string => {
+  if (!date) return '';
+  const day = date.getDate();
+  const month = format(date, 'MMMM', { locale: th });
+  const yearBE = yearCEtoBE(date.getFullYear());
+  return `${day} ${month} ${yearBE}`;
+};
 
 export function ThaiDatePicker({
   value,
@@ -40,171 +40,137 @@ export function ThaiDatePicker({
   autoFocus = false,
   onKeyDown,
 }: ThaiDatePickerProps) {
-  const [day, setDay] = useState<string>('');
-  const [month, setMonth] = useState<string>('');
-  const [yearBE, setYearBE] = useState<string>(''); // พ.ศ.
+  const [open, setOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>();
 
-  // Parse value (YYYY-MM-DD) to day, month, yearBE
+  // Parse value (YYYY-MM-DD) to Date
   useEffect(() => {
     if (value && value.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      const [yearCE, monthStr, dayStr] = value.split('-');
-      setDay(dayStr);
-      setMonth(monthStr);
-      setYearBE(String(yearCEtoBE(parseInt(yearCE, 10))));
+      const date = new Date(value + 'T00:00:00');
+      setSelectedDate(date);
     } else {
-      setDay('');
-      setMonth('');
-      setYearBE('');
+      setSelectedDate(undefined);
     }
   }, [value]);
 
-  // Build YYYY-MM-DD (ค.ศ.) from day, month, yearBE
-  const buildDateString = (d: string, m: string, y: string): string => {
-    if (!d || !m || !y) return '';
-    const yearCE = yearBEtoCE(parseInt(y, 10));
-    return `${yearCE.toString().padStart(4, '0')}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-  };
-
-  // Update date
-  const updateDate = (newDay: string, newMonth: string, newYearBE: string) => {
-    setDay(newDay);
-    setMonth(newMonth);
-    setYearBE(newYearBE);
-
-    const dateStr = buildDateString(newDay, newMonth, newYearBE);
-    onChange(dateStr);
-  };
-
-  // Generate year options (พ.ศ. 2400 - 2700)
-  const generateYearOptions = () => {
-    const years: number[] = [];
-    const currentYearBE = yearCEtoBE(new Date().getFullYear());
-
-    // ย้อนหลัง 100 ปี และข้างหน้า 50 ปี
-    for (let y = currentYearBE - 100; y <= currentYearBE + 50; y++) {
-      years.push(y);
+  // Handle date selection
+  const handleSelect = (date: Date | undefined) => {
+    setSelectedDate(date);
+    if (date) {
+      // Format to YYYY-MM-DD (ค.ศ.)
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      onChange(`${year}-${month}-${day}`);
+      setOpen(false);
     }
-
-    return years.reverse(); // ปีล่าสุดไว้บนสุด
   };
 
-  const yearOptions = generateYearOptions();
-
-  // Days in month
-  const getDaysInMonth = (m: string, y: string): number => {
-    if (!m || !y) return 31;
-    const yearCE = yearBEtoCE(parseInt(y, 10));
-    const monthNum = parseInt(m, 10);
-    return new Date(yearCE, monthNum, 0).getDate();
+  // Quick select handlers
+  const handleToday = () => {
+    const today = new Date();
+    handleSelect(today);
   };
 
-  const daysInMonth = getDaysInMonth(month, yearBE);
-  const dayOptions = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const handleYesterday = () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    handleSelect(yesterday);
+  };
 
-  // Format display value
-  const displayValue = () => {
-    if (!day || !month || !yearBE) return '';
-    const monthName = THAI_MONTHS[parseInt(month, 10) - 1];
-    return `${day} ${monthName} ${yearBE}`;
+  const handleClear = () => {
+    setSelectedDate(undefined);
+    onChange('');
+    setOpen(false);
+  };
+
+  // Keyboard handlers for trigger button
+  const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setOpen(true);
+    }
+    onKeyDown?.(e);
   };
 
   return (
-    <div className={`relative ${className}`}>
-      {/* Display Input (Read-only) */}
-      <div className="relative">
-        <input
-          type="text"
-          value={displayValue()}
-          readOnly
-          placeholder={placeholder}
-          className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all cursor-pointer"
-          onClick={(e) => {
-            // Focus on first select
-            const firstSelect = e.currentTarget.nextElementSibling?.querySelector('select');
-            firstSelect?.focus();
-          }}
-          onKeyDown={onKeyDown}
-          autoFocus={autoFocus}
-        />
-        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-          <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-        </div>
-      </div>
-
-      {/* Dropdowns */}
-      <div className="grid grid-cols-3 gap-2 mt-2">
-        {/* Day */}
-        <select
-          value={day}
-          onChange={(e) => updateDate(e.target.value, month, yearBE)}
-          className="px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-          disabled={!month || !yearBE}
+    <div className={cn('relative', className)}>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              'w-full px-3 py-2 text-left border rounded-md transition-all',
+              'bg-card-bg dark:bg-gray-700',
+              'border-border-color dark:border-gray-600',
+              'text-text-primary dark:text-white',
+              'hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent',
+              !selectedDate && 'text-text-secondary dark:text-gray-400'
+            )}
+            onKeyDown={handleTriggerKeyDown}
+            autoFocus={autoFocus}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm">
+                {selectedDate ? formatThaiDate(selectedDate) : placeholder}
+              </span>
+              <CalendarIcon className="h-4 w-4 text-text-secondary" />
+            </div>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="w-auto p-0 bg-card-bg dark:bg-gray-800 border-border-color"
+          align="start"
         >
-          <option value="">วัน</option>
-          {dayOptions.map((d) => (
-            <option key={d} value={d}>
-              {d}
-            </option>
-          ))}
-        </select>
+          <div className="p-3">
+            {/* Quick Select Buttons */}
+            <div className="flex gap-2 mb-3 pb-3 border-b border-border-color">
+              <button
+                type="button"
+                onClick={handleToday}
+                className="flex-1 px-2 py-1.5 text-xs rounded-md bg-accent/10 hover:bg-accent/20 text-accent transition-colors"
+              >
+                วันนี้
+              </button>
+              <button
+                type="button"
+                onClick={handleYesterday}
+                className="flex-1 px-2 py-1.5 text-xs rounded-md bg-bg-secondary dark:bg-gray-700 hover:bg-bg-tertiary dark:hover:bg-gray-600 text-text-primary dark:text-white transition-colors"
+              >
+                เมื่อวาน
+              </button>
+              {selectedDate && (
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  className="flex-1 px-2 py-1.5 text-xs rounded-md bg-danger/10 hover:bg-danger/20 text-danger transition-colors"
+                >
+                  ล้าง
+                </button>
+              )}
+            </div>
 
-        {/* Month */}
-        <select
-          value={month}
-          onChange={(e) => {
-            const newMonth = e.target.value;
-            // Check if selected day is valid for new month
-            if (day && yearBE) {
-              const maxDays = getDaysInMonth(newMonth, yearBE);
-              const newDay = parseInt(day, 10) > maxDays ? String(maxDays) : day;
-              updateDate(newDay, newMonth, yearBE);
-            } else {
-              updateDate(day, newMonth, yearBE);
-            }
-          }}
-          className="px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-        >
-          <option value="">เดือน</option>
-          {THAI_MONTHS.map((m, idx) => (
-            <option key={idx} value={idx + 1}>
-              {m}
-            </option>
-          ))}
-        </select>
+            {/* Calendar */}
+            <Calendar
+              mode="single"
+              selected={selectedDate}
+              onSelect={handleSelect}
+              initialFocus
+              locale={th}
+              className="rounded-md"
+            />
 
-        {/* Year (พ.ศ.) */}
-        <select
-          value={yearBE}
-          onChange={(e) => {
-            const newYearBE = e.target.value;
-            // Check if selected day is valid for new year (leap year check)
-            if (day && month) {
-              const maxDays = getDaysInMonth(month, newYearBE);
-              const newDay = parseInt(day, 10) > maxDays ? String(maxDays) : day;
-              updateDate(newDay, month, newYearBE);
-            } else {
-              updateDate(day, month, newYearBE);
-            }
-          }}
-          className="px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-        >
-          <option value="">ปี (พ.ศ.)</option>
-          {yearOptions.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Helper Text */}
-      {displayValue() && (
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          ค.ศ.: {value}
-        </p>
-      )}
+            {/* Display selected date in Thai + CE format */}
+            {selectedDate && (
+              <div className="mt-3 pt-3 border-t border-border-color text-center">
+                <p className="text-xs text-text-secondary dark:text-gray-400">
+                  ค.ศ.: {format(selectedDate, 'yyyy-MM-dd')}
+                </p>
+              </div>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

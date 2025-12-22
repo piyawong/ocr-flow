@@ -234,12 +234,11 @@ export class TaskRunnerService {
     throw new Error(`Failed after ${maxRetries} retries: ${lastError?.message}`);
   }
 
-  private async runWorker(
+  private async runOcrWorker(
     threadNum: number,
     apiKey: string,
     queue: TaskQueue,
     resultsMap: Map<number, OcrResult>,
-    onFileComplete: () => Promise<void>,
   ): Promise<void> {
     while (queue.hasMore() && this.isRunning) {
       const file = queue.getNext();
@@ -248,9 +247,7 @@ export class TaskRunnerService {
       try {
         const result = await this.processFileWithRetry(file, apiKey, threadNum);
         resultsMap.set(file.fileNumber, result);
-
-        // Try grouping after each file
-        await onFileComplete();
+        // ⭐ ไม่ทำ grouping ที่นี่ - ให้ grouping worker ทำ
       } catch (error) {
         // Retry failed - คืนไฟล์กลับ queue และหยุด worker นี้
         queue.putBack(file);
@@ -263,30 +260,37 @@ export class TaskRunnerService {
       }
     }
 
-    this.log(threadNum, `Thread ${threadNum} finished`, 'info');
+    this.log(threadNum, `OCR Thread ${threadNum} finished`, 'info');
   }
 
-  private async tryGrouping(
+  private async runGroupingWorker(
     resultsMap: Map<number, OcrResult>,
     allFiles: any[],
-    groupingState: { currentIndex: number; currentGroupId: number | null; orderInGroup: number },
   ): Promise<void> {
-    while (groupingState.currentIndex < allFiles.length) {
-      const expectedFileNumber = allFiles[groupingState.currentIndex].fileNumber;
-      const result = resultsMap.get(expectedFileNumber);
+    const groupingState = {
+      currentIndex: 0,
+      currentGroupId: null as number | null,
+      orderInGroup: 1,
+    };
+
+    this.log(0, `🔄 Grouping worker started`, 'info');
+
+    // Loop จนกว่าจะ group ครบทุกไฟล์
+    while (groupingState.currentIndex < allFiles.length && this.isRunning) {
+      const expectedFile = allFiles[groupingState.currentIndex];
+      const result = resultsMap.get(expectedFile.fileNumber);
 
       if (!result) {
-        // ไฟล์ยังไม่พร้อม รอก่อน
-        break;
+        // ไฟล์ยังไม่พร้อม - รอ 100ms แล้วลองใหม่
+        await this.sleep(100);
+        continue;
       }
 
-      // ไฟล์พร้อมแล้ว ลอง group
+      // ⭐ ไฟล์พร้อมแล้ว - ทำ grouping ทันที (ไม่มี race condition)
       if (result.isBookmark) {
         // เจอ BOOKMARK → ปิด group ก่อนหน้า (ถ้ามีไฟล์)
         if (groupingState.currentGroupId && groupingState.orderInGroup > 1) {
-          await this.filesService.markGroupComplete(
-            groupingState.currentGroupId,
-          );
+          await this.filesService.markGroupComplete(groupingState.currentGroupId);
           this.log(
             0,
             `✅ Group ID=${groupingState.currentGroupId} completed (${groupingState.orderInGroup - 1} files)`,
@@ -297,11 +301,11 @@ export class TaskRunnerService {
         // สร้าง Group ใหม่ (BOOKMARK เป็นแค่ตัวแบ่ง ไม่เก็บลง group)
         const newGroup = await this.filesService.createGroup();
         groupingState.currentGroupId = newGroup.id;
-        groupingState.orderInGroup = 1; // เริ่มนับใหม่ที่ 1 สำหรับไฟล์ถัดไป
+        groupingState.orderInGroup = 1;
 
         this.log(
           0,
-          `File #${result.fileNumber} is BOOKMARK - created new Group ID=${newGroup.id} (bookmark not included in group)`,
+          `File #${result.fileNumber} is BOOKMARK - created new Group ID=${newGroup.id}`,
           'warning',
         );
 
@@ -320,7 +324,7 @@ export class TaskRunnerService {
           this.log(0, `Created initial Group ID=${newGroup.id}`, 'info');
         }
 
-        // Add to group - update the file record with grouping info
+        // Add to group
         await this.filesService.updateFileGrouping(result.rawFileId, {
           groupId: groupingState.currentGroupId,
           orderInGroup: groupingState.orderInGroup,
@@ -338,6 +342,18 @@ export class TaskRunnerService {
 
       groupingState.currentIndex++;
     }
+
+    // ปิด group สุดท้าย (ถ้ามีไฟล์)
+    if (groupingState.currentGroupId && groupingState.orderInGroup > 1) {
+      await this.filesService.markGroupComplete(groupingState.currentGroupId);
+      this.log(
+        0,
+        `✅ Final group ID=${groupingState.currentGroupId} completed (${groupingState.orderInGroup - 1} files)`,
+        'success',
+      );
+    }
+
+    this.log(0, `✅ Grouping worker finished`, 'success');
   }
 
   private async sleep(ms: number): Promise<void> {
@@ -348,25 +364,20 @@ export class TaskRunnerService {
     // Setup worker pool
     const queue = new TaskQueue(rawFiles);
     const resultsMap = new Map<number, OcrResult>();
-    const groupingState = {
-      currentIndex: 0,
-      currentGroupId: null as number | null,
-      orderInGroup: 1,
-    };
 
-    this.log(0, `Processing ${rawFiles.length} file(s) with ${this.apiKeys.length} workers...`, 'info');
+    this.log(0, `📦 Processing ${rawFiles.length} file(s) with ${this.apiKeys.length} OCR workers + 1 grouping worker`, 'info');
 
-    // Create workers
-    const workers = this.apiKeys.map((apiKey, index) => {
+    // ⭐ Create OCR workers (parallel processing)
+    const ocrWorkers = this.apiKeys.map((apiKey, index) => {
       const threadNum = index + 1;
-      return this.runWorker(threadNum, apiKey, queue, resultsMap, async () => {
-        // Try grouping after each file completes
-        await this.tryGrouping(resultsMap, rawFiles, groupingState);
-      });
+      return this.runOcrWorker(threadNum, apiKey, queue, resultsMap);
     });
 
-    // Wait for all workers to finish
-    await Promise.all(workers);
+    // ⭐ Create grouping worker (single worker - no race condition)
+    const groupingWorker = this.runGroupingWorker(resultsMap, rawFiles);
+
+    // รอให้ทั้ง OCR workers และ grouping worker เสร็จ
+    await Promise.all([...ocrWorkers, groupingWorker]);
 
     // Check if all files were processed
     const processedCount = resultsMap.size;
@@ -380,14 +391,11 @@ export class TaskRunnerService {
         'warning',
       );
     } else {
-      this.log(0, `✅ Batch complete: ${processedCount} file(s) processed`, 'success');
+      this.log(0, `✅ Batch complete: ${processedCount} file(s) processed and grouped`, 'success');
     }
 
-    // Final grouping check
-    await this.tryGrouping(resultsMap, rawFiles, groupingState);
-
     const groupCount = await this.filesService.getGroupCount();
-    this.log(0, `Current groups: ${groupCount}`, 'info');
+    this.log(0, `Total groups created: ${groupCount}`, 'info');
   }
 
   async startTask(): Promise<void> {

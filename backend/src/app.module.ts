@@ -12,6 +12,8 @@ import { LabelRunnerModule } from './label-runner/label-runner.module';
 import { ParseRunnerModule } from './parse-runner/parse-runner.module';
 import { TemplatesModule } from './templates/templates.module';
 import { AuthModule } from './auth/auth.module';
+import { ActivityLogsModule } from './activity-logs/activity-logs.module';
+import { DistrictsModule } from './districts/districts.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 
 @Module({
@@ -41,6 +43,8 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
     ParseRunnerModule,
     TemplatesModule,
     AuthModule,
+    ActivityLogsModule,
+    DistrictsModule,
   ],
   controllers: [AppController],
   providers: [

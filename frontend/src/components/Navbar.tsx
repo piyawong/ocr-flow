@@ -20,6 +20,8 @@ const navItems = [
 
 const adminNavItems = [
   { href: '/admin', label: 'Admin' },
+  { href: '/logs', label: 'Logs' },
+  { href: '/districts', label: 'Districts' },
 ];
 
 // Stage routes with their permissions

@@ -47,23 +47,41 @@ export function DocumentDateModal({
     }
   };
 
+  // Click outside to close
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      handleSkip();
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm">
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md shadow-2xl">
-        <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
-          กรอกวันที่เอกสาร
-        </h2>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 dark:bg-black/40 backdrop-blur-[2px]"
+      onClick={handleBackdropClick}
+    >
+      <div
+        className="bg-card-bg dark:bg-gray-800 rounded-xl p-5 w-full max-w-sm shadow-xl border border-border-color dark:border-gray-700 animate-in fade-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="mb-4">
+          <h3 className="text-base font-semibold text-text-primary dark:text-white mb-1">
+            กรอกวันที่เอกสาร
+          </h3>
+          <div className="flex flex-col gap-0.5">
+            <p className="text-xs text-text-secondary dark:text-gray-400">
+              เอกสาร: <span className="font-medium text-text-primary dark:text-gray-300">{templateName}</span>
+            </p>
+            <p className="text-xs text-text-secondary dark:text-gray-400">
+              Document #{documentNumber}
+            </p>
+          </div>
+        </div>
 
-        <div className="mb-6">
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-            เอกสาร: <span className="font-medium text-gray-800 dark:text-gray-200">{templateName}</span>
-          </p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            Document #{documentNumber}
-          </p>
-
-          <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-            วันที่ของเอกสาร <span className="text-gray-400 text-xs">(ไม่บังคับ)</span>
+        {/* Date Picker */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium mb-2 text-text-primary dark:text-gray-300">
+            วันที่ของเอกสาร <span className="text-text-muted dark:text-gray-500 text-xs font-normal">(ไม่บังคับ)</span>
           </label>
           <ThaiDatePicker
             value={date}
@@ -72,34 +90,27 @@ export function DocumentDateModal({
             placeholder="เลือกวันที่..."
             autoFocus
           />
-          {date && (
-            <button
-              type="button"
-              onClick={() => setDate('')}
-              className="mt-2 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 underline"
-            >
-              ล้างวันที่
-            </button>
-          )}
         </div>
 
-        <div className="flex gap-3 justify-end">
+        {/* Action Buttons */}
+        <div className="flex gap-2 justify-end pt-2 border-t border-border-color dark:border-gray-700">
           <button
             onClick={handleSkip}
-            className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-white transition-colors"
+            className="px-3 py-1.5 text-sm rounded-md bg-bg-secondary dark:bg-gray-700 hover:bg-bg-tertiary dark:hover:bg-gray-600 text-text-primary dark:text-white transition-colors"
           >
-            ข้าม (ไม่กรอก)
+            ข้าม
           </button>
           <button
             onClick={handleConfirm}
-            className="px-4 py-2 rounded-md bg-blue-500 text-white hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/30"
+            className="px-3 py-1.5 text-sm rounded-md bg-accent hover:bg-accent-dark text-white transition-colors shadow-sm"
           >
             {date ? 'ยืนยัน' : 'ข้าม'}
           </button>
         </div>
 
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-4 text-center">
-          กด <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border border-gray-300 dark:border-gray-600">Enter</kbd> เพื่อยืนยัน หรือ <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border border-gray-300 dark:border-gray-600">Esc</kbd> เพื่อข้าม
+        {/* Keyboard Hint */}
+        <p className="text-[10px] text-text-muted dark:text-gray-500 mt-3 text-center">
+          กด <kbd className="px-1 py-0.5 bg-bg-secondary dark:bg-gray-700 rounded text-[10px] border border-border-color dark:border-gray-600">Enter</kbd> เพื่อยืนยัน หรือ <kbd className="px-1 py-0.5 bg-bg-secondary dark:bg-gray-700 rounded text-[10px] border border-border-color dark:border-gray-600">Esc</kbd> เพื่อข้าม
         </p>
       </div>
     </div>

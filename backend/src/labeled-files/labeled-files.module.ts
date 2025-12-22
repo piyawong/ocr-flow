@@ -8,6 +8,7 @@ import { MinioModule } from '../minio/minio.module';
 import { TemplatesModule } from '../templates/templates.module';
 import { ParseRunnerModule } from '../parse-runner/parse-runner.module';
 import { FilesModule } from '../files/files.module';
+import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { FilesModule } from '../files/files.module';
     TemplatesModule,
     forwardRef(() => ParseRunnerModule),
     forwardRef(() => FilesModule),
+    ActivityLogsModule,
   ],
   controllers: [LabeledFilesController],
   providers: [LabeledFilesService],

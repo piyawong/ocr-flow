@@ -9,6 +9,8 @@ import { CharterSection } from '../files/charter-section.entity';
 import { CharterArticle } from '../files/charter-article.entity';
 import { CharterSubItem } from '../files/charter-sub-item.entity';
 import { CommitteeMember } from '../files/committee-member.entity';
+import { DistrictOffice } from '../districts/entities/district-office.entity';
+import { Group } from '../files/group.entity';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { CommitteeMember } from '../files/committee-member.entity';
       CharterArticle,
       CharterSubItem,
       CommitteeMember,
+      DistrictOffice,
+      Group,
     ]),
     FilesModule,
     forwardRef(() => LabeledFilesModule),

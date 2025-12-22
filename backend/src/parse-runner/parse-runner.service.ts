@@ -1,7 +1,6 @@
 import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { ReplaySubject } from 'rxjs';
+import { Repository, Like } from 'typeorm';
 import { FilesService } from '../files/files.service';
 import { LabeledFilesService } from '../labeled-files/labeled-files.service';
 import { FoundationInstrument } from '../files/foundation-instrument.entity';
@@ -9,12 +8,8 @@ import { CharterSection } from '../files/charter-section.entity';
 import { CharterArticle } from '../files/charter-article.entity';
 import { CharterSubItem } from '../files/charter-sub-item.entity';
 import { CommitteeMember as CommitteeMemberEntity } from '../files/committee-member.entity';
-
-export interface LogMessage {
-  timestamp: string;
-  message: string;
-  type: 'info' | 'success' | 'error' | 'warning';
-}
+import { DistrictOffice } from '../districts/entities/district-office.entity';
+import { Group } from '../files/group.entity';
 
 // Thai to Arabic numeral mapping
 const THAI_TO_ARABIC: Record<string, string> = {
@@ -51,11 +46,6 @@ export interface CommitteeMembersData {
 
 @Injectable()
 export class ParseRunnerService {
-  private isRunning = false;
-  private logSubject = new ReplaySubject<LogMessage>(100);
-  private logHistory: LogMessage[] = [];
-  private readonly MAX_LOGS = 500;
-
   constructor(
     private filesService: FilesService,
     @Inject(forwardRef(() => LabeledFilesService))
@@ -64,38 +54,11 @@ export class ParseRunnerService {
     private foundationInstrumentRepo: Repository<FoundationInstrument>,
     @InjectRepository(CommitteeMemberEntity)
     private committeeMemberRepo: Repository<CommitteeMemberEntity>,
+    @InjectRepository(DistrictOffice)
+    private districtOfficeRepo: Repository<DistrictOffice>,
+    @InjectRepository(Group)
+    private groupRepo: Repository<Group>,
   ) {}
-
-  getLogObservable() {
-    return this.logSubject.asObservable();
-  }
-
-  getLogHistory(): LogMessage[] {
-    return this.logHistory;
-  }
-
-  clearLogs() {
-    this.logHistory = [];
-  }
-
-  isTaskRunning(): boolean {
-    return this.isRunning;
-  }
-
-  private log(message: string, type: LogMessage['type'] = 'info') {
-    const logMessage: LogMessage = {
-      timestamp: new Date().toISOString(),
-      message,
-      type,
-    };
-    this.logSubject.next(logMessage);
-    this.logHistory.push(logMessage);
-
-    // Keep only last MAX_LOGS entries
-    if (this.logHistory.length > this.MAX_LOGS) {
-      this.logHistory = this.logHistory.slice(-this.MAX_LOGS);
-    }
-  }
 
   // Convert Thai numerals to Arabic numerals
   private convertThaiToArabic(text: string): string {
@@ -361,131 +324,6 @@ export class ParseRunnerService {
     return data;
   }
 
-  async startTask(): Promise<void> {
-    if (this.isRunning) {
-      this.log('Parse task is already running', 'warning');
-      return;
-    }
-
-    this.isRunning = true;
-    this.log('=== ∞ Infinite Parse Data Worker Loop Started ===', 'info');
-
-    try {
-      // Infinite loop - ทำงานจนกว่าจะถูก stop
-      while (this.isRunning) {
-        // Get groups that are ready to parse data (isAutoLabeled = true AND isParseData = false)
-        const groupsToProcess = await this.filesService.getGroupsReadyToParseData();
-
-        // Filter for 100% matched and user reviewed groups only
-        const fullyMatchedGroups: number[] = [];
-        for (const groupId of groupsToProcess) {
-          const is100Matched = await this.labeledFilesService.isGroup100Matched(groupId);
-          const isUserReviewed = await this.labeledFilesService.isGroupUserReviewed(groupId);
-          if (is100Matched && isUserReviewed) {
-            fullyMatchedGroups.push(groupId);
-          }
-        }
-
-        if (fullyMatchedGroups.length === 0) {
-          this.log('⏳ No groups ready to parse data. Waiting for new groups (must be 100% matched AND user reviewed)...', 'info');
-          await this.sleep(5000); // รอ 5 วินาที
-          continue;
-        }
-
-        this.log(`📦 Found ${fullyMatchedGroups.length} group(s) ready to parse (100% matched + user reviewed): ${fullyMatchedGroups.join(', ')}`, 'info');
-
-        // Process each group
-        for (const groupId of fullyMatchedGroups) {
-          if (!this.isRunning) break;
-
-          await this.processGroup(groupId);
-        }
-
-        // รอสักครู่ก่อน loop รอบถัดไป
-        if (this.isRunning) {
-          await this.sleep(2000);
-        }
-      }
-
-      this.log('=== ∞ Infinite Parse Data Worker Loop Stopped ===', 'warning');
-    } catch (error) {
-      this.log(`Parse worker loop error: ${error.message}`, 'error');
-      this.isRunning = false;
-    }
-  }
-
-  private async sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  private async processGroup(groupId: number): Promise<void> {
-    this.log(`--- Processing Group ${groupId} ---`);
-
-    try {
-      // ✅ NEW: Get pages with labels (merge files + documents)
-      const files = await this.labeledFilesService.getGroupPagesWithLabels(groupId);
-      if (files.length === 0) {
-        this.log(`Group ${groupId}: No files found`, 'warning');
-        return;
-      }
-
-      this.log(`Group ${groupId}: Found ${files.length} files`);
-
-      // Create OCR texts map
-      const ocrTexts = new Map<number, string>();
-      for (const file of files) {
-        ocrTexts.set(file.orderInGroup, file.ocrText || '');
-      }
-
-      // Find documents by template
-      let foundationInstrument: FoundationInstrumentData | null = null;
-      let committeeMembers: CommitteeMembersData | null = null;
-
-      // Process each document type
-      const foundationDocs = files.filter(f =>
-        f.templateName?.includes('ตราสาร') && !f.templateName?.includes('แก้ไข')
-      );
-      const committeeDocs = files.filter(f =>
-        f.templateName?.includes('บัญชีรายชื่อกรรมการ')
-      );
-
-      // Parse foundation instrument
-      if (foundationDocs.length > 0) {
-        const pages = foundationDocs.map(f => f.orderInGroup).sort((a, b) => a - b);
-        this.log(`  Parsing foundation instrument (${pages.length} pages)...`);
-        foundationInstrument = this.parseFoundationInstrumentData(ocrTexts, pages);
-        this.log(`    Name: ${foundationInstrument.name || 'N/A'}`, 'success');
-        this.log(`    Short Name: ${foundationInstrument.shortName || 'N/A'}`, 'success');
-        this.log(`    Sections: ${foundationInstrument.charterSections.length}`, 'success');
-      }
-
-      // Parse committee members
-      if (committeeDocs.length > 0) {
-        const pages = committeeDocs.map(f => f.orderInGroup).sort((a, b) => a - b);
-        this.log(`  Parsing committee members (${pages.length} pages)...`);
-        committeeMembers = this.parseCommitteeMembersData(ocrTexts, pages);
-        this.log(`    Members found: ${committeeMembers.committeeMembers.length}`, 'success');
-      }
-
-      // Save parsed data to database tables
-      await this.saveParsedDataToDatabase(groupId, foundationInstrument, committeeMembers);
-
-      this.log(`Group ${groupId}: Parse data complete!`, 'success');
-
-      // Emit GROUP_PARSED event
-      this.log(`GROUP_PARSED:${groupId}`, 'info');
-
-    } catch (error) {
-      this.log(`Group ${groupId}: Error - ${error.message}`, 'error');
-    }
-  }
-
-  stopTask(): void {
-    if (this.isRunning) {
-      this.isRunning = false;
-      this.log('Parse task stopped by user', 'warning');
-    }
-  }
 
   // Save parsed data to database tables
   private async saveParsedDataToDatabase(
@@ -575,6 +413,45 @@ export class ParseRunnerService {
       }
     }
 
+    // Match district office and update group
+    if (foundationInstrumentData && foundationInstrumentData.name) {
+      const foundationName = foundationInstrumentData.name.trim();
+
+      if (foundationName) {
+        console.log(`[ParseData] Searching district for foundation: "${foundationName}"`);
+
+        // Try exact match first (case-insensitive)
+        let districtOffice = await this.districtOfficeRepo
+          .createQueryBuilder('district')
+          .where('LOWER(district.foundationName) = LOWER(:foundationName)', { foundationName })
+          .andWhere('district.isActive = :isActive', { isActive: true })
+          .getOne();
+
+        // If no exact match, try partial match
+        if (!districtOffice) {
+          districtOffice = await this.districtOfficeRepo
+            .createQueryBuilder('district')
+            .where('LOWER(district.foundationName) LIKE LOWER(:foundationName)', {
+              foundationName: `%${foundationName}%`,
+            })
+            .andWhere('district.isActive = :isActive', { isActive: true })
+            .getOne();
+        }
+
+        if (districtOffice) {
+          console.log(`[ParseData] ✓ Found district: ${districtOffice.name} (เลข กท. ${districtOffice.registrationNumber})`);
+
+          // Update group with district info
+          await this.groupRepo.update(groupId, {
+            districtOffice: districtOffice.name,
+            registrationNumber: districtOffice.registrationNumber,
+          });
+        } else {
+          console.log(`[ParseData] ✗ No district match found for: "${foundationName}"`);
+        }
+      }
+    }
+
     // Update group parseData status
     await this.filesService.updateGroupParseData(groupId, null);
   }
@@ -588,7 +465,7 @@ export class ParseRunnerService {
       committeeMembers?: CommitteeMembersData | null;
     };
   }> {
-    this.log(`🔍 ${force ? 'Re-parsing' : 'Parsing'} Group ${groupId}...`, 'info');
+    console.log(`[ParseData] ${force ? 'Re-parsing' : 'Parsing'} Group ${groupId}...`);
 
     try {
       // Check if group exists
@@ -633,7 +510,7 @@ export class ParseRunnerService {
         };
       }
 
-      // ✅ NEW: Get pages with labels (merge files + documents)
+      // Get pages with labels (merge files + documents)
       const files = await this.labeledFilesService.getGroupPagesWithLabels(groupId);
       if (files.length === 0) {
         return {
@@ -642,7 +519,7 @@ export class ParseRunnerService {
         };
       }
 
-      this.log(`Group ${groupId}: Found ${files.length} files`);
+      console.log(`[ParseData] Group ${groupId}: Found ${files.length} files`);
 
       // Create OCR texts map
       const ocrTexts = new Map<number, string>();
@@ -665,28 +542,25 @@ export class ParseRunnerService {
       // Parse foundation instrument
       if (foundationDocs.length > 0) {
         const pages = foundationDocs.map(f => f.orderInGroup).sort((a, b) => a - b);
-        this.log(`  Parsing foundation instrument (${pages.length} pages)...`);
+        console.log(`[ParseData] Parsing foundation instrument (${pages.length} pages)...`);
         foundationInstrument = this.parseFoundationInstrumentData(ocrTexts, pages);
-        this.log(`    Name: ${foundationInstrument.name || 'N/A'}`, 'success');
-        this.log(`    Short Name: ${foundationInstrument.shortName || 'N/A'}`, 'success');
-        this.log(`    Sections: ${foundationInstrument.charterSections.length}`, 'success');
+        console.log(`[ParseData] Name: ${foundationInstrument.name || 'N/A'}`);
+        console.log(`[ParseData] Short Name: ${foundationInstrument.shortName || 'N/A'}`);
+        console.log(`[ParseData] Sections: ${foundationInstrument.charterSections.length}`);
       }
 
       // Parse committee members
       if (committeeDocs.length > 0) {
         const pages = committeeDocs.map(f => f.orderInGroup).sort((a, b) => a - b);
-        this.log(`  Parsing committee members (${pages.length} pages)...`);
+        console.log(`[ParseData] Parsing committee members (${pages.length} pages)...`);
         committeeMembers = this.parseCommitteeMembersData(ocrTexts, pages);
-        this.log(`    Members found: ${committeeMembers.committeeMembers.length}`, 'success');
+        console.log(`[ParseData] Members found: ${committeeMembers.committeeMembers.length}`);
       }
 
       // Save parsed data to database tables
       await this.saveParsedDataToDatabase(groupId, foundationInstrument, committeeMembers);
 
-      this.log(`✅ Group ${groupId}: Parse data complete!`, 'success');
-
-      // Emit GROUP_PARSED event
-      this.log(`GROUP_PARSED:${groupId}`, 'info');
+      console.log(`[ParseData] Group ${groupId}: Parse data complete!`);
 
       return {
         success: true,
@@ -698,7 +572,7 @@ export class ParseRunnerService {
       };
 
     } catch (error) {
-      this.log(`❌ Group ${groupId}: Error - ${error.message}`, 'error');
+      console.error(`[ParseData] Group ${groupId}: Error - ${error.message}`);
       return {
         success: false,
         message: `Failed to parse group ${groupId}: ${error.message}`,

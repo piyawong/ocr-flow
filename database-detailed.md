@@ -1,7 +1,7 @@
 # Database Schema - รายละเอียดฉบับสมบูรณ์
 
 > **สำหรับ:** OCR Flow v2 Database Documentation
-> **อัปเดตล่าสุด:** 2025-12-21
+> **อัปเดตล่าสุด:** 2025-12-21 (เพิ่ม activity_logs table)
 
 ---
 
@@ -36,12 +36,13 @@
 - **Password:** postgres
 
 ### จำนวนตาราง
-- **ทั้งหมด:** 10 ตาราง
+- **ทั้งหมด:** 11 ตาราง
 - **หมวดหมู่:**
   - **Authentication:** 1 ตาราง (users)
   - **File Management:** 2 ตาราง (files, groups)
   - **Labeling:** 2 ตาราง (documents, templates)
   - **Parsed Data:** 5 ตาราง (foundation_instruments, charter_sections, charter_articles, charter_sub_items, committee_members)
+  - **Activity Logging:** 1 ตาราง (activity_logs)
 
 ---
 

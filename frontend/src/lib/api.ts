@@ -225,3 +225,172 @@ export async function updateUser(id: number, data: UpdateUserRequest): Promise<U
 
   return response.json();
 }
+
+// ==================== ACTIVITY LOGS ====================
+
+export interface ActivityLog {
+  id: number;
+  userId: number | null;
+  userName: string;
+  action: 'create' | 'update' | 'delete' | 'review' | 'approve';
+  entityType: 'document' | 'foundation_instrument' | 'charter_section' | 'charter_article' | 'charter_sub_item' | 'committee_member' | 'group';
+  entityId: number | null;
+  groupId: number | null;
+  stage: '03-pdf-label' | '04-extract' | '05-review';
+  fieldName: string | null;
+  oldValue: string | null;
+  newValue: string | null;
+  description: string | null;
+  createdAt: string;
+}
+
+export interface ActivityLogsResponse {
+  logs: ActivityLog[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface ActivityLogsQuery {
+  page?: number;
+  limit?: number;
+  userId?: number;
+  groupId?: number;
+  action?: string;
+  entityType?: string;
+  stage?: string;
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+}
+
+export async function getActivityLogs(query: ActivityLogsQuery = {}): Promise<ActivityLogsResponse> {
+  const params = new URLSearchParams();
+  Object.entries(query).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      params.append(key, value.toString());
+    }
+  });
+
+  const response = await fetchWithAuth(`/activity-logs?${params.toString()}`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch activity logs');
+  }
+
+  return response.json();
+}
+
+// ==================== DISTRICTS API ====================
+
+export interface DistrictOffice {
+  id: number;
+  name: string; // ชื่อสำนักงานเขต
+  foundationName: string; // ชื่อมูลนิธิ
+  registrationNumber: string; // เลข กท.
+  description: string | null;
+  displayOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DistrictOfficeListResponse {
+  total: number;
+  districtOffices: DistrictOffice[];
+}
+
+export interface DistrictOfficeResponse {
+  districtOffice: DistrictOffice;
+}
+
+export interface CreateDistrictOfficeDto {
+  name: string;
+  foundationName: string;
+  registrationNumber: string;
+  description?: string;
+  displayOrder?: number;
+  isActive?: boolean;
+}
+
+export interface UpdateDistrictOfficeDto {
+  name?: string;
+  foundationName?: string;
+  registrationNumber?: string;
+  description?: string;
+  displayOrder?: number;
+  isActive?: boolean;
+}
+
+// Create district office
+export async function createDistrictOffice(data: CreateDistrictOfficeDto): Promise<DistrictOfficeResponse> {
+  const response = await fetchWithAuth('/districts', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Create failed' }));
+    throw new Error(error.message || 'Create failed');
+  }
+
+  return response.json();
+}
+
+// Get all district offices
+export async function getDistrictOffices(isActive?: boolean): Promise<DistrictOfficeListResponse> {
+  const params = new URLSearchParams();
+  if (isActive !== undefined) {
+    params.append('active', isActive.toString());
+  }
+
+  const response = await fetchWithAuth(`/districts?${params.toString()}`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch district offices');
+  }
+
+  return response.json();
+}
+
+// Get single district office
+export async function getDistrictOffice(id: number): Promise<DistrictOfficeResponse> {
+  const response = await fetchWithAuth(`/districts/${id}`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch district office');
+  }
+
+  return response.json();
+}
+
+// Update district office
+export async function updateDistrictOffice(
+  id: number,
+  data: UpdateDistrictOfficeDto
+): Promise<DistrictOfficeResponse> {
+  const response = await fetchWithAuth(`/districts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Update failed' }));
+    throw new Error(error.message || 'Update failed');
+  }
+
+  return response.json();
+}
+
+// Delete district office
+export async function deleteDistrictOffice(id: number): Promise<void> {
+  const response = await fetchWithAuth(`/districts/${id}`, {
+    method: 'DELETE',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Delete failed' }));
+    throw new Error(error.message || 'Delete failed');
+  }
+}

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { Subject } from 'rxjs';
@@ -11,11 +11,20 @@ import { CharterArticle } from './charter-article.entity';
 import { CharterSubItem } from './charter-sub-item.entity';
 import { CommitteeMember } from './committee-member.entity';
 import { MinioService } from '../minio/minio.service';
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import {
+  ActivityAction,
+  ActivityEntityType,
+  ActivityStage,
+} from '../activity-logs/activity-log.entity';
 
 export interface FileEvent {
-  type: 'GROUP_COMPLETE' | 'GROUP_CREATED';
-  groupId: number;
-  timestamp: string;
+  type: 'GROUP_COMPLETE' | 'GROUP_CREATED' | 'GROUP_LOCKED' | 'GROUP_UNLOCKED';
+  groupId?: number;
+  lockedBy?: number;
+  lockedAt?: Date;
+  unlockedBy?: number;
+  timestamp?: string;
 }
 
 @Injectable()
@@ -29,6 +38,7 @@ export class FilesService {
     private groupRepository: Repository<Group>,
     private minioService: MinioService,
     private dataSource: DataSource,
+    private activityLogsService: ActivityLogsService,
   ) {}
 
   // ========== EVENT BROADCASTING ==========
@@ -379,24 +389,54 @@ export class FilesService {
     return this.groupRepository.count();
   }
 
-  async getGroupMetadata(): Promise<Array<{
-    groupId: number;
-    fileCount: number;
-    isComplete: boolean;
-    completedAt: Date | null;
-    isAutoLabeled: boolean;
-    labeledAt: Date | null;
-    createdAt: Date;
-  }>> {
+  async getGroupMetadata(
+    userId?: number,
+    userRole?: string,
+  ): Promise<
+    Array<{
+      groupId: number;
+      fileCount: number;
+      isComplete: boolean;
+      completedAt: Date | null;
+      isAutoLabeled: boolean;
+      labeledAt: Date | null;
+      createdAt: Date;
+      lockedBy: number | null;
+      lockedByName: string | null;
+      lockedAt: Date | null;
+    }>
+  > {
     const groups = await this.groupRepository.find({
       order: { id: 'ASC' },
     });
 
     const result = [];
     for (const group of groups) {
+      // ✅ Filter logic: Hide groups locked by other users (except for admins)
+      if (
+        group.lockedBy && // Group is locked
+        userRole !== 'admin' && // User is not admin
+        group.lockedBy !== userId // Not locked by current user
+      ) {
+        // Skip this group (hide from list)
+        continue;
+      }
+
       const fileCount = await this.fileRepository.count({
         where: { groupId: group.id },
       });
+
+      // Fetch locked user info if locked
+      let lockedByName: string | null = null;
+      if (group.lockedBy) {
+        const lockedUser = await this.dataSource
+          .getRepository('users')
+          .findOne({
+            where: { id: group.lockedBy },
+            select: ['name'],
+          });
+        lockedByName = lockedUser?.name || null;
+      }
 
       result.push({
         groupId: group.id,
@@ -406,6 +446,9 @@ export class FilesService {
         isAutoLabeled: group.isAutoLabeled,
         labeledAt: group.labeledAt,
         createdAt: group.createdAt,
+        lockedBy: group.lockedBy,
+        lockedByName,
+        lockedAt: group.lockedAt,
       });
     }
 
@@ -642,6 +685,7 @@ export class FilesService {
     groupId: number,
     reviewer: string,
     notes?: string,
+    userId?: number,
   ): Promise<{ success: boolean; message: string }> {
     const group = await this.groupRepository.findOne({
       where: { id: groupId, isParseData: true },
@@ -663,6 +707,18 @@ export class FilesService {
       },
     );
 
+    // Log the review action
+    await this.activityLogsService.create({
+      userId,
+      userName: reviewer,
+      action: ActivityAction.REVIEW,
+      entityType: ActivityEntityType.GROUP,
+      entityId: groupId,
+      groupId,
+      stage: ActivityStage.STAGE_04_EXTRACT,
+      description: `Reviewed and approved extracted data${notes ? `: ${notes}` : ''}`,
+    });
+
     return {
       success: true,
       message: `Group ${groupId} marked as extract data reviewed by ${reviewer}`,
@@ -677,6 +733,8 @@ export class FilesService {
       districtOffice?: string | null;
       registrationNumber?: string | null;
     },
+    userId?: number,
+    userName?: string,
   ): Promise<void> {
     await this.dataSource.transaction(async (manager) => {
       const groupRepo = manager.getRepository(Group);
@@ -789,6 +847,26 @@ export class FilesService {
         }
       }
     });
+
+    // Log the update after transaction completes
+    if (userId || userName) {
+      const changes: string[] = [];
+      if (data.foundationInstrument) changes.push('Foundation Instrument');
+      if (data.committeeMembers) changes.push('Committee Members');
+      if (data.districtOffice !== undefined) changes.push('District Office');
+      if (data.registrationNumber !== undefined) changes.push('Registration Number');
+
+      await this.activityLogsService.create({
+        userId,
+        userName: userName || 'Unknown User',
+        action: ActivityAction.UPDATE,
+        entityType: ActivityEntityType.GROUP,
+        entityId: groupId,
+        groupId,
+        stage: ActivityStage.STAGE_04_EXTRACT,
+        description: `Updated extracted data: ${changes.join(', ')}`,
+      });
+    }
   }
 
   async reorderGroupFiles(
@@ -976,7 +1054,12 @@ export class FilesService {
     };
   }
 
-  async approveFinalReview(groupId: number, reviewerName: string, notes?: string) {
+  async approveFinalReview(
+    groupId: number,
+    reviewerName: string,
+    notes?: string,
+    userId?: number,
+  ) {
     const group = await this.groupRepository.findOne({
       where: { id: groupId },
     });
@@ -1002,6 +1085,18 @@ export class FilesService {
 
     await this.groupRepository.save(group);
 
+    // Log the final approval
+    await this.activityLogsService.create({
+      userId,
+      userName: reviewerName,
+      action: ActivityAction.APPROVE,
+      entityType: ActivityEntityType.GROUP,
+      entityId: groupId,
+      groupId,
+      stage: ActivityStage.STAGE_05_REVIEW,
+      description: `Final approval completed${notes ? `: ${notes}` : ''}`,
+    });
+
     return {
       groupId: group.id,
       isFinalApproved: group.isFinalApproved,
@@ -1009,5 +1104,125 @@ export class FilesService {
       finalApprovedAt: group.finalApprovedAt,
       finalReviewNotes: group.finalReviewNotes,
     };
+  }
+
+  // ========== GROUP LOCKING METHODS ==========
+
+  /**
+   * Lock a group for editing
+   * @throws ConflictException if group is already locked by another user
+   */
+  async lockGroup(
+    groupId: number,
+    userId: number,
+  ): Promise<{ lockedBy: number; lockedAt: Date }> {
+    const group = await this.groupRepository.findOne({
+      where: { id: groupId },
+    });
+
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    // Check if already locked by another user
+    if (group.lockedBy && group.lockedBy !== userId) {
+      // Check if lock is expired (30 minutes)
+      const LOCK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+      const lockAge = Date.now() - group.lockedAt.getTime();
+
+      if (lockAge < LOCK_TIMEOUT_MS) {
+        // Still locked, fetch user name
+        const lockedUser = await this.dataSource
+          .getRepository('users')
+          .findOne({
+            where: { id: group.lockedBy },
+            select: ['name', 'email'],
+          });
+
+        throw new ConflictException({
+          message: 'Group is locked by another user',
+          lockedBy: group.lockedBy,
+          lockedByName: lockedUser?.name || 'Unknown User',
+          lockedAt: group.lockedAt,
+        });
+      }
+
+      // Lock expired, can take over
+      console.log(
+        `Lock expired for group ${groupId}, taking over from user ${group.lockedBy}`,
+      );
+    }
+
+    // Lock the group
+    group.lockedBy = userId;
+    group.lockedAt = new Date();
+    await this.groupRepository.save(group);
+
+    // Broadcast lock event via SSE
+    this.eventSubject.next({
+      type: 'GROUP_LOCKED',
+      groupId,
+      lockedBy: userId,
+      lockedAt: group.lockedAt,
+    });
+
+    return {
+      lockedBy: group.lockedBy,
+      lockedAt: group.lockedAt,
+    };
+  }
+
+  /**
+   * Unlock a group
+   * Only the user who locked it can unlock (or force unlock for admins)
+   */
+  async unlockGroup(groupId: number, userId: number): Promise<void> {
+    const group = await this.groupRepository.findOne({
+      where: { id: groupId },
+    });
+
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    // Only allow unlock if user owns the lock
+    if (group.lockedBy && group.lockedBy !== userId) {
+      throw new ForbiddenException('You do not own this lock');
+    }
+
+    // Unlock
+    group.lockedBy = null;
+    group.lockedAt = null;
+    await this.groupRepository.save(group);
+
+    // Broadcast unlock event via SSE
+    this.eventSubject.next({
+      type: 'GROUP_UNLOCKED',
+      groupId,
+      unlockedBy: userId,
+    });
+  }
+
+  /**
+   * Renew group lock (heartbeat)
+   * Extends the lock timeout
+   */
+  async renewGroupLock(groupId: number, userId: number): Promise<void> {
+    const group = await this.groupRepository.findOne({
+      where: { id: groupId },
+    });
+
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    // Only allow renew if user owns the lock
+    if (!group.lockedBy || group.lockedBy !== userId) {
+      throw new ForbiddenException('You do not own this lock');
+    }
+
+    // Renew lock timestamp
+    group.lockedAt = new Date();
+    await this.groupRepository.save(group);
   }
 }

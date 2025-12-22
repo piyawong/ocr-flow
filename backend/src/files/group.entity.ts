@@ -75,6 +75,13 @@ export class Group {
   @Column({ type: 'varchar', length: 500, nullable: true })
   logoUrl: string | null;
 
+  // Group locking for concurrent editing prevention
+  @Column({ type: 'int', nullable: true })
+  lockedBy: number | null; // User ID who locked this group
+
+  @Column({ type: 'timestamp', nullable: true })
+  lockedAt: Date | null; // When the group was locked
+
   @CreateDateColumn()
   createdAt: Date;
 

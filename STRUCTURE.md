@@ -350,7 +350,7 @@ NEXT_PUBLIC_API_URL=http://localhost:4004
 2. Pattern matching (Exact Match + Context Rules)
 3. User manual label (adjust + review)
 4. Save & Mark as reviewed (100% matched only)
-5. Auto-trigger Parse Data (background)
+5. Auto-parse หลัง user review (on-demand)
 
 ### Stage 04: EXTRACT (Data Extraction)
 1. Parse ตราสาร (foundation instrument)

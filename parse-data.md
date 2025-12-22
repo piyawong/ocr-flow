@@ -1,7 +1,7 @@
 # Parse Data Logic - ระบบดึงข้อมูลจาก OCR
 
-> **อัปเดตล่าสุด:** 2025-12-13
-> **ที่มา:** `ref/lib/data_parsing.py`, `ref/lib/task-02-group-to-label.py`
+> **อัปเดตล่าสุด:** 2025-12-23
+> **ที่มา:** `backend/src/parse-runner/parse-runner.service.ts`
 
 ---
 
@@ -11,38 +11,46 @@
 2. [Flow การทำงาน](#flow-การทำงาน)
 3. [ฟังก์ชัน Parse Data](#ฟังก์ชัน-parse-data)
 4. [Data Structures](#data-structures)
-5. [Output Files](#output-files)
-6. [ที่มาของโค้ด](#ที่มาของโค้ด)
+5. [Database Tables](#database-tables)
+6. [API Endpoints](#api-endpoints)
 
 ---
 
 ## ภาพรวม
 
-ระบบ Parse Data ทำหน้าที่ดึงข้อความจาก OCR มาแปลงเป็นข้อมูลที่มีโครงสร้าง (structured data) สำหรับเอกสาร 2 ประเภทหลัก:
+ระบบ Parse Data ทำหน้าที่ดึงข้อความจาก OCR มาแปลงเป็นข้อมูลที่มีโครงสร้าง (structured data) และบันทึกลง Database สำหรับเอกสาร 2 ประเภทหลัก:
 
 1. **ตราสาร (Foundation Instrument)** - ข้อบังคับมูลนิธิ
 2. **บัญชีรายชื่อกรรมการมูลนิธิ (Committee Members)** - รายชื่อกรรมการ
+
+**⚠️ สำคัญ:** ระบบไม่มี background worker loop แล้ว - Parse ทำงานแบบ **on-demand** เท่านั้น:
+1. **Auto-parse หลัง user review** - เมื่อ user กด "Complete Review" ใน Stage 03
+2. **Manual re-parse** - เมื่อ user กดปุ่ม "Re-parse" ใน Stage 04
 
 ---
 
 ## Flow การทำงาน
 
 ```
-OCR Text → Pattern Matching → Document Grouping → Data Parsing → JSON Output
+User Review (Stage 03) → Auto Parse → Save to Database
+               OR
+User Click Re-parse (Stage 04) → Force Parse → Update Database
 ```
 
-### ขั้นตอนโดยละเอียด (จาก `task-02-group-to-label.py`)
+### ขั้นตอนการ Parse (On-Demand)
 
-| Step | Description | Output |
-|------|-------------|--------|
-| 1 | OCR images ด้วย Typhoon API | `ocrs/{page}.txt`, `ocrs/combined.txt` |
-| 2 | Match patterns + Group pages | `documents[]`, `unmatched[]` |
-| 3 | Create PDFs | `pdfs/{template}.pdf` |
-| 3.5 | Extract logo (จาก ตราสาร.pdf หน้าแรก) | `logo.png` |
-| 4 | Create summary | `summary.md` |
-| 4.5 | Create skeleton JSONs | `foundation-instrument.json`, `committee-members.json` |
-| **5** | **Parse data from OCR** | **Updated JSON files** |
-| 6 | Send to API | API response |
+| Step | Description | Triggered By |
+|------|-------------|--------------|
+| 1 | User review labels และกด "Complete Review" (Stage 03) | `POST /labeled-files/group/:groupId/mark-reviewed` |
+| 2 | Check 100% matched + User reviewed | `markGroupAsReviewed()` |
+| 3 | **Auto-parse ทันที** (ไม่ต้องรอ worker loop) | `parseRunnerService.parseGroup(groupId)` |
+| 4 | Parse foundation instrument + committee members | Regex patterns + Table parsing |
+| 5 | Save to database tables | 5 tables (foundation_instruments, charter_sections, etc.) |
+| 6 | Update `groups.isParseData = true` | Mark as completed |
+| **OR** | **Manual Re-parse** | |
+| 1 | User กดปุ่ม "Re-parse" (Stage 04) | `POST /parse-runner/parse/:groupId?force=true` |
+| 2 | Force re-parse (bypass isParseData check) | `parseGroup(groupId, force=true)` |
+| 3 | Parse + Update database | Same as auto-parse |
 
 ---
 
@@ -161,108 +169,51 @@ class DocumentGroup:
     end_negative_match: str
 ```
 
-### DocumentTemplate
+---
 
-**ไฟล์:** `ref/lib/templates.py:20-38`
+## Database Tables
 
-```python
-@dataclass
-class DocumentTemplate:
-    name: str                          # ชื่อไฟล์ PDF
-    first_page_patterns: list          # patterns หน้าแรก
-    last_page_patterns: list           # patterns หน้าสุดท้าย
-    category: str                      # หมวดหมู่
-    first_page_negative_patterns: list # patterns ที่ห้าม match
-    last_page_negative_patterns: list
-    is_single_page: bool               # เอกสารหน้าเดียว?
-```
+Parse data จะถูกบันทึกลง PostgreSQL (5 tables):
+
+| Table | Description | Relations |
+|-------|-------------|-----------|
+| `foundation_instruments` | ข้อมูลตราสาร (name, shortName, address, logoDescription) | One-to-One กับ `groups` |
+| `charter_sections` | หมวดในตราสาร (number, title, orderIndex) | One-to-Many กับ `foundation_instruments` |
+| `charter_articles` | ข้อในตราสาร (number, content, orderIndex) | One-to-Many กับ `charter_sections` |
+| `charter_sub_items` | ข้อย่อยในตราสาร (number, content, orderIndex) | One-to-Many กับ `charter_articles` |
+| `committee_members` | กรรมการมูลนิธิ (name, address, phone, position) | One-to-Many กับ `groups` |
+
+**CASCADE DELETE:** ลบ `group` → ลบข้อมูล parse ทั้งหมด
 
 ---
 
-## Output Files
+## API Endpoints
 
-### `foundation-instrument.json`
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| **POST** | `/parse-runner/parse/:groupId` | Parse group เดียว (first-time parse) |
+| **POST** | `/parse-runner/parse/:groupId?force=true` | Re-parse group (force override) |
 
-```
-03-label/{folder_id}/foundation-instrument.json
-```
-
-โครงสร้างข้อมูลตราสารมูลนิธิที่ parse ได้
-
-### `committee-members.json`
-
-```
-03-label/{folder_id}/committee-members.json
-```
-
-โครงสร้างข้อมูลรายชื่อกรรมการที่ parse ได้
-
-### `config.json`
-
-```
-03-label/{folder_id}/config.json
-```
-
-Metadata รวมถึง:
-- `is_checked_foundation` - parse ตราสารสำเร็จ?
-- `is_checked_members` - parse กรรมการสำเร็จ?
-- `is_success` - ทุกขั้นตอนสำเร็จ?
-
----
-
-## ที่มาของโค้ด
-
-| Component | File | Line |
-|-----------|------|------|
-| parse_foundation_instrument_data | `ref/lib/data_parsing.py` | 36-273 |
-| parse_committee_members_data | `ref/lib/data_parsing.py` | 276-364 |
-| convert_thai_to_arabic | `ref/lib/data_parsing.py` | 25-29 |
-| DocumentGroup | `ref/lib/document_grouping.py` | 27-49 |
-| group_pages_by_patterns | `ref/lib/document_grouping.py` | 56-220 |
-| DocumentTemplate | `ref/lib/templates.py` | 20-38 |
-| load_templates | `ref/lib/templates.py` | 54-82 |
-| Main process_folder | `ref/lib/task-02-group-to-label.py` | 81-737 |
+**Note:** ไม่มี `/start`, `/stop`, `/status`, `/logs` endpoints แล้ว - ระบบไม่ใช่ background worker
 
 ---
 
 ## Helper Functions
 
-### `convert_thai_to_arabic()`
+### `convertThaiToArabic()`
 
-**ไฟล์:** `ref/lib/data_parsing.py:20-29`
+**ไฟล์:** `backend/src/parse-runner/parse-runner.service.ts:58-64`
 
 แปลงเลขไทยเป็นเลขอารบิก:
 
-```python
-THAI_TO_ARABIC = {
-    '๐': '0', '๑': '1', '๒': '2', '๓': '3', '๔': '4',
-    '๕': '5', '๖': '6', '๗': '7', '๘': '8', '๙': '9'
-}
+```typescript
+const THAI_TO_ARABIC: Record<string, string> = {
+  '๐': '0', '๑': '1', '๒': '2', '๓': '3', '๔': '4',
+  '๕': '5', '๖': '6', '๗': '7', '๘': '8', '๙': '9'
+};
 ```
 
 ---
 
-## Validation & Error Handling
-
-### Committee Files Continuity Check
-
-เมื่อมีหลายไฟล์ `บัญชีรายชื่อกรรมการมูลนิธิ.pdf`:
-
-1. ตรวจสอบว่าลำดับที่ (order numbers) ต่อเนื่องกัน
-2. ถ้าไม่ต่อเนื่อง → บันทึก warning + ไม่ parse
-3. ถ้าต่อเนื่อง → รวม (merge) ทุกไฟล์แล้ว parse
-
-**Code:** `ref/lib/task-02-group-to-label.py:525-559`
-
-### is_success Flag
-
-`is_success = true` เมื่อ:
-- `is_checked_logo = true`
-- `is_checked_foundation = true`
-- `is_checked_members = true`
-- `is_checked_pdfs = true`
-- API call สำเร็จ
-
----
-
 **สร้างโดย:** OCR Flow Development Team
+**อัปเดตล่าสุด:** 2025-12-23

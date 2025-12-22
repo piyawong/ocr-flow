@@ -18,6 +18,8 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { Observable, map } from 'rxjs';
 import { Public } from '../auth/decorators/public.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { User } from '../auth/user.entity';
 import { FilesService } from './files.service';
 
 @Controller('files')
@@ -130,8 +132,11 @@ export class FilesController {
   // ========== STAGE 02: GROUPING ENDPOINTS (formerly grouped-files) ==========
 
   @Get('groups-metadata')
-  async getGroupsMetadata() {
-    const groups = await this.filesService.getGroupMetadata();
+  async getGroupsMetadata(@CurrentUser() user?: User) {
+    const groups = await this.filesService.getGroupMetadata(
+      user?.id,
+      user?.role,
+    );
     return { groups };
   }
 
@@ -154,8 +159,14 @@ export class FilesController {
   async markExtractDataReviewed(
     @Param('groupId', ParseIntPipe) groupId: number,
     @Body() body: { reviewer: string; notes?: string },
+    @CurrentUser() user?: User,
   ) {
-    return this.filesService.markExtractDataReviewed(groupId, body.reviewer, body.notes);
+    return this.filesService.markExtractDataReviewed(
+      groupId,
+      body.reviewer,
+      body.notes,
+      user?.id,
+    );
   }
 
   @Put('parsed-group/:groupId/update')
@@ -167,8 +178,14 @@ export class FilesController {
       districtOffice?: string | null;
       registrationNumber?: string | null;
     },
+    @CurrentUser() user?: User,
   ) {
-    await this.filesService.updateParsedGroupData(groupId, data);
+    await this.filesService.updateParsedGroupData(
+      groupId,
+      data,
+      user?.id,
+      user?.name,
+    );
     return { message: 'Parsed group data updated successfully' };
   }
 
@@ -254,11 +271,13 @@ export class FilesController {
   async approveFinalReview(
     @Param('groupId', ParseIntPipe) groupId: number,
     @Body() body: { notes?: string; reviewerName: string },
+    @CurrentUser() user?: User,
   ) {
     const group = await this.filesService.approveFinalReview(
       groupId,
       body.reviewerName,
       body.notes,
+      user?.id,
     );
     return {
       success: true,
@@ -266,6 +285,59 @@ export class FilesController {
       group,
     };
   }
+
+  // ========== GROUP LOCKING ENDPOINTS ==========
+
+  /**
+   * Lock a group for editing
+   * Prevents other users from accessing the group
+   */
+  @Post('group/:groupId/lock')
+  async lockGroup(
+    @Param('groupId', ParseIntPipe) groupId: number,
+    @CurrentUser() user: User,
+  ) {
+    const result = await this.filesService.lockGroup(groupId, user.id);
+    return {
+      success: true,
+      message: 'Group locked successfully',
+      ...result,
+    };
+  }
+
+  /**
+   * Unlock a group
+   * Called when user leaves the page or saves
+   */
+  @Delete('group/:groupId/lock')
+  async unlockGroup(
+    @Param('groupId', ParseIntPipe) groupId: number,
+    @CurrentUser() user: User,
+  ) {
+    await this.filesService.unlockGroup(groupId, user.id);
+    return {
+      success: true,
+      message: 'Group unlocked successfully',
+    };
+  }
+
+  /**
+   * Renew group lock (heartbeat)
+   * Extends the lock timeout
+   */
+  @Put('group/:groupId/lock/renew')
+  async renewGroupLock(
+    @Param('groupId', ParseIntPipe) groupId: number,
+    @CurrentUser() user: User,
+  ) {
+    await this.filesService.renewGroupLock(groupId, user.id);
+    return {
+      success: true,
+      message: 'Lock renewed successfully',
+    };
+  }
+
+  // ========== SSE EVENTS ==========
 
   @Public()
   @Sse('events')

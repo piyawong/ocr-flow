@@ -745,119 +745,53 @@ type LabelEvent = 'LOG' | 'GROUP_PROCESSED' | 'STATUS_CHANGE';
 ## 5. Parse Runner Module (Stage 03 + Stage 04)
 
 ### Purpose
-รัน **parse data process** (Extract structured data from OCR) แบบ **Infinite Worker Loop**
+รัน **parse data process** (Extract structured data from OCR) แบบ **On-Demand**
+
+**⚠️ สำคัญ:** ระบบไม่มี Infinite Worker Loop แล้ว - Parse ทำงานเมื่อ:
+1. **Auto-parse** - หลัง user review (Stage 03)
+2. **Manual re-parse** - กดปุ่ม Re-parse (Stage 04)
 
 ### Validation Requirements
 
-ก่อนที่ group จะถูก parse ต้องผ่าน validation ทั้งหมด:
+ก่อนที่ group จะถูก parse ต้องผ่าน validation:
 
 | Requirement | Description |
 |-------------|-------------|
-| ✅ `isLabeled = true` | Label เสร็จแล้ว |
-| ✅ `isParseData = false` | ยังไม่ได้ parse |
+| ✅ `isAutoLabeled = true` | Label เสร็จแล้ว |
+| ✅ `isParseData = false` | ยังไม่ได้ parse (ยกเว้น force=true) |
 | ✅ **Match 100%** | ทุกหน้าต้อง label แล้ว (ไม่มี unmatched) |
-| ✅ **User Reviewed** | ทุกหน้าต้อง `isUserReviewed = true` |
+| ✅ **User Reviewed** | Group ต้อง `isLabeledReviewed = true` |
 
 ### API Endpoints
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| POST | `/parse-runner/start` | เริ่ม parse data process (Infinite Loop) | Yes |
-| POST | `/parse-runner/stop` | หยุด parse process | Yes |
-| POST | `/parse-runner/parse/:groupId` | Parse group เดียว (Function-based) | Yes |
-| GET | `/parse-runner/status` | ตรวจสอบสถานะ task | Yes |
-| GET | `/parse-runner/logs-history` | ดึง log history | Yes |
-| POST | `/parse-runner/clear-logs` | ลบ logs | Yes |
-| SSE | `/parse-runner/logs` | รับ logs แบบ real-time | No (Public) |
+| POST | `/parse-runner/parse/:groupId` | Parse group เดียว (first-time) | Yes |
+| POST | `/parse-runner/parse/:groupId?force=true` | Re-parse group (override) | Yes |
 
-### Worker Loop Logic
+**Note:** ไม่มี `/start`, `/stop`, `/status`, `/logs` endpoints แล้ว
 
-```typescript
-async startInfiniteWorkerLoop() {
-  while (this.isRunning) {
-    // 1. Find groups ready to parse
-    const groups = await this.filesService.findGroupsReadyToParse();
+### Service Methods
 
-    if (groups.length === 0) {
-      this.log('No groups ready to parse. Waiting...');
-      await this.sleep(5000);
-      continue;
-    }
+#### parseGroup(groupId: number, force = false)
 
-    // 2. Process each group
-    for (const group of groups) {
-      await this.parseGroup(group.id);
-      this.emitEvent('GROUP_PARSED', { groupId: group.id });
-    }
+Parse ข้อมูลจาก OCR แบบ on-demand (ไม่ใช่ worker loop):
 
-    await this.sleep(1000);
-  }
-}
-```
+- **Auto-triggered**: หลัง user review (Stage 03) โดย `labeledFilesService.markGroupAsReviewed()`
+- **Manual-triggered**: กดปุ่ม Re-parse (Stage 04) โดย `POST /parse-runner/parse/:groupId?force=true`
 
-### Parse Group Logic
+**Validation:**
+- Check group exists, isAutoLabeled, 100% matched, user reviewed
+- ถ้า `isParseData = true` และ `force = false` → ปฏิเสธ (ป้องกัน parse ซ้ำ)
 
-```typescript
-async parseGroup(groupId: number) {
-  // 1. Validation
-  const group = await this.validateGroup(groupId);
+**Parsing:**
+1. Get pages with labels
+2. Parse foundation instrument (regex patterns)
+3. Parse committee members (table parsing)  
+4. Save to database (5 tables)
+5. Update `groups.isParseData = true`
 
-  // 2. Get labeled files
-  const labeledFiles = await this.labeledFilesService.findByGroup(groupId);
-
-  // 3. Parse Foundation Instrument (ตราสาร)
-  const foundationInstrument = await this.parseFoundationInstrument(labeledFiles);
-
-  // 4. Parse Committee Members (กรรมการ)
-  const committeeMembers = await this.parseCommitteeMembers(labeledFiles);
-
-  // 5. Save to database
-  await this.saveParseResults(groupId, foundationInstrument, committeeMembers);
-
-  // 6. Mark group as parsed
-  await this.filesService.update(groupId, { isParseData: true });
-
-  return { foundationInstrument, committeeMembers };
-}
-```
-
-### Parse Group Endpoint (Function-based)
-
-**POST /parse-runner/parse/:groupId**
-
-```typescript
-async parseGroupById(groupId: number) {
-  // Validation
-  const group = await this.filesService.findOne(groupId);
-
-  if (!group) {
-    throw new NotFoundException(`Group ${groupId} not found`);
-  }
-
-  if (group.isParseData) {
-    throw new BadRequestException(`Group ${groupId} has already been parsed`);
-  }
-
-  if (!group.isLabeled) {
-    throw new BadRequestException(`Group ${groupId} has not been labeled yet`);
-  }
-
-  // Check 100% match
-  const summary = await this.labeledFilesService.getGroupSummary(groupId);
-  if (summary.matchPercentage < 100) {
-    throw new BadRequestException(`Group ${groupId} must be 100% matched before parsing`);
-  }
-
-  // Check user reviewed
-  const allReviewed = await this.labeledFilesService.checkAllReviewed(groupId);
-  if (!allReviewed) {
-    throw new BadRequestException(`Group ${groupId} must be user reviewed before parsing`);
-  }
-
-  // Parse
-  const result = await this.parseGroup(groupId);
-
-  return {
+---
     success: true,
     message: `Group ${groupId} parsed successfully`,
     data: result
@@ -1173,7 +1107,6 @@ enum UserRole {
 - **SSE Endpoints** - Server-Sent Events (EventSource API ไม่รองรับ custom headers):
   - `/task-runner/logs` - OCR task logs
   - `/label-runner/logs` - Auto-label logs
-  - `/parse-runner/logs` - Parse data logs
   - `/files/events` - File processing events
 - **Preview Endpoints** - Image/PDF previews (HTML `<img>` tag ไม่รองรับ custom headers):
   - `/files/:id/preview` - Raw file preview
