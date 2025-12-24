@@ -34,6 +34,9 @@ export class Group {
   @Column({ type: 'varchar', length: 255, nullable: true })
   labeledReviewer: string | null;
 
+  @Column({ type: 'int', nullable: true })
+  labeledReviewerId: number | null; // User ID who reviewed labels (Stage 03)
+
   @Column({ type: 'text', nullable: true })
   labeledNotes: string | null;
 

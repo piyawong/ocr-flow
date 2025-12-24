@@ -1036,6 +1036,8 @@ export class FilesService {
         'files',
         'foundationInstrument',
         'foundationInstrument.charterSections',
+        'foundationInstrument.charterSections.articles',
+        'foundationInstrument.charterSections.articles.subItems',
         'committeeMembers'
       ],
     });
@@ -1047,6 +1049,28 @@ export class FilesService {
     // NOTE: labeled_files data should be fetched from labeled-files module API
     // This method returns only group-level data without labeled_files details
     const totalPages = group.files.length;
+
+    // Sort charter sections, articles, and sub-items by orderIndex
+    if (group.foundationInstrument?.charterSections) {
+      group.foundationInstrument.charterSections.sort((a, b) => a.orderIndex - b.orderIndex);
+
+      for (const section of group.foundationInstrument.charterSections) {
+        if (section.articles) {
+          section.articles.sort((a, b) => a.orderIndex - b.orderIndex);
+
+          for (const article of section.articles) {
+            if (article.subItems) {
+              article.subItems.sort((a, b) => a.orderIndex - b.orderIndex);
+            }
+          }
+        }
+      }
+    }
+
+    // Sort committee members by orderIndex
+    if (group.committeeMembers) {
+      group.committeeMembers.sort((a, b) => a.orderIndex - b.orderIndex);
+    }
 
     return {
       groupId: group.id,

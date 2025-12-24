@@ -9,18 +9,58 @@ import Image from 'next/image';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
 
-interface LabeledFile {
+// Chevron icon component
+const ChevronIcon = ({ expanded }: { expanded: boolean }) => (
+  <svg
+    className={`w-4 h-4 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+  </svg>
+);
+
+interface CharterSubItem {
   id: number;
-  groupedFileId: number;
-  orderInGroup: number;
-  originalName: string;
-  storagePath: string;
-  templateName: string | null;
-  category: string | null;
-  labelStatus: 'start' | 'continue' | 'end' | 'single' | 'unmatched';
-  matchReason: string;
-  documentId: number | null;
-  pageInDocument: number | null;
+  number: string;
+  content: string;
+  orderIndex: number;
+}
+
+interface CharterArticle {
+  id: number;
+  number: string;
+  content: string;
+  orderIndex: number;
+  subItems: CharterSubItem[];
+}
+
+interface CharterSection {
+  id: number;
+  number: string;
+  title: string;
+  orderIndex: number;
+  articles: CharterArticle[];
+}
+
+interface FoundationInstrument {
+  id: number;
+  name: string;
+  shortName: string;
+  address: string;
+  logoDescription: string;
+  isCancelled: boolean;
+  charterSections: CharterSection[];
+}
+
+interface CommitteeMember {
+  id: number;
+  name: string;
+  position: string;
+  address: string;
+  phone: string;
+  orderIndex: number;
 }
 
 interface GroupDetailResponse {
@@ -30,21 +70,17 @@ interface GroupDetailResponse {
     matchedPages: number;
     unmatchedPages: number;
     matchPercentage: number;
-    documents: Array<{
-      templateName: string;
-      category: string;
-      pageCount: number;
-    }>;
-    labeledFiles: LabeledFile[];
+    documents: any[];
+    labeledFiles: any[];
     isReviewed: boolean;
     reviewer: string | null;
     reviewedAt: string | null;
   };
   stage04: {
     hasFoundationInstrument: boolean;
-    foundationData: any | null;
+    foundationData: FoundationInstrument | null;
     committeeCount: number;
-    committeeMembers: any[];
+    committeeMembers: CommitteeMember[];
     isReviewed: boolean;
     reviewer: string | null;
     parseDataAt: string | null;
@@ -69,29 +105,38 @@ export default function FinalReviewDetailPage() {
   const { user, isLoading: authLoading } = useAuth();
   const { canAccessStage05 } = usePermission();
 
-  const [detail, setDetail] = useState<GroupDetailResponse | null>(null);
+  const [groupDetail, setGroupDetail] = useState<GroupDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'foundation' | 'committee'>('foundation');
   const [submitting, setSubmitting] = useState(false);
   const [notes, setNotes] = useState('');
-  const [activeTab, setActiveTab] = useState<'stage03' | 'stage04'>('stage03');
-  const [expandedSections, setExpandedSections] = useState<{[key: string]: boolean}>({
-    labeledFiles: true,
-    foundation: true,
-    committee: true,
-  });
+  const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     const fetchDetail = async () => {
       try {
         setLoading(true);
         const res = await fetchWithAuth(`/files/final-review-groups/${groupId}`);
+        if (!res.ok) {
+          throw new Error('Failed to fetch group detail');
+        }
         const data = await res.json();
         console.log('📊 Final Review Group Detail:', data);
-        console.log('  - Stage 03 files:', data?.stage03?.labeledFiles?.length || 0);
-        console.log('  - Stage 04 foundation:', data?.stage04?.hasFoundationInstrument);
-        console.log('  - Stage 04 committee:', data?.stage04?.committeeCount || 0);
-        setDetail(data);
+        console.log('📊 Foundation Data:', data?.stage04?.foundationData);
+        console.log('📊 Charter Sections:', data?.stage04?.foundationData?.charterSections);
+        if (data?.stage04?.foundationData?.charterSections) {
+          data.stage04.foundationData.charterSections.forEach((s: any, idx: number) => {
+            console.log(`📊 Section ${idx + 1}:`, s.title, '- Articles:', s.articles?.length || 0, s.articles);
+          });
+        }
+        setGroupDetail(data);
         setNotes(data?.stage05?.finalReviewNotes || '');
+
+        // Auto-expand all sections
+        if (data?.stage04?.foundationData?.charterSections) {
+          const sectionIds = data.stage04.foundationData.charterSections.map((s: CharterSection) => s.id);
+          setExpandedSections(new Set(sectionIds));
+        }
       } catch (err) {
         console.error('Error fetching group detail:', err);
       } finally {
@@ -125,7 +170,7 @@ export default function FinalReviewDetailPage() {
       // Refresh data
       const updatedRes = await fetchWithAuth(`/files/final-review-groups/${groupId}`);
       const updatedData = await updatedRes.json();
-      setDetail(updatedData);
+      setGroupDetail(updatedData);
 
       alert('Group approved successfully!');
     } catch (err: any) {
@@ -134,6 +179,36 @@ export default function FinalReviewDetailPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleReject = async () => {
+    if (!user) return;
+    if (!confirm('Are you sure you want to reject this group? This will mark it as not ready for upload.')) {
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      alert('Group rejected. Please review and fix issues before re-submitting.');
+      router.push('/stages/05-review');
+    } catch (err: any) {
+      console.error('Error rejecting group:', err);
+      alert(err.message || 'Failed to reject group');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const toggleSection = (sectionId: number) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(sectionId)) {
+        next.delete(sectionId);
+      } else {
+        next.add(sectionId);
+      }
+      return next;
+    });
   };
 
   const formatDate = (dateStr: string | null) => {
@@ -145,30 +220,6 @@ export default function FinalReviewDetailPage() {
       hour: '2-digit',
       minute: '2-digit',
     });
-  };
-
-  const getLabelStatusText = (status: LabeledFile['labelStatus']) => {
-    switch (status) {
-      case 'start': return 'START';
-      case 'end': return 'END';
-      case 'single': return 'SINGLE';
-      case 'continue': return 'CONT';
-      case 'unmatched': return 'UNMATCH';
-    }
-  };
-
-  const getLabelStatusColor = (status: LabeledFile['labelStatus']) => {
-    switch (status) {
-      case 'start': return 'bg-blue-500/15 text-blue-400 border-blue-500/30';
-      case 'continue': return 'bg-purple-500/15 text-purple-400 border-purple-500/30';
-      case 'end': return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
-      case 'single': return 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30';
-      case 'unmatched': return 'bg-rose-500/15 text-rose-400 border-rose-500/30';
-    }
-  };
-
-  const toggleSection = (section: string) => {
-    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
   // Permission check
@@ -203,7 +254,7 @@ export default function FinalReviewDetailPage() {
     );
   }
 
-  if (!detail) {
+  if (!groupDetail) {
     return (
       <div className="min-h-screen bg-bg-primary flex items-center justify-center">
         <div className="text-center">
@@ -221,7 +272,9 @@ export default function FinalReviewDetailPage() {
     );
   }
 
-  const isApproved = detail?.stage05?.isFinalApproved || false;
+  const isApproved = groupDetail?.stage05?.isFinalApproved || false;
+  const foundationInstrument = groupDetail?.stage04?.foundationData;
+  const committeeMembers = groupDetail?.stage04?.committeeMembers || [];
 
   return (
     <div className="min-h-screen bg-bg-primary pb-20">
@@ -229,25 +282,58 @@ export default function FinalReviewDetailPage() {
       <div className="relative">
         <div className="absolute inset-0 h-80 bg-gradient-to-br from-accent/10 via-purple-500/5 to-transparent pointer-events-none" />
 
-        <div className="relative p-6 md:p-8 max-w-[1600px] mx-auto">
+        <div className="relative p-6 md:p-8 max-w-[1400px] mx-auto">
           {/* Header */}
-          <div className="flex items-center gap-4 mb-8">
+          <div className="flex flex-col md:flex-row md:items-center gap-4 mb-6">
             <button
               onClick={() => router.push('/stages/05-review')}
-              className="p-2 rounded-xl bg-card-bg border border-border-color/50 text-text-primary hover:bg-accent/10 hover:border-accent transition-all"
+              className="self-start p-2 rounded-xl bg-card-bg border border-border-color/50 text-text-primary hover:bg-accent/10 hover:border-accent transition-all"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
             </button>
-            <div className="flex-1">
-              <h1 className="text-2xl md:text-3xl font-bold text-text-primary">
-                Group #{groupId} - Final Review
-              </h1>
-              <p className="text-text-secondary text-sm">
-                Review all labeled pages and extracted data before approval
-              </p>
+
+            <div className="flex-1 flex items-start gap-6">
+              {/* Logo */}
+              {groupDetail.metadata?.logoUrl && (
+                <div className="flex-shrink-0 w-20 h-20 rounded-2xl border-2 border-border-color/40 bg-gradient-to-br from-bg-secondary/50 to-bg-secondary/20 flex items-center justify-center overflow-hidden shadow-sm">
+                  <img
+                    src={`${API_URL}/files/logo/${groupDetail.metadata.logoUrl}`}
+                    alt="Logo"
+                    className="w-full h-full object-contain p-1"
+                  />
+                </div>
+              )}
+
+              <div className="flex-1">
+                <h1 className="text-2xl md:text-3xl font-bold text-text-primary mb-1">
+                  {foundationInstrument?.name || `Group #${groupId}`}
+                </h1>
+                <p className="text-text-secondary text-sm">
+                  Final Review & Approval
+                </p>
+                {groupDetail.metadata?.districtOffice && (
+                  <p className="text-text-secondary text-sm mt-1">
+                    องค์กร: {groupDetail.metadata.districtOffice}
+                  </p>
+                )}
+              </div>
             </div>
+
+            {/* Documents Button */}
+            <button
+              onClick={() => window.open(`/documents/${groupId}`, '_blank', 'width=1400,height=900')}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-purple-700 text-white font-medium text-sm hover:shadow-lg transition-all duration-300 flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              📄 Documents
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </button>
           </div>
 
           {/* Status Badge */}
@@ -262,7 +348,7 @@ export default function FinalReviewDetailPage() {
                 <div>
                   <div className="text-emerald-400 font-semibold text-lg">✓ Approved</div>
                   <div className="text-emerald-400/70 text-sm">
-                    By {detail?.stage05?.finalReviewer || 'Unknown'} on {formatDate(detail?.stage05?.finalApprovedAt)}
+                    By {groupDetail?.stage05?.finalReviewer || 'Unknown'} on {formatDate(groupDetail?.stage05?.finalApprovedAt)}
                   </div>
                 </div>
               </div>
@@ -270,293 +356,176 @@ export default function FinalReviewDetailPage() {
           )}
 
           {/* Tabs */}
-          <div className="flex gap-2 mb-6 bg-card-bg/50 p-1.5 rounded-xl border border-border-color/50">
+          <div className="flex flex-wrap gap-2 mb-6">
             <button
-              onClick={() => setActiveTab('stage03')}
-              className={`flex-1 px-6 py-3 rounded-lg font-medium transition-all ${
-                activeTab === 'stage03'
-                  ? 'bg-gradient-to-r from-blue-500/20 to-blue-500/10 text-blue-400 border border-blue-500/30'
-                  : 'text-text-secondary hover:text-text-primary'
+              onClick={() => setActiveTab('foundation')}
+              className={`px-5 py-3 rounded-xl font-medium transition-all duration-200 flex items-center gap-2 ${
+                activeTab === 'foundation'
+                  ? 'bg-gradient-to-r from-blue-600 to-purple-700 text-white shadow-lg'
+                  : 'bg-card-bg/80 backdrop-blur-sm text-text-secondary hover:text-text-primary border border-border-color/50 hover:border-accent/50'
               }`}
             >
-              <div className="flex items-center justify-center gap-2">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <span>Stage 03: Labeled Pages</span>
-                <span className="text-xs opacity-70">({detail?.stage03?.totalPages || 0})</span>
-              </div>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+              Foundation Instrument
             </button>
             <button
-              onClick={() => setActiveTab('stage04')}
-              className={`flex-1 px-6 py-3 rounded-lg font-medium transition-all ${
-                activeTab === 'stage04'
-                  ? 'bg-gradient-to-r from-purple-500/20 to-purple-500/10 text-purple-400 border border-purple-500/30'
-                  : 'text-text-secondary hover:text-text-primary'
+              onClick={() => setActiveTab('committee')}
+              className={`px-5 py-3 rounded-xl font-medium transition-all duration-200 flex items-center gap-2 ${
+                activeTab === 'committee'
+                  ? 'bg-gradient-to-r from-blue-600 to-purple-700 text-white shadow-lg'
+                  : 'bg-card-bg/80 backdrop-blur-sm text-text-secondary hover:text-text-primary border border-border-color/50 hover:border-accent/50'
               }`}
             >
-              <div className="flex items-center justify-center gap-2">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <span>Stage 04: Extracted Data</span>
-              </div>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Committee Members ({committeeMembers.length})
             </button>
           </div>
 
-          {/* Stage 03 Content */}
-          {activeTab === 'stage03' && (
-            <div className="space-y-6">
-              {!detail?.stage03 || !detail.stage03.labeledFiles || detail.stage03.labeledFiles.length === 0 ? (
-                // Empty State
-                <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-12 text-center border border-border-color/50">
-                  <div className="text-6xl mb-4">📄</div>
-                  <p className="text-text-primary font-semibold mb-2">No labeled pages available</p>
-                  <p className="text-text-secondary text-sm mb-4">
-                    This group doesn't have any labeled pages from Stage 03
-                  </p>
-                  <div className="flex items-center justify-center gap-3 mt-6">
-                    <button
-                      onClick={() => router.push('/stages/03-pdf-label')}
-                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white font-medium text-sm hover:shadow-lg transition-all"
-                    >
-                      Go to Stage 03
-                    </button>
-                  </div>
-                </div>
-              ) : (
-            <div className="space-y-6">
-              {/* Summary Stats */}
-              <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
-                <h3 className="text-lg font-bold text-text-primary mb-4">Summary</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center p-4 rounded-xl bg-accent/10">
-                    <div className="text-3xl font-bold text-accent">{detail.stage03?.totalPages || 0}</div>
-                    <div className="text-xs text-accent/70 mt-1">Total Pages</div>
-                  </div>
-                  <div className="text-center p-4 rounded-xl bg-emerald-500/10">
-                    <div className="text-3xl font-bold text-emerald-400">{detail.stage03?.matchedPages || 0}</div>
-                    <div className="text-xs text-emerald-400/70 mt-1">Matched</div>
-                  </div>
-                  <div className="text-center p-4 rounded-xl bg-rose-500/10">
-                    <div className="text-3xl font-bold text-rose-400">{detail.stage03?.unmatchedPages || 0}</div>
-                    <div className="text-xs text-rose-400/70 mt-1">Unmatched</div>
-                  </div>
-                  <div className="text-center p-4 rounded-xl bg-purple-500/10">
-                    <div className="text-3xl font-bold text-purple-400">{detail.stage03?.matchPercentage?.toFixed(1) || 0}%</div>
-                    <div className="text-xs text-purple-400/70 mt-1">Match Rate</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Labeled Files Grid */}
-              <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
-                <div
-                  className="flex items-center justify-between mb-4 cursor-pointer"
-                  onClick={() => toggleSection('labeledFiles')}
-                >
-                  <h3 className="text-lg font-bold text-text-primary">Labeled Pages ({detail.stage03?.labeledFiles?.length || 0})</h3>
-                  <svg
-                    className={`w-5 h-5 text-text-secondary transition-transform ${expandedSections.labeledFiles ? 'rotate-180' : ''}`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-
-                {expandedSections.labeledFiles && detail.stage03?.labeledFiles && (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                    {detail.stage03.labeledFiles.map((file) => (
-                      <div
-                        key={file.id}
-                        className="bg-bg-secondary/50 rounded-xl overflow-hidden border border-border-color/30 hover:border-accent/50 transition-all group"
-                      >
-                        {/* Image Preview */}
-                        <div className="relative aspect-[3/4] bg-bg-primary/50">
-                          <Image
-                            src={`${API_URL}/files/${file.groupedFileId}/preview`}
-                            alt={file.originalName}
-                            fill
-                            className="object-contain"
-                            unoptimized
-                          />
-                          {/* Page Number Badge */}
-                          <div className="absolute top-2 left-2 px-2 py-1 rounded-lg bg-black/60 text-white text-xs font-bold">
-                            #{file.orderInGroup}
-                          </div>
-                          {/* Status Badge */}
-                          <div className={`absolute top-2 right-2 px-2 py-1 rounded-lg text-xs font-bold border ${getLabelStatusColor(file.labelStatus)}`}>
-                            {getLabelStatusText(file.labelStatus)}
-                          </div>
-                        </div>
-
-                        {/* File Info */}
-                        <div className="p-3">
-                          <div className="text-xs font-semibold text-text-primary mb-1 truncate">
-                            {file.templateName || 'Unmatched'}
-                          </div>
-                          {file.category && (
-                            <div className="text-xs text-text-secondary mb-2">
-                              {file.category}
-                            </div>
-                          )}
-                          {file.documentId !== null && (
-                            <div className="text-xs text-accent">
-                              Doc #{file.documentId} | Page {file.pageInDocument}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-              )}
-            </div>
-          )}
-
-          {/* Stage 04 Content */}
-          {activeTab === 'stage04' && (
-            <div className="space-y-6">
-              {!detail?.stage04 || (!detail.stage04.hasFoundationInstrument && (!detail.stage04.committeeMembers || detail.stage04.committeeMembers.length === 0)) ? (
-                // Empty State
-                <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-12 text-center border border-border-color/50">
-                  <div className="text-6xl mb-4">📊</div>
-                  <p className="text-text-primary font-semibold mb-2">No extracted data available</p>
-                  <p className="text-text-secondary text-sm mb-4">
-                    This group doesn't have foundation instrument or committee data
-                  </p>
-                  <div className="flex items-center justify-center gap-3 mt-6">
-                    <button
-                      onClick={() => router.push('/stages/04-extract')}
-                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 text-white font-medium text-sm hover:shadow-lg transition-all"
-                    >
-                      Go to Stage 04
-                    </button>
-                  </div>
-                </div>
-              ) : (
-            <div className="space-y-6">
-              {/* Foundation Instrument */}
-              {detail.stage04?.hasFoundationInstrument && detail.stage04?.foundationData && (
-                <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
-                  <div
-                    className="flex items-center justify-between mb-4 cursor-pointer"
-                    onClick={() => toggleSection('foundation')}
-                  >
-                    <h3 className="text-lg font-bold text-text-primary flex items-center gap-2">
-                      <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+          {/* Content */}
+          <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl border border-border-color/50 shadow-xl">
+            {/* Foundation Tab */}
+            {activeTab === 'foundation' && (
+              <div className="p-6 md:p-8">
+                {!foundationInstrument ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-4">
+                    <div className="w-20 h-20 rounded-full bg-accent/10 flex items-center justify-center">
+                      <svg className="w-10 h-10 text-accent/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                      Foundation Instrument (ตราสารจัดตั้งมูลนิธิ)
-                    </h3>
-                    <svg
-                      className={`w-5 h-5 text-text-secondary transition-transform ${expandedSections.foundation ? 'rotate-180' : ''}`}
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
+                    </div>
+                    <h3 className="text-lg font-semibold text-text-primary">No Foundation Instrument Data</h3>
+                    <p className="text-text-secondary text-sm">This group doesn't have foundation instrument data.</p>
                   </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Basic Info */}
+                    <div className="bg-gradient-to-br from-blue-500/5 via-transparent to-purple-500/5 rounded-2xl border border-border-color/30 p-6">
+                      <h2 className="text-lg font-bold text-text-primary mb-4 flex items-center gap-2">
+                        <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Basic Information
+                      </h2>
 
-                  {expandedSections.foundation && (
-                    <div className="space-y-4">
-                      {/* Basic Info */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="p-4 rounded-xl bg-bg-secondary/50">
                           <div className="text-xs text-text-secondary mb-1">Foundation Name</div>
-                          <div className="text-sm font-medium text-text-primary">
-                            {detail.stage04.foundationData.name || '-'}
-                          </div>
+                          <div className="text-sm font-medium text-text-primary">{foundationInstrument.name || '-'}</div>
                         </div>
                         <div className="p-4 rounded-xl bg-bg-secondary/50">
                           <div className="text-xs text-text-secondary mb-1">Short Name</div>
-                          <div className="text-sm font-medium text-text-primary">
-                            {detail.stage04.foundationData.shortName || '-'}
-                          </div>
+                          <div className="text-sm font-medium text-text-primary">{foundationInstrument.shortName || '-'}</div>
                         </div>
                       </div>
 
-                      {/* Address */}
-                      {detail.stage04.foundationData.address && (
-                        <div className="p-4 rounded-xl bg-bg-secondary/50">
+                      {foundationInstrument.address && (
+                        <div className="p-4 rounded-xl bg-bg-secondary/50 mt-4">
                           <div className="text-xs text-text-secondary mb-1">Address</div>
-                          <div className="text-sm font-medium text-text-primary whitespace-pre-wrap">
-                            {detail.stage04.foundationData.address}
-                          </div>
+                          <div className="text-sm font-medium text-text-primary whitespace-pre-wrap">{foundationInstrument.address}</div>
                         </div>
                       )}
 
-                      {/* Logo Description */}
-                      {detail.stage04.foundationData.logoDescription && (
-                        <div className="p-4 rounded-xl bg-bg-secondary/50">
+                      {foundationInstrument.logoDescription && (
+                        <div className="p-4 rounded-xl bg-bg-secondary/50 mt-4">
                           <div className="text-xs text-text-secondary mb-1">Logo Description</div>
-                          <div className="text-sm font-medium text-text-primary whitespace-pre-wrap">
-                            {detail.stage04.foundationData.logoDescription}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Charter Sections */}
-                      {detail.stage04.foundationData.charterSections && detail.stage04.foundationData.charterSections.length > 0 && (
-                        <div className="p-4 rounded-xl bg-bg-secondary/50">
-                          <div className="text-xs text-text-secondary mb-3">Charter Sections</div>
-                          <div className="space-y-2">
-                            {detail.stage04.foundationData.charterSections.map((section: any, idx: number) => (
-                              <div key={idx} className="pl-4 border-l-2 border-accent/30">
-                                <div className="text-sm font-semibold text-text-primary">
-                                  {section.sectionName}
-                                </div>
-                                {section.charterArticles && section.charterArticles.length > 0 && (
-                                  <div className="mt-2 space-y-1">
-                                    {section.charterArticles.map((article: any, aIdx: number) => (
-                                      <div key={aIdx} className="text-xs text-text-secondary pl-3">
-                                        • {article.articleNumber}: {article.content}
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
+                          <div className="text-sm font-medium text-text-primary whitespace-pre-wrap">{foundationInstrument.logoDescription}</div>
                         </div>
                       )}
                     </div>
-                  )}
-                </div>
-              )}
 
-              {/* Committee Members */}
-              {detail.stage04?.committeeMembers && detail.stage04.committeeMembers.length > 0 && (
-                <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
-                  <div
-                    className="flex items-center justify-between mb-4 cursor-pointer"
-                    onClick={() => toggleSection('committee')}
-                  >
-                    <h3 className="text-lg font-bold text-text-primary flex items-center gap-2">
-                      <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    {/* Charter Sections */}
+                    {foundationInstrument.charterSections && foundationInstrument.charterSections.length > 0 && (
+                      <div className="bg-gradient-to-br from-purple-500/5 via-transparent to-accent/5 rounded-2xl border border-border-color/30 p-6">
+                        <h2 className="text-lg font-bold text-text-primary mb-4 flex items-center gap-2">
+                          <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          Charter Sections ({foundationInstrument.charterSections.length})
+                        </h2>
+
+                        <div className="space-y-3">
+                          {foundationInstrument.charterSections.map((section) => (
+                            <div key={section.id} className="border border-border-color/30 rounded-xl overflow-hidden bg-bg-secondary/30">
+                              {/* Section Header */}
+                              <button
+                                onClick={() => toggleSection(section.id)}
+                                className="w-full px-4 py-3 flex items-center gap-3 hover:bg-accent/5 transition-colors"
+                              >
+                                <ChevronIcon expanded={expandedSections.has(section.id)} />
+                                <div className="flex-1 text-left">
+                                  <div className="font-semibold text-text-primary">
+                                    หมวด {section.number}: {section.title}
+                                  </div>
+                                  <div className="text-xs text-text-secondary mt-0.5">
+                                    {section.articles?.length || 0} ข้อ
+                                  </div>
+                                </div>
+                              </button>
+
+                              {/* Section Content */}
+                              {expandedSections.has(section.id) && section.articles && section.articles.length > 0 && (
+                                <div className="px-4 pb-4 space-y-2">
+                                  {section.articles.map((article) => (
+                                    <div key={article.id} className="pl-6 border-l-2 border-accent/30">
+                                      <div className="text-sm font-medium text-text-primary mb-1">
+                                        ข้อ {article.number}
+                                      </div>
+                                      <div className="text-sm text-text-secondary whitespace-pre-wrap mb-2">
+                                        {article.content}
+                                      </div>
+
+                                      {article.subItems && article.subItems.length > 0 && (
+                                        <div className="ml-4 space-y-1">
+                                          {article.subItems.map((subItem) => (
+                                            <div key={subItem.id} className="text-sm text-text-secondary">
+                                              ({subItem.number}) {subItem.content}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Committee Tab */}
+            {activeTab === 'committee' && (
+              <div className="p-6 md:p-8">
+                {committeeMembers.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-4">
+                    <div className="w-20 h-20 rounded-full bg-accent/10 flex items-center justify-center">
+                      <svg className="w-10 h-10 text-accent/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
                       </svg>
-                      Committee Members ({detail.stage04?.committeeCount || 0})
-                    </h3>
-                    <svg
-                      className={`w-5 h-5 text-text-secondary transition-transform ${expandedSections.committee ? 'rotate-180' : ''}`}
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
+                    </div>
+                    <h3 className="text-lg font-semibold text-text-primary">No Committee Members</h3>
+                    <p className="text-text-secondary text-sm">This group doesn't have committee members data.</p>
                   </div>
+                ) : (
+                  <div className="bg-gradient-to-br from-emerald-500/5 via-transparent to-accent/5 rounded-2xl border border-border-color/30 p-6">
+                    <h2 className="text-lg font-bold text-text-primary mb-4 flex items-center gap-2">
+                      <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      Committee Members ({committeeMembers.length})
+                    </h2>
 
-                  {expandedSections.committee && (
                     <div className="space-y-3">
-                      {detail.stage04.committeeMembers.map((member: any, idx: number) => (
-                        <div key={idx} className="p-4 rounded-xl bg-bg-secondary/50 border border-border-color/30">
+                      {committeeMembers.map((member, idx) => (
+                        <div key={member.id} className="p-4 rounded-xl bg-bg-secondary/50 border border-border-color/30">
                           <div className="flex items-start gap-4">
                             <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
                               <span className="text-accent font-bold">{idx + 1}</span>
@@ -589,60 +558,15 @@ export default function FinalReviewDetailPage() {
                         </div>
                       ))}
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-              )}
-            </div>
-          )}
-
-          {/* Registration Metadata */}
-          {detail?.metadata && (detail.metadata.districtOffice || detail.metadata.registrationNumber || detail.metadata.logoUrl) && (
-            <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm mt-6">
-              <div className="flex items-center gap-3 mb-5">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500/20 to-cyan-500/10 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </div>
-                <h2 className="text-lg font-bold text-text-primary">Registration Metadata</h2>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {detail.metadata.districtOffice && (
-                  <div className="p-4 rounded-xl bg-bg-secondary/50">
-                    <div className="text-xs text-text-secondary mb-1">District Office</div>
-                    <div className="text-sm font-medium text-text-primary">{detail.metadata.districtOffice}</div>
-                  </div>
-                )}
-                {detail.metadata.registrationNumber && (
-                  <div className="p-4 rounded-xl bg-bg-secondary/50">
-                    <div className="text-xs text-text-secondary mb-1">Registration Number</div>
-                    <div className="text-sm font-medium text-text-primary">{detail.metadata.registrationNumber}</div>
-                  </div>
-                )}
-                {detail.metadata.logoUrl && (
-                  <div className="p-4 rounded-xl bg-bg-secondary/50">
-                    <div className="text-xs text-text-secondary mb-2">Foundation Logo</div>
-                    <div className="relative w-full h-24 bg-bg-primary rounded-lg overflow-hidden">
-                      <Image
-                        src={`${API_URL}/files/logo/${detail.metadata.logoUrl}`}
-                        alt="Foundation Logo"
-                        fill
-                        className="object-contain p-2"
-                        unoptimized
-                      />
-                    </div>
                   </div>
                 )}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* Final Review Decision */}
+          {/* Approve/Reject Section */}
           {!isApproved && (
-            <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm mt-6">
+            <div className="mt-6 bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
               <div className="flex items-center gap-3 mb-5">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-500/10 flex items-center justify-center">
                   <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -675,7 +599,7 @@ export default function FinalReviewDetailPage() {
                     {submitting ? (
                       <>
                         <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
-                        Approving...
+                        Processing...
                       </>
                     ) : (
                       <>
@@ -683,6 +607,26 @@ export default function FinalReviewDetailPage() {
                           <path d="M5 13l4 4L19 7" />
                         </svg>
                         Approve & Ready for Upload
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={handleReject}
+                    disabled={submitting}
+                    className="flex-1 px-6 py-3 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 text-white font-semibold hover:shadow-lg hover:shadow-rose-500/25 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {submitting ? (
+                      <>
+                        <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                          <path d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        Reject
                       </>
                     )}
                   </button>
@@ -696,8 +640,8 @@ export default function FinalReviewDetailPage() {
           )}
 
           {/* Show Notes if Approved */}
-          {isApproved && detail?.stage05?.finalReviewNotes && (
-            <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm mt-6">
+          {isApproved && groupDetail?.stage05?.finalReviewNotes && (
+            <div className="mt-6 bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
               <div className="flex items-center gap-3 mb-3">
                 <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
@@ -705,7 +649,7 @@ export default function FinalReviewDetailPage() {
                 <h3 className="font-semibold text-text-primary">Review Notes:</h3>
               </div>
               <p className="text-text-primary whitespace-pre-wrap bg-bg-secondary/30 p-4 rounded-xl">
-                {detail?.stage05?.finalReviewNotes}
+                {groupDetail?.stage05?.finalReviewNotes}
               </p>
             </div>
           )}

@@ -249,83 +249,436 @@ export class ParseRunnerService {
     return data;
   }
 
-  // Parse committee members data from OCR text
-  private parseCommitteeMembersData(ocrTexts: Map<number, string>, pages: number[]): CommitteeMembersData {
-    // Combine all text from committee documents
-    let combinedText = '';
+  // Parse committee members from ม.น.2 (เปลี่ยนแปลง) document
+  private parseCommitteeMembersFromMN2(ocrTexts: Map<number, string>, pages: number[]): CommitteeMembersData {
+    console.log(`[ParseData] Parsing committee members from ม.น.2 (เปลี่ยนแปลง)...`);
+
+    // Parse each page separately to extract dates
+    interface MN2PageData {
+      pageNum: number;
+      date: Date | null;
+      members: CommitteeMember[];
+    }
+
+    const pagesData: MN2PageData[] = [];
+
     for (const pageNum of pages) {
-      if (ocrTexts.has(pageNum)) {
-        combinedText += this.extractOcrText(ocrTexts.get(pageNum)!) + '\n';
+      if (!ocrTexts.has(pageNum)) continue;
+
+      const pageText = this.extractOcrText(ocrTexts.get(pageNum)!);
+      const members: CommitteeMember[] = [];
+
+      // Extract date from page (same logic as parseCommitteeMembersData)
+      let pageDate: Date | null = null;
+      const datePatterns = [
+        /(?:วันที่|ณ\s*วันที่)\s*(\d+)\s*(?:เดือน)?\s*(\S+)\s*(?:พ\.ศ\.?|พศ)\s*(\d+)/i,
+        /(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)/,  // dd/mm/yyyy or dd/mm/yy
+      ];
+
+      for (const pattern of datePatterns) {
+        const dateMatch = pageText.match(pattern);
+        if (dateMatch) {
+          try {
+            if (pattern === datePatterns[0]) {
+              // Thai month format
+              const day = parseInt(dateMatch[1], 10);
+              const monthText = dateMatch[2];
+              let year = parseInt(dateMatch[3], 10);
+
+              // Convert Buddhist year to Christian year
+              if (year > 2400) year -= 543;
+
+              const thaiMonths: Record<string, number> = {
+                'มกราคม': 0, 'ม.ค.': 0, 'กุมภาพันธ์': 1, 'ก.พ.': 1,
+                'มีนาคม': 2, 'มี.ค.': 2, 'เมษายน': 3, 'เม.ย.': 3,
+                'พฤษภาคม': 4, 'พ.ค.': 4, 'มิถุนายน': 5, 'มิ.ย.': 5,
+                'กรกฎาคม': 6, 'ก.ค.': 6, 'สิงหาคม': 7, 'ส.ค.': 7,
+                'กันยายน': 8, 'ก.ย.': 8, 'ตุลาคม': 9, 'ต.ค.': 9,
+                'พฤศจิกายน': 10, 'พ.ย.': 10, 'ธันวาคม': 11, 'ธ.ค.': 11,
+              };
+
+              const month = thaiMonths[monthText] ?? 0;
+              pageDate = new Date(year, month, day);
+            } else {
+              // Numeric format dd/mm/yyyy
+              const day = parseInt(dateMatch[1], 10);
+              const month = parseInt(dateMatch[2], 10) - 1;
+              let year = parseInt(dateMatch[3], 10);
+
+              // Handle 2-digit year
+              if (year < 100) year += 2500;
+              // Convert Buddhist year to Christian year
+              if (year > 2400) year -= 543;
+
+              pageDate = new Date(year, month, day);
+            }
+            break;
+          } catch (e) {
+            // Failed to parse date, continue
+          }
+        }
+      }
+
+      // Extract table (format: cells[0]=เลข + ชื่อ, cells[1]=ตำแหน่ง)
+      const tablePattern = /<table>(.*?)<\/table>/gs;
+      let tableMatch;
+
+      while ((tableMatch = tablePattern.exec(pageText)) !== null) {
+        const tableContent = tableMatch[1];
+
+        // Extract rows
+        const rowPattern = /<tr>(.*?)<\/tr>/gs;
+        const rows: string[] = [];
+        let rowMatch;
+        while ((rowMatch = rowPattern.exec(tableContent)) !== null) {
+          rows.push(rowMatch[1]);
+        }
+
+        for (const row of rows) {
+          // Extract cells
+          const cellPattern = /<td>(.*?)<\/td>/gs;
+          const cells: string[] = [];
+          let cellMatch;
+          while ((cellMatch = cellPattern.exec(row)) !== null) {
+            cells.push(cellMatch[1]);
+          }
+
+          // Check if this row contains committee member data
+          // Format: cells[0] = "1. นายธงชัย รักปทุม", cells[1] = "ประธานกรรมการ"
+          if (cells.length >= 2) {
+            const nameCell = cells[0]?.trim();
+            const positionCell = cells[1]?.trim();
+
+            // Check if nameCell starts with number (e.g., "1. นายธงชัย")
+            const nameMatch = nameCell?.match(/^\d+\.\s*(.+)$/);
+            if (nameMatch && positionCell) {
+              const name = nameMatch[1].trim();
+              const position = positionCell;
+
+              // Skip if position looks like metadata (not a real position)
+              if (
+                !position.includes('ที่ทำการ') &&
+                !position.includes('ที่อยู่') &&
+                !position.includes('วัตถุประสงค์')
+              ) {
+                members.push({
+                  name,
+                  address: null,
+                  phone: null,
+                  position,
+                });
+              }
+            }
+          }
+        }
+      }
+
+      if (members.length > 0) {
+        pagesData.push({
+          pageNum,
+          date: pageDate,
+          members,
+        });
       }
     }
 
-    // Initialize result structure
+    console.log(`[ParseData] Found ${pagesData.length} ม.น.2 (เปลี่ยนแปลง) page(s) with committee data`);
+
+    // Select the page with latest date (or max order if no dates)
+    let selectedPage: MN2PageData | null = null;
+
+    if (pagesData.length === 1) {
+      selectedPage = pagesData[0];
+    } else if (pagesData.length > 1) {
+      // Prefer page with latest date
+      const pagesWithDate = pagesData.filter(p => p.date !== null);
+
+      if (pagesWithDate.length > 0) {
+        selectedPage = pagesWithDate.reduce((best, current) => {
+          if (!best.date || (current.date && current.date > best.date)) {
+            return current;
+          }
+          return best;
+        });
+        console.log(`[ParseData] Selected ม.น.2 page by latest date: ${selectedPage.date?.toISOString().split('T')[0]}`);
+      } else {
+        // No dates found, use max order
+        selectedPage = pagesData.reduce((best, current) => {
+          return current.pageNum > best.pageNum ? current : best;
+        });
+        console.log(`[ParseData] Selected ม.น.2 page by max order: ${selectedPage.pageNum}`);
+      }
+    }
+
+    // Return members from selected page
     const data: CommitteeMembersData = {
       committeeMembers: [],
     };
 
-    // Extract ALL tables from <table> tags
-    const tablePattern = /<table>(.*?)<\/table>/gs;
-    let tableMatch;
+    if (selectedPage) {
+      data.committeeMembers = selectedPage.members;
+      console.log(`[ParseData] Total members from ม.น.2: ${data.committeeMembers.length}`);
+    }
 
-    while ((tableMatch = tablePattern.exec(combinedText)) !== null) {
-      const tableContent = tableMatch[1];
+    return data;
+  }
 
-      // Extract rows (skip header row)
-      const rowPattern = /<tr>(.*?)<\/tr>/gs;
-      const rows: string[] = [];
-      let rowMatch;
-      while ((rowMatch = rowPattern.exec(tableContent)) !== null) {
-        rows.push(rowMatch[1]);
+  // Parse committee members data from OCR text
+  private parseCommitteeMembersData(ocrTexts: Map<number, string>, pages: number[]): CommitteeMembersData {
+    // Parse each page separately to extract running numbers and dates
+    interface PageData {
+      pageNum: number;
+      runningNumbers: number[];
+      date: Date | null;
+      members: CommitteeMember[];
+    }
+
+    const pagesData: PageData[] = [];
+
+    for (const pageNum of pages) {
+      if (!ocrTexts.has(pageNum)) continue;
+
+      const pageText = this.extractOcrText(ocrTexts.get(pageNum)!);
+      const runningNumbers: number[] = [];
+      const members: CommitteeMember[] = [];
+
+      // Extract date from page (Thai format: "วันที่ X เดือน Y พ.ศ. Z" or "ณ วันที่...")
+      let pageDate: Date | null = null;
+      const datePatterns = [
+        /(?:วันที่|ณ\s*วันที่)\s*(\d+)\s*(?:เดือน)?\s*(\S+)\s*(?:พ\.ศ\.?|พศ)\s*(\d+)/i,
+        /(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)/,  // dd/mm/yyyy or dd/mm/yy
+      ];
+
+      for (const pattern of datePatterns) {
+        const dateMatch = pageText.match(pattern);
+        if (dateMatch) {
+          try {
+            if (pattern === datePatterns[0]) {
+              // Thai month format
+              const day = parseInt(dateMatch[1], 10);
+              const monthText = dateMatch[2];
+              let year = parseInt(dateMatch[3], 10);
+
+              // Convert Buddhist year to Christian year
+              if (year > 2400) year -= 543;
+
+              const thaiMonths: Record<string, number> = {
+                'มกราคม': 0, 'ม.ค.': 0, 'กุมภาพันธ์': 1, 'ก.พ.': 1,
+                'มีนาคม': 2, 'มี.ค.': 2, 'เมษายน': 3, 'เม.ย.': 3,
+                'พฤษภาคม': 4, 'พ.ค.': 4, 'มิถุนายน': 5, 'มิ.ย.': 5,
+                'กรกฎาคม': 6, 'ก.ค.': 6, 'สิงหาคม': 7, 'ส.ค.': 7,
+                'กันยายน': 8, 'ก.ย.': 8, 'ตุลาคม': 9, 'ต.ค.': 9,
+                'พฤศจิกายน': 10, 'พ.ย.': 10, 'ธันวาคม': 11, 'ธ.ค.': 11,
+              };
+
+              const month = thaiMonths[monthText] ?? 0;
+              pageDate = new Date(year, month, day);
+            } else {
+              // Numeric format dd/mm/yyyy
+              const day = parseInt(dateMatch[1], 10);
+              const month = parseInt(dateMatch[2], 10) - 1;
+              let year = parseInt(dateMatch[3], 10);
+
+              // Handle 2-digit year
+              if (year < 100) year += 2500;
+              // Convert Buddhist year to Christian year
+              if (year > 2400) year -= 543;
+
+              pageDate = new Date(year, month, day);
+            }
+            break;
+          } catch (e) {
+            // Failed to parse date, continue
+          }
+        }
       }
 
-      for (let i = 0; i < rows.length; i++) {
-        if (i === 0) continue; // Skip header row
+      // Extract tables from this page
+      const tablePattern = /<table>(.*?)<\/table>/gs;
+      let tableMatch;
 
-        const row = rows[i];
+      while ((tableMatch = tablePattern.exec(pageText)) !== null) {
+        const tableContent = tableMatch[1];
 
-        // Extract cells
-        const cellPattern = /<td>(.*?)<\/td>/gs;
-        const cells: string[] = [];
-        let cellMatch;
-        while ((cellMatch = cellPattern.exec(row)) !== null) {
-          cells.push(cellMatch[1]);
+        // Extract rows (skip header row)
+        const rowPattern = /<tr>(.*?)<\/tr>/gs;
+        const rows: string[] = [];
+        let rowMatch;
+        while ((rowMatch = rowPattern.exec(tableContent)) !== null) {
+          rows.push(rowMatch[1]);
         }
 
-        if (cells.length >= 4) {
-          const name = cells[1]?.trim() || null;
-          const address = cells[3]?.trim() || null;
+        for (let i = 0; i < rows.length; i++) {
+          if (i === 0) continue; // Skip header row
 
-          // Try to get phone
-          let phone: string | null = null;
-          if (cells.length >= 8) {
-            const phoneText = cells[4]?.trim();
-            if (phoneText && phoneText !== '') {
-              phone = phoneText;
+          const row = rows[i];
+
+          // Extract cells
+          const cellPattern = /<td>(.*?)<\/td>/gs;
+          const cells: string[] = [];
+          let cellMatch;
+          while ((cellMatch = cellPattern.exec(row)) !== null) {
+            cells.push(cellMatch[1]);
+          }
+
+          if (cells.length >= 4) {
+            // Extract running number from cells[0]
+            const runningNumText = cells[0]?.trim();
+            if (runningNumText) {
+              const runningNum = parseInt(runningNumText, 10);
+              if (!isNaN(runningNum)) {
+                runningNumbers.push(runningNum);
+              }
             }
-          } else if (cells.length >= 7) {
-            const phoneText = cells[4]?.trim();
-            if (phoneText && (phoneText.includes('-') || /^\d+$/.test(phoneText))) {
-              phone = phoneText;
+
+            const name = cells[1]?.trim() || null;
+            const address = cells[3]?.trim() || null;
+
+            // Try to get phone
+            let phone: string | null = null;
+            if (cells.length >= 8) {
+              const phoneText = cells[4]?.trim();
+              if (phoneText && phoneText !== '') {
+                phone = phoneText;
+              }
+            } else if (cells.length >= 7) {
+              const phoneText = cells[4]?.trim();
+              if (phoneText && (phoneText.includes('-') || /^\d+$/.test(phoneText))) {
+                phone = phoneText;
+              }
+            }
+
+            // Try to get position
+            let position = '';
+            if (cells.length >= 8) {
+              position = cells[6]?.trim() || '';
+            } else if (cells.length >= 6) {
+              position = cells[5]?.trim() || '';
+            }
+
+            members.push({
+              name,
+              address,
+              phone,
+              position,
+            });
+          }
+        }
+      }
+
+      if (members.length > 0) {
+        pagesData.push({
+          pageNum,
+          runningNumbers,
+          date: pageDate,
+          members,
+        });
+      }
+    }
+
+    // Group consecutive pages by running numbers
+    interface PageGroup {
+      pages: PageData[];
+      minRunningNum: number;
+      maxRunningNum: number;
+      latestDate: Date | null;
+      maxOrder: number;
+    }
+
+    const groups: PageGroup[] = [];
+    let currentGroup: PageGroup | null = null;
+
+    for (const pageData of pagesData) {
+      const minRun = Math.min(...pageData.runningNumbers);
+      const maxRun = Math.max(...pageData.runningNumbers);
+
+      if (!currentGroup) {
+        // Start new group
+        currentGroup = {
+          pages: [pageData],
+          minRunningNum: minRun,
+          maxRunningNum: maxRun,
+          latestDate: pageData.date,
+          maxOrder: pageData.pageNum,
+        };
+      } else {
+        // Check if running numbers are consecutive
+        const isConsecutive =
+          minRun === currentGroup.maxRunningNum + 1 ||
+          minRun === currentGroup.maxRunningNum ||
+          minRun <= currentGroup.maxRunningNum + 2;  // Allow small gap
+
+        if (isConsecutive) {
+          // Add to current group
+          currentGroup.pages.push(pageData);
+          currentGroup.maxRunningNum = Math.max(currentGroup.maxRunningNum, maxRun);
+
+          // Update latest date
+          if (pageData.date) {
+            if (!currentGroup.latestDate || pageData.date > currentGroup.latestDate) {
+              currentGroup.latestDate = pageData.date;
             }
           }
 
-          // Try to get position
-          let position = '';
-          if (cells.length >= 8) {
-            position = cells[6]?.trim() || '';
-          } else if (cells.length >= 6) {
-            position = cells[5]?.trim() || '';
-          }
-
-          data.committeeMembers.push({
-            name,
-            address,
-            phone,
-            position,
-          });
+          // Update max order
+          currentGroup.maxOrder = Math.max(currentGroup.maxOrder, pageData.pageNum);
+        } else {
+          // Start new group
+          groups.push(currentGroup);
+          currentGroup = {
+            pages: [pageData],
+            minRunningNum: minRun,
+            maxRunningNum: maxRun,
+            latestDate: pageData.date,
+            maxOrder: pageData.pageNum,
+          };
         }
       }
+    }
+
+    // Add last group
+    if (currentGroup) {
+      groups.push(currentGroup);
+    }
+
+    console.log(`[ParseData] Found ${groups.length} committee member groups`);
+
+    // Select the best group
+    let selectedGroup: PageGroup | null = null;
+
+    if (groups.length === 1) {
+      selectedGroup = groups[0];
+    } else if (groups.length > 1) {
+      // Prefer group with latest date
+      const groupsWithDate = groups.filter(g => g.latestDate !== null);
+
+      if (groupsWithDate.length > 0) {
+        selectedGroup = groupsWithDate.reduce((best, current) => {
+          if (!best.latestDate || (current.latestDate && current.latestDate > best.latestDate)) {
+            return current;
+          }
+          return best;
+        });
+        console.log(`[ParseData] Selected group by latest date: ${selectedGroup.latestDate?.toISOString().split('T')[0]}`);
+      } else {
+        // No dates found, use max order
+        selectedGroup = groups.reduce((best, current) => {
+          return current.maxOrder > best.maxOrder ? current : best;
+        });
+        console.log(`[ParseData] Selected group by max order: ${selectedGroup.maxOrder}`);
+      }
+    }
+
+    // Collect members from selected group
+    const data: CommitteeMembersData = {
+      committeeMembers: [],
+    };
+
+    if (selectedGroup) {
+      for (const pageData of selectedGroup.pages) {
+        data.committeeMembers.push(...pageData.members);
+      }
+      console.log(`[ParseData] Total members: ${data.committeeMembers.length} from ${selectedGroup.pages.length} pages`);
     }
 
     return data;
@@ -563,10 +916,22 @@ export class ParseRunnerService {
         console.log(`[ParseData] Sections: ${foundationInstrument.charterSections.length}`);
       }
 
-      // Parse committee members
-      if (committeeDocs.length > 0) {
+      // Check for ม.น.2 (เปลี่ยนแปลง) first - this takes priority over regular committee list
+      const mn2ChangeDocs = files.filter(f =>
+        f.templateName?.includes('หนังสือให้อำนาจและรายละเอียดการเปลี่ยนแปลง') &&
+        f.templateName?.includes('(ม.น.2)') &&
+        f.templateName?.includes('(เปลี่ยนแปลง)')
+      );
+
+      if (mn2ChangeDocs.length > 0) {
+        const pages = mn2ChangeDocs.map(f => f.orderInGroup).sort((a, b) => a - b);
+        console.log(`[ParseData] Found ม.น.2 (เปลี่ยนแปลง) document - using this for committee members (${pages.length} pages)...`);
+        committeeMembers = this.parseCommitteeMembersFromMN2(ocrTexts, pages);
+        console.log(`[ParseData] Members found from ม.น.2: ${committeeMembers.committeeMembers.length}`);
+      } else if (committeeDocs.length > 0) {
+        // Fallback to regular committee list if no ม.น.2 (เปลี่ยนแปลง)
         const pages = committeeDocs.map(f => f.orderInGroup).sort((a, b) => a - b);
-        console.log(`[ParseData] Parsing committee members (${pages.length} pages)...`);
+        console.log(`[ParseData] Parsing committee members from regular list (${pages.length} pages)...`);
         committeeMembers = this.parseCommitteeMembersData(ocrTexts, pages);
         console.log(`[ParseData] Members found: ${committeeMembers.committeeMembers.length}`);
       }

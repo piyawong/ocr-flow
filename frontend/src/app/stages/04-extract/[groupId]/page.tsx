@@ -80,6 +80,13 @@ const DragHandleIcon = ({ className = '' }: { className?: string }) => (
   </svg>
 );
 
+// Warning icon for validation errors
+const WarningIcon = ({ className = '' }: { className?: string }) => (
+  <svg className={`w-4 h-4 ${className}`} fill="currentColor" viewBox="0 0 20 20">
+    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+  </svg>
+);
+
 // Auto-resize textarea component
 const AutoResizeTextarea = ({
   value,
@@ -96,13 +103,31 @@ const AutoResizeTextarea = ({
 }) => {
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
-  React.useEffect(() => {
+  const adjustHeight = React.useCallback(() => {
     const textarea = textareaRef.current;
     if (textarea) {
+      // Reset height to auto to get the correct scrollHeight
       textarea.style.height = 'auto';
-      textarea.style.height = `${Math.max(textarea.scrollHeight, minRows * 24)}px`;
+
+      // Calculate line height from computed style
+      const computedStyle = window.getComputedStyle(textarea);
+      const lineHeight = parseFloat(computedStyle.lineHeight);
+      const minHeight = lineHeight * minRows;
+
+      // Set height to either scrollHeight or minHeight, whichever is larger
+      const newHeight = Math.max(textarea.scrollHeight, minHeight);
+      textarea.style.height = `${newHeight}px`;
     }
-  }, [value, minRows]);
+  }, [minRows]);
+
+  React.useEffect(() => {
+    adjustHeight();
+  }, [value, adjustHeight]);
+
+  // Also adjust on mount
+  React.useEffect(() => {
+    adjustHeight();
+  }, [adjustHeight]);
 
   return (
     <textarea
@@ -118,7 +143,13 @@ const AutoResizeTextarea = ({
 };
 
 // Sortable wrapper component for draggable items
-const SortableItem = ({ id, children }: { id: string | number; children: React.ReactNode }) => {
+const SortableItem = ({
+  id,
+  children
+}: {
+  id: string | number;
+  children: React.ReactNode | ((props: { listeners: any; isDragging: boolean }) => React.ReactNode);
+}) => {
   const {
     attributes,
     listeners,
@@ -200,6 +231,165 @@ interface ParsedGroupDetail {
   foundationInstrument: FoundationInstrument | null;
   committeeMembers: CommitteeMember[];
 }
+
+// ==================== Validation Functions ====================
+
+/**
+ * Parse number from string (handles "1", "2", "3.1", "3.2", etc.)
+ * Returns null if parsing fails
+ */
+const parseNumber = (numStr: string): number | null => {
+  // Remove whitespace
+  const cleaned = numStr.trim();
+  if (!cleaned) return null;
+
+  // Try to parse as float
+  const parsed = parseFloat(cleaned);
+  return isNaN(parsed) ? null : parsed;
+};
+
+/**
+ * Validate section number order
+ * Sections should increment by 1: 1 → 2 → 3 → 4
+ */
+const validateSectionNumber = (
+  currentNumber: string,
+  previousNumber: string | null
+): { isValid: boolean; message: string } => {
+  if (!previousNumber) {
+    // First section - check if it starts from 1
+    const current = parseNumber(currentNumber);
+    if (current === null) {
+      return { isValid: false, message: 'หมวดต้องเป็นตัวเลข' };
+    }
+    if (current !== 1) {
+      return { isValid: false, message: 'หมวดแรกต้องเริ่มจาก 1' };
+    }
+    return { isValid: true, message: '' };
+  }
+
+  const current = parseNumber(currentNumber);
+  const previous = parseNumber(previousNumber);
+
+  if (current === null || previous === null) {
+    return { isValid: false, message: 'หมวดต้องเป็นตัวเลข' };
+  }
+
+  // Check if it increments by 1
+  if (current !== previous + 1) {
+    return { isValid: false, message: `หมวดควรเป็น ${Math.floor(previous + 1)} (ต่อจาก ${Math.floor(previous)})` };
+  }
+
+  return { isValid: true, message: '' };
+};
+
+/**
+ * Validate article number order across all sections
+ * Articles should increment by 1 continuously: 1 → 2 → 3 → 4 → ... (ไม่รีเซ็ตตอนเปลี่ยนหมวด)
+ */
+const validateArticleNumber = (
+  currentNumber: string,
+  previousNumber: string | null,
+  isFirstArticleEver: boolean = false
+): { isValid: boolean; message: string } => {
+  const current = parseNumber(currentNumber);
+
+  if (current === null) {
+    return { isValid: false, message: 'ข้อต้องเป็นตัวเลข' };
+  }
+
+  if (!previousNumber) {
+    // ข้อแรกของทั้งตราสาร - ต้องเริ่มจาก 1
+    if (isFirstArticleEver) {
+      if (current !== 1) {
+        return { isValid: false, message: 'ข้อแรกต้องเริ่มจาก 1' };
+      }
+      return { isValid: true, message: '' };
+    }
+    // ถ้าไม่ใช่ข้อแรก แต่ไม่มี previousNumber แสดงว่ามีปัญหา
+    return { isValid: false, message: 'ไม่พบข้อก่อนหน้า' };
+  }
+
+  const previous = parseNumber(previousNumber);
+
+  if (previous === null) {
+    return { isValid: false, message: 'ข้อก่อนหน้าไม่ถูกต้อง' };
+  }
+
+  // Check if it increments by 1
+  if (current !== previous + 1) {
+    return { isValid: false, message: `ข้อควรเป็น ${Math.floor(previous + 1)} (ต่อจาก ${Math.floor(previous)})` };
+  }
+
+  return { isValid: true, message: '' };
+};
+
+/**
+ * Validate sub-item number order within an article
+ * Sub-items should:
+ * 1. Start with X.1 (where X is the article number)
+ * 2. Increment by 0.1: X.1 → X.2 → X.3
+ */
+const validateSubItemNumber = (
+  currentNumber: string,
+  previousNumber: string | null,
+  articleNumber: string
+): { isValid: boolean; message: string } => {
+  const current = parseNumber(currentNumber);
+  const articleNum = parseNumber(articleNumber);
+
+  if (current === null || articleNum === null) {
+    return { isValid: false, message: 'อนุข้อต้องเป็นตัวเลข' };
+  }
+
+  // Extract main and sub parts (e.g., 1.1 → main=1, sub=1)
+  const currentParts = currentNumber.split('.');
+  if (currentParts.length !== 2) {
+    return { isValid: false, message: `อนุข้อต้องอยู่ในรูป ${Math.floor(articleNum)}.X` };
+  }
+
+  const currentMain = parseNumber(currentParts[0]);
+  const currentSub = parseNumber(currentParts[1]);
+
+  if (currentMain === null || currentSub === null) {
+    return { isValid: false, message: 'อนุข้อไม่ถูกต้อง' };
+  }
+
+  // Check if main number matches article number
+  if (currentMain !== articleNum) {
+    return { isValid: false, message: `อนุข้อต้องเริ่มด้วย ${Math.floor(articleNum)}.X` };
+  }
+
+  if (!previousNumber) {
+    // First sub-item - should be X.1
+    if (currentSub !== 1) {
+      return { isValid: false, message: `อนุข้อแรกต้องเริ่มจาก ${Math.floor(articleNum)}.1` };
+    }
+    return { isValid: true, message: '' };
+  }
+
+  // Validate against previous sub-item
+  const previousParts = previousNumber.split('.');
+  if (previousParts.length !== 2) {
+    return { isValid: false, message: 'อนุข้อก่อนหน้าไม่ถูกต้อง' };
+  }
+
+  const prevMain = parseNumber(previousParts[0]);
+  const prevSub = parseNumber(previousParts[1]);
+
+  if (prevMain === null || prevSub === null) {
+    return { isValid: false, message: 'อนุข้อก่อนหน้าไม่ถูกต้อง' };
+  }
+
+  // Check if sub number increments by 1
+  if (currentSub !== prevSub + 1) {
+    return { isValid: false, message: `อนุข้อควรเป็น ${Math.floor(articleNum)}.${Math.floor(prevSub + 1)} (ต่อจาก ${Math.floor(prevMain)}.${Math.floor(prevSub)})` };
+  }
+
+  return { isValid: true, message: '' };
+};
+
+// ==================== End Validation Functions ====================
 
 export default function GroupDetailPage() {
   const router = useRouter();
@@ -1131,6 +1321,29 @@ export default function GroupDetailPage() {
     );
   };
 
+  // Handle drag end for committee members reordering
+  const handleMemberDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = editedMembers.findIndex(m => m.id.toString() === active.id);
+    const newIndex = editedMembers.findIndex(m => m.id.toString() === over.id);
+
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    // Reorder using arrayMove from dnd-kit
+    const reorderedMembers = arrayMove(editedMembers, oldIndex, newIndex);
+
+    // Update orderIndex for all members
+    const membersWithNewOrder = reorderedMembers.map((member, index) => ({
+      ...member,
+      orderIndex: index,
+    }));
+
+    setEditedMembers(membersWithNewOrder);
+  };
+
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-';
     return new Date(dateStr).toLocaleString('th-TH', {
@@ -1208,7 +1421,7 @@ export default function GroupDetailPage() {
 
   // Always use edited data (always in edit mode)
   const displayFoundation = editedFoundation;
-  const displayMembers = editedMembers;
+  const displayMembers = [...editedMembers].sort((a, b) => a.orderIndex - b.orderIndex);
 
   return (
     <div className="min-h-screen bg-bg-primary">
@@ -1640,6 +1853,13 @@ export default function GroupDetailPage() {
                                 const isSectionExpanded = expandedSections.has(section.id);
                                 const articleCount = section.articles?.length || 0;
 
+                                // Validate section number order
+                                const prevSection = sectionIdx > 0 ? displayFoundation.charterSections[sectionIdx - 1] : null;
+                                const sectionValidation = validateSectionNumber(
+                                  section.number,
+                                  prevSection?.number || null
+                                );
+
                                 return (
                                   <SortableItem key={section.id} id={section.id}>
                                     {({ listeners, isDragging }: { listeners: any; isDragging: boolean }) => (
@@ -1668,14 +1888,26 @@ export default function GroupDetailPage() {
                                     <ChevronIcon expanded={isSectionExpanded} />
                                   </button>
 
-                                  {/* Section Number - Editable */}
-                                  <input
-                                    type="text"
-                                    value={section.number}
-                                    onChange={(e) => updateSection(section.id, 'number', e.target.value)}
-                                    className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-700 text-white font-bold text-sm text-center border-2 border-transparent hover:border-blue-400 focus:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-300/30 transition-all duration-200 shadow-md"
-                                    placeholder={(sectionIdx + 1).toString()}
-                                  />
+                                  {/* Section Number - Editable with Validation */}
+                                  <div className="relative flex-shrink-0">
+                                    <input
+                                      type="text"
+                                      value={section.number}
+                                      onChange={(e) => updateSection(section.id, 'number', e.target.value)}
+                                      className={`w-10 h-10 rounded-xl font-bold text-sm text-center border-2 focus:outline-none focus:ring-2 transition-all duration-200 shadow-md ${
+                                        !sectionValidation.isValid
+                                          ? 'bg-red-500 text-white border-red-600 hover:border-red-400 focus:border-red-400 focus:ring-red-300/30'
+                                          : 'bg-gradient-to-br from-blue-600 to-purple-700 text-white border-transparent hover:border-blue-400 focus:border-blue-300 focus:ring-blue-300/30'
+                                      }`}
+                                      placeholder={(sectionIdx + 1).toString()}
+                                      title={!sectionValidation.isValid ? sectionValidation.message : undefined}
+                                    />
+                                    {!sectionValidation.isValid && (
+                                      <div className="absolute -right-6 top-1/2 -translate-y-1/2" title={sectionValidation.message}>
+                                        <WarningIcon className="text-red-500" />
+                                      </div>
+                                    )}
+                                  </div>
 
                                   {/* Section Title - Inline Editable */}
                                   <input
@@ -1742,6 +1974,33 @@ export default function GroupDetailPage() {
                                             const isArticleExpanded = expandedArticles.has(articleKey);
                                             const hasSubItems = article.subItems && article.subItems.length > 0;
 
+                                            // Validate article number order (ข้ามหมวด - นับต่อเนื่อง)
+                                            let prevArticleNumber: string | null = null;
+                                            let isFirstArticleEver = false;
+
+                                            if (articleIdx > 0) {
+                                              // ไม่ใช่ article แรกของหมวดนี้ - ใช้ article ก่อนหน้าในหมวดเดียวกัน
+                                              prevArticleNumber = section.articles[articleIdx - 1].number;
+                                            } else {
+                                              // article แรกของหมวดนี้ - หาข้อสุดท้ายของหมวดก่อนหน้า
+                                              if (sectionIdx > 0) {
+                                                const prevSection = displayFoundation.charterSections[sectionIdx - 1];
+                                                if (prevSection.articles && prevSection.articles.length > 0) {
+                                                  const lastArticle = prevSection.articles[prevSection.articles.length - 1];
+                                                  prevArticleNumber = lastArticle.number;
+                                                }
+                                              } else {
+                                                // หมวดแรก + article แรก = ข้อแรกของทั้งตราสาร
+                                                isFirstArticleEver = true;
+                                              }
+                                            }
+
+                                            const articleValidation = validateArticleNumber(
+                                              article.number,
+                                              prevArticleNumber,
+                                              isFirstArticleEver
+                                            );
+
                                             return (
                                               <SortableItem key={article.id} id={article.id}>
                                                 {({ listeners: articleListeners, isDragging: isArticleDragging }: { listeners: any; isDragging: boolean }) => (
@@ -1772,14 +2031,26 @@ export default function GroupDetailPage() {
                                                 {hasSubItems && <ChevronIcon expanded={isArticleExpanded} className="w-3.5 h-3.5" />}
                                               </button>
 
-                                              {/* Article Number Badge */}
-                                              <input
-                                                type="text"
-                                                value={article.number}
-                                                onChange={(e) => updateArticle(section.id, article.id, 'number', e.target.value)}
-                                                className="flex-shrink-0 w-12 h-8 rounded-lg bg-accent/20 text-accent font-bold text-xs text-center border border-accent/30 hover:border-accent/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 transition-all duration-200"
-                                                placeholder="ข้อ"
-                                              />
+                                              {/* Article Number Badge with Validation */}
+                                              <div className="relative flex-shrink-0">
+                                                <input
+                                                  type="text"
+                                                  value={article.number}
+                                                  onChange={(e) => updateArticle(section.id, article.id, 'number', e.target.value)}
+                                                  className={`w-12 h-8 rounded-lg font-bold text-xs text-center border focus:outline-none focus:ring-2 transition-all duration-200 ${
+                                                    !articleValidation.isValid
+                                                      ? 'bg-red-500/30 text-red-600 dark:text-red-400 border-red-500 hover:border-red-400 focus:border-red-400 focus:ring-red-400/20'
+                                                      : 'bg-accent/20 text-accent border-accent/30 hover:border-accent/50 focus:border-accent focus:ring-accent/20'
+                                                  }`}
+                                                  placeholder="ข้อ"
+                                                  title={!articleValidation.isValid ? articleValidation.message : undefined}
+                                                />
+                                                {!articleValidation.isValid && (
+                                                  <div className="absolute -right-5 top-1/2 -translate-y-1/2" title={articleValidation.message}>
+                                                    <WarningIcon className="text-red-500 w-3.5 h-3.5" />
+                                                  </div>
+                                                )}
+                                              </div>
 
                                               {/* Article Content - Inline Editable with Auto-resize */}
                                               <AutoResizeTextarea
@@ -1843,12 +2114,21 @@ export default function GroupDetailPage() {
                                                       items={article.subItems.map(si => si.id.toString())}
                                                       strategy={verticalListSortingStrategy}
                                                     >
-                                                      {article.subItems.map((subItem, subIdx) => (
-                                                        <SortableItem key={subItem.id} id={subItem.id}>
-                                                          {({ listeners: subItemListeners, isDragging: isSubItemDragging }: { listeners: any; isDragging: boolean }) => (
-                                                            <div
-                                                              className={`flex items-start gap-3 pl-10 pr-4 py-2.5 hover:bg-accent/5 transition-all duration-200 group ${subIdx > 0 ? 'border-t border-border-color/10' : ''}`}
-                                                            >
+                                                      {article.subItems.map((subItem, subIdx) => {
+                                                        // Validate sub-item number order
+                                                        const prevSubItem = subIdx > 0 ? (article.subItems && article.subItems[subIdx - 1]) : null;
+                                                        const subItemValidation = validateSubItemNumber(
+                                                          subItem.number,
+                                                          prevSubItem?.number || null,
+                                                          article.number
+                                                        );
+
+                                                        return (
+                                                          <SortableItem key={subItem.id} id={subItem.id}>
+                                                            {({ listeners: subItemListeners, isDragging: isSubItemDragging }: { listeners: any; isDragging: boolean }) => (
+                                                              <div
+                                                                className={`flex items-start gap-3 pl-10 pr-4 py-2.5 hover:bg-accent/5 transition-all duration-200 group ${subIdx > 0 ? 'border-t border-border-color/10' : ''}`}
+                                                              >
                                                               {/* Drag Handle */}
                                                               <button
                                                                 {...subItemListeners}
@@ -1858,14 +2138,26 @@ export default function GroupDetailPage() {
                                                                 <DragHandleIcon className="w-3 h-3" />
                                                               </button>
 
-                                                              {/* SubItem Number */}
-                                                              <input
-                                                                type="text"
-                                                                value={subItem.number}
-                                                                onChange={(e) => updateSubItem(section.id, article.id, subItem.id, 'number', e.target.value)}
-                                                        className="flex-shrink-0 w-14 h-7 rounded-lg bg-purple-500/20 text-purple-300 font-medium text-xs text-center border border-purple-500/30 hover:border-purple-500/50 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all duration-200"
-                                                        placeholder="อนุข้อ"
-                                                      />
+                                                              {/* SubItem Number with Validation */}
+                                                              <div className="relative flex-shrink-0">
+                                                                <input
+                                                                  type="text"
+                                                                  value={subItem.number}
+                                                                  onChange={(e) => updateSubItem(section.id, article.id, subItem.id, 'number', e.target.value)}
+                                                                  className={`w-14 h-7 rounded-lg font-medium text-xs text-center border focus:outline-none focus:ring-2 transition-all duration-200 ${
+                                                                    !subItemValidation.isValid
+                                                                      ? 'bg-red-500/30 text-red-600 dark:text-red-400 border-red-500 hover:border-red-400 focus:border-red-400 focus:ring-red-400/20'
+                                                                      : 'bg-purple-500/20 text-purple-300 border-purple-500/30 hover:border-purple-500/50 focus:border-purple-500 focus:ring-purple-500/20'
+                                                                  }`}
+                                                                  placeholder="อนุข้อ"
+                                                                  title={!subItemValidation.isValid ? subItemValidation.message : undefined}
+                                                                />
+                                                                {!subItemValidation.isValid && (
+                                                                  <div className="absolute -right-5 top-1/2 -translate-y-1/2" title={subItemValidation.message}>
+                                                                    <WarningIcon className="text-red-500 w-3 h-3" />
+                                                                  </div>
+                                                                )}
+                                                              </div>
 
                                                       {/* SubItem Content - Auto-resize */}
                                                       <AutoResizeTextarea
@@ -1903,7 +2195,8 @@ export default function GroupDetailPage() {
                                                             </div>
                                                           )}
                                                         </SortableItem>
-                                                      ))}
+                                                        );
+                                                      })}
                                                     </SortableContext>
                                                   </DndContext>
                                                 </div>
@@ -1991,19 +2284,40 @@ export default function GroupDetailPage() {
                       </button>
                     </div>
                   ) : (
-                    <div className="space-y-4">
-                      {displayMembers?.map((member, idx) => (
-                        <div
-                          key={member.id}
-                          className="group bg-bg-primary/30 hover:bg-bg-primary/50 rounded-xl border border-border-color/30 hover:border-accent/30 p-5 transition-all duration-200"
-                        >
-                          <div className="flex items-start gap-4">
-                            {/* Member Number Badge */}
-                            <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-purple-700 text-white flex items-center justify-center font-bold text-lg shadow-lg">
-                              {idx + 1}
-                            </div>
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleMemberDragEnd}
+                    >
+                      <SortableContext
+                        items={displayMembers.map(m => m.id.toString())}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <div className="space-y-4">
+                          {displayMembers?.map((member, idx) => (
+                            <SortableItem key={member.id} id={member.id}>
+                              {({ listeners, isDragging }: { listeners: any; isDragging: boolean }) => (
+                                <div
+                                  className={`group bg-bg-primary/30 hover:bg-bg-primary/50 rounded-xl border border-border-color/30 hover:border-accent/30 p-5 transition-all duration-200 ${
+                                    isDragging ? 'opacity-50' : ''
+                                  }`}
+                                >
+                                  <div className="flex items-start gap-4">
+                                    {/* Drag Handle */}
+                                    <button
+                                      {...listeners}
+                                      className="flex-shrink-0 w-8 h-12 flex items-center justify-center text-text-secondary hover:text-accent cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
+                                      title="ลากเพื่อเรียงลำดับ"
+                                    >
+                                      <DragHandleIcon className="w-4 h-4" />
+                                    </button>
 
-                            {/* Member Info Grid */}
+                                    {/* Member Number Badge */}
+                                    <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-purple-700 text-white flex items-center justify-center font-bold text-lg shadow-lg">
+                                      {idx + 1}
+                                    </div>
+
+                                    {/* Member Info Grid */}
                             <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div className="space-y-2">
                                 <label className="flex items-center gap-2 text-xs font-medium text-text-secondary">
@@ -2068,9 +2382,13 @@ export default function GroupDetailPage() {
                               <TrashIcon className="w-5 h-5" />
                             </button>
                           </div>
+                                </div>
+                              )}
+                            </SortableItem>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      </SortableContext>
+                    </DndContext>
                   )}
                 </div>
               </div>

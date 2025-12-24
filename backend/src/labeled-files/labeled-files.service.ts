@@ -153,7 +153,7 @@ export class LabeledFilesService {
     // Calculate from groups + files + documents
     const groups = await this.groupRepository.find({
       where: { isAutoLabeled: true }, // Only labeled groups
-      select: ['id', 'isParseData', 'isLabeledReviewed', 'labeledReviewer', 'lockedBy', 'lockedAt'],
+      select: ['id', 'isParseData', 'isLabeledReviewed', 'labeledReviewer', 'labeledReviewerId', 'lockedBy', 'lockedAt'],
     });
 
     console.log(`📦 Total labeled groups found: ${groups.length}`);
@@ -173,10 +173,27 @@ export class LabeledFilesService {
     }[] = [];
 
     for (const group of groups) {
-      // Filter: By default, only show unreviewed groups
-      if (!options?.includeReviewed && group.isLabeledReviewed) {
-        console.log(`⏭️  Group ${group.id}: Skipped (already reviewed, includeReviewed=false)`);
-        continue;
+      // Filter logic:
+      // 1. Admin with includeReviewed=true → show all groups
+      // 2. Admin with includeReviewed=false → show only unreviewed groups
+      // 3. Non-admin → show unreviewed groups + groups reviewed by this user
+      if (group.isLabeledReviewed) {
+        // Group is already reviewed
+        if (options?.userRole === 'admin') {
+          // Admin: respect includeReviewed flag
+          if (!options?.includeReviewed) {
+            console.log(`⏭️  Group ${group.id}: Skipped (admin, already reviewed, includeReviewed=false)`);
+            continue;
+          }
+        } else {
+          // Non-admin: show only if reviewed by this user
+          if (group.labeledReviewerId !== options?.userId) {
+            console.log(`⏭️  Group ${group.id}: Skipped (reviewed by another user, reviewerId=${group.labeledReviewerId}, currentUserId=${options?.userId})`);
+            continue;
+          } else {
+            console.log(`✅ Group ${group.id}: Including (reviewed by current user)`);
+          }
+        }
       }
 
       // ✅ Don't hide locked groups - show them with lock status
@@ -527,6 +544,7 @@ export class LabeledFilesService {
         { id: groupId },
         {
           labeledReviewer: reviewer,
+          labeledReviewerId: userId || null,
           isLabeledReviewed: true,
           labeledNotes: notes || null,
         },

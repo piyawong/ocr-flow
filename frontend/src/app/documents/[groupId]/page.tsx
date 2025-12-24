@@ -48,25 +48,29 @@ export default function GroupDocumentsPage() {
         const sortedFiles = (data || []).sort((a: any, b: any) => a.orderInGroup - b.orderInGroup);
         setLabeledFiles(sortedFiles);
 
-        // Group files by templateName (combine all pages of same template)
+        // Group files by documentId (each document is separate, even if same template)
         const groupsMap: Record<string, any> = {};
         sortedFiles.forEach((file: any) => {
-          const templateKey = file.templateName || 'Unmatched';
-          if (!groupsMap[templateKey]) {
-            groupsMap[templateKey] = {
+          // Use documentId as key to separate documents properly
+          // Even if two single-page documents have the same template, they are different documents
+          const documentKey = file.documentId !== null ? `doc-${file.documentId}` : `unmatched-${file.id}`;
+          if (!groupsMap[documentKey]) {
+            groupsMap[documentKey] = {
+              documentId: file.documentId,
               templateName: file.templateName,
               category: file.category,
               files: [],
             };
           }
-          groupsMap[templateKey].files.push(file);
+          groupsMap[documentKey].files.push(file);
         });
 
-        // Sort groups: labeled templates first (by first appearance), then unmatched
+        // Sort groups: by document order (documentId or first appearance)
         const groups = Object.values(groupsMap).sort((a: any, b: any) => {
-          const aFirstIndex = sortedFiles.findIndex((f: any) => f.templateName === a.templateName);
-          const bFirstIndex = sortedFiles.findIndex((f: any) => f.templateName === b.templateName);
-          return aFirstIndex - bFirstIndex;
+          // Sort by first file's orderInGroup to maintain document order
+          const aFirstFile = a.files[0];
+          const bFirstFile = b.files[0];
+          return aFirstFile.orderInGroup - bFirstFile.orderInGroup;
         });
         setDocumentGroups(groups);
 
@@ -114,7 +118,7 @@ export default function GroupDocumentsPage() {
     fetchLabeledFiles();
   }, [groupId]);
 
-  // Keyboard navigation - navigate within current template, jump to next template at boundaries
+  // Keyboard navigation - navigate within current document, jump to next document at boundaries
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -125,8 +129,8 @@ export default function GroupDocumentsPage() {
       const currentFile = labeledFiles[selectedFileIndex];
       if (!currentFile) return;
 
-      const currentTemplate = currentFile.templateName;
-      const currentGroup = documentGroups.find((g: any) => g.templateName === currentTemplate);
+      const currentDocumentId = currentFile.documentId;
+      const currentGroup = documentGroups.find((g: any) => g.documentId === currentDocumentId);
 
       if (!currentGroup) return;
 
@@ -135,13 +139,13 @@ export default function GroupDocumentsPage() {
 
       if (e.key === 'ArrowLeft') {
         if (currentIndexInGroup > 0) {
-          // Previous page in same template
+          // Previous page in same document
           const prevFile = filesInGroup[currentIndexInGroup - 1];
           const prevFileIndex = labeledFiles.findIndex((f: any) => f.id === prevFile.id);
           setSelectedFileIndex(prevFileIndex);
         } else {
-          // Jump to previous template (last page)
-          const currentGroupIndex = documentGroups.findIndex((g: any) => g.templateName === currentTemplate);
+          // Jump to previous document (last page)
+          const currentGroupIndex = documentGroups.findIndex((g: any) => g.documentId === currentDocumentId);
           if (currentGroupIndex > 0) {
             const prevGroup = documentGroups[currentGroupIndex - 1];
             const lastFileOfPrevGroup = prevGroup.files[prevGroup.files.length - 1];
@@ -151,13 +155,13 @@ export default function GroupDocumentsPage() {
         }
       } else if (e.key === 'ArrowRight') {
         if (currentIndexInGroup < filesInGroup.length - 1) {
-          // Next page in same template
+          // Next page in same document
           const nextFile = filesInGroup[currentIndexInGroup + 1];
           const nextFileIndex = labeledFiles.findIndex((f: any) => f.id === nextFile.id);
           setSelectedFileIndex(nextFileIndex);
         } else {
-          // Jump to next template (first page)
-          const currentGroupIndex = documentGroups.findIndex((g: any) => g.templateName === currentTemplate);
+          // Jump to next document (first page)
+          const currentGroupIndex = documentGroups.findIndex((g: any) => g.documentId === currentDocumentId);
           if (currentGroupIndex < documentGroups.length - 1) {
             const nextGroup = documentGroups[currentGroupIndex + 1];
             const firstFileOfNextGroup = nextGroup.files[0];
@@ -166,8 +170,8 @@ export default function GroupDocumentsPage() {
           }
         }
       } else if (e.key === 'ArrowUp') {
-        // Jump to previous template (first page)
-        const currentGroupIndex = documentGroups.findIndex((g: any) => g.templateName === currentTemplate);
+        // Jump to previous document (first page)
+        const currentGroupIndex = documentGroups.findIndex((g: any) => g.documentId === currentDocumentId);
         if (currentGroupIndex > 0) {
           const prevGroup = documentGroups[currentGroupIndex - 1];
           const firstFileOfPrevGroup = prevGroup.files[0];
@@ -175,8 +179,8 @@ export default function GroupDocumentsPage() {
           setSelectedFileIndex(prevFileIndex);
         }
       } else if (e.key === 'ArrowDown') {
-        // Jump to next template (first page)
-        const currentGroupIndex = documentGroups.findIndex((g: any) => g.templateName === currentTemplate);
+        // Jump to next document (first page)
+        const currentGroupIndex = documentGroups.findIndex((g: any) => g.documentId === currentDocumentId);
         if (currentGroupIndex < documentGroups.length - 1) {
           const nextGroup = documentGroups[currentGroupIndex + 1];
           const firstFileOfNextGroup = nextGroup.files[0];
@@ -301,7 +305,7 @@ export default function GroupDocumentsPage() {
                 // Check if any document in this category is selected
                 const currentSelectedFile = labeledFiles[selectedFileIndex];
                 const hasSelectedDoc = currentSelectedFile && docsInCategory.some(
-                  (doc: any) => doc.templateName === currentSelectedFile.templateName
+                  (doc: any) => doc.documentId === currentSelectedFile.documentId
                 );
 
                 return (
@@ -350,12 +354,12 @@ export default function GroupDocumentsPage() {
                           const color = getTemplateColor(docGroup.templateName);
                           const firstFile = docGroup.files[0];
                           const firstFileIndex = labeledFiles.findIndex((f: any) => f.id === firstFile.id);
-                          const isDocSelected = currentSelectedFile && currentSelectedFile.templateName === docGroup.templateName;
+                          const isDocSelected = currentSelectedFile && currentSelectedFile.documentId === docGroup.documentId;
                           const documentDate = firstFile?.documentDate;
 
                           return (
                             <div
-                              key={docGroup.templateName || 'unmatched'}
+                              key={docGroup.documentId !== null ? `doc-${docGroup.documentId}` : `unmatched-${firstFile.id}`}
                               className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
                                 isDocSelected
                                   ? 'bg-blue-500 dark:bg-accent text-white'
@@ -407,12 +411,12 @@ export default function GroupDocumentsPage() {
                 const firstFile = docGroup.files[0];
                 const firstFileIndex = labeledFiles.findIndex((f: any) => f.id === firstFile.id);
                 const currentSelectedFile = labeledFiles[selectedFileIndex];
-                const isSelected = currentSelectedFile && currentSelectedFile.templateName === docGroup.templateName;
+                const isSelected = currentSelectedFile && currentSelectedFile.documentId === docGroup.documentId;
                 const documentDate = firstFile?.documentDate;
 
                 return (
                   <div
-                    key={docGroup.templateName || 'unmatched-root'}
+                    key={docGroup.documentId !== null ? `doc-${docGroup.documentId}` : `unmatched-root-${firstFile.id}`}
                     className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
                       isSelected
                         ? 'bg-blue-500 dark:bg-accent text-white'
@@ -484,9 +488,9 @@ export default function GroupDocumentsPage() {
           <div className="h-32 bg-card-bg border-t border-border-color px-4 py-2 overflow-x-auto flex-shrink-0">
             <div className="flex gap-2 h-full">
               {(() => {
-                // Filter: Show only files from current template
-                const currentTemplate = currentFile?.templateName;
-                const currentGroup = documentGroups.find((g: any) => g.templateName === currentTemplate);
+                // Filter: Show only files from current document
+                const currentDocumentId = currentFile?.documentId;
+                const currentGroup = documentGroups.find((g: any) => g.documentId === currentDocumentId);
                 const filesToShow = currentGroup ? currentGroup.files : [];
 
                 return filesToShow.map((file: any, idx: number) => {

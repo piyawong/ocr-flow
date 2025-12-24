@@ -1,6 +1,6 @@
 # Parse Data Logic - ระบบดึงข้อมูลจาก OCR
 
-> **อัปเดตล่าสุด:** 2025-12-23
+> **อัปเดตล่าสุด:** 2025-12-24 (เพิ่ม ม.น.2 เปลี่ยนแปลง priority)
 > **ที่มา:** `backend/src/parse-runner/parse-runner.service.ts`
 
 ---
@@ -113,7 +113,7 @@ User Click Re-parse (Stage 04) → Force Parse → Update Database
 
 ### 2. `parse_committee_members_data()`
 
-**ไฟล์:** `ref/lib/data_parsing.py:276-364`
+**ไฟล์:** `backend/src/parse-runner/parse-runner.service.ts:252-511`
 
 **Input:**
 - `ocr_texts: dict[int, str]` - Dictionary mapping page number → OCR text
@@ -137,16 +137,100 @@ User Click Re-parse (Stage 04) → Force Parse → Update Database
 
 | Field | Column Index | หมายเหตุ |
 |-------|-------------|----------|
+| **Running Number** | `cells[0]` | เลขลำดับ (ใช้ validate consecutive) |
 | name | `cells[1]` | คอลัมน์ที่ 2 |
 | address | `cells[3]` | คอลัมน์ที่ 4 |
 | phone | `cells[4]` (8-col) หรือ ตรวจสอบ `-` หรือ digit | Optional |
 | position | `cells[6]` (8-col) หรือ `cells[5]` (6-col) | ตำแหน่ง |
 
-**Table Parsing:**
-1. หา `<table>...</table>` tags
-2. Loop แต่ละ `<tr>` row (ข้าม header row)
-3. Extract `<td>` cells
-4. Map cells → member object
+**Table Parsing with Validation:**
+1. **Parse แต่ละหน้าแยกกัน** (แทนที่จะรวมทั้งหมด)
+2. สำหรับแต่ละหน้า:
+   - Extract running numbers จาก `cells[0]`
+   - Extract date จากหน้านั้นๆ (Thai format: "วันที่ X เดือน Y พ.ศ. Z" หรือ "dd/mm/yyyy")
+   - Parse ตาราง → Extract members
+3. **Group หน้าที่มี running numbers ติดกัน:**
+   - Check consecutive: `minRun === maxRun + 1` or `minRun <= maxRun + 2` (allow small gap)
+   - สร้าง groups ของหน้าที่ติดกัน
+4. **เลือก group ที่ถูกต้อง:**
+   - **ถ้ามี date:** เลือก group ที่มี date ล่าสุด
+   - **ถ้าไม่มี date:** เลือก group ที่มี `orderInGroup` มากที่สุด
+5. Return members จาก group ที่เลือก
+
+**Date Patterns Supported:**
+- `วันที่ X เดือน Y พ.ศ. Z` (Thai format)
+- `ณ วันที่ X เดือน Y พ.ศ. Z`
+- `dd/mm/yyyy` (numeric format)
+- `dd/mm/yy` (2-digit year, auto-convert to Buddhist year)
+
+**Running Number Validation:**
+- **ป้องกัน:** กรณีมีหลายตารางกรรมการ (version เก่า/ใหม่) ในชุดเอกสารเดียวกัน
+- **ป้องกัน:** กรณีตารางอื่นที่ไม่ใช่กรรมการแต่ถูก label ผิด
+- **รองรับ:** ตารางข้ามหลายหน้าแบบต่อเนื่อง (running numbers ต่อกัน)
+
+---
+
+### 2.1 `parseCommitteeMembersFromMN2()` - Parse จาก ม.น.2 (เปลี่ยนแปลง)
+
+**ไฟล์:** `backend/src/parse-runner/parse-runner.service.ts:253-424`
+
+**⚠️ Priority:** เอกสาร "หนังสือให้อำนาจและรายละเอียดการเปลี่ยนแปลง(ม.น.2)(เปลี่ยนแปลง)" มี **ลำดับความสำคัญสูงกว่า** บัญชีรายชื่อกรรมการมูลนิธิ
+
+**Input:**
+- `ocr_texts: dict[int, str]` - OCR text จากเอกสาร ม.น.2 (เปลี่ยนแปลง)
+
+**Output:**
+```json
+{
+  "committeeMembers": [
+    {
+      "name": "นายธงชัย รักปทุม",
+      "address": null,
+      "phone": null,
+      "position": "ประธานกรรมการ"
+    }
+  ]
+}
+```
+
+**Table Format:**
+| Column | Data | Example |
+|--------|------|---------|
+| `cells[0]` | เลขลำดับ + ชื่อ-สกุล | `"1. นายธงชัย รักปทุม"` |
+| `cells[1]` | ตำแหน่ง | `"ประธานกรรมการ"` |
+
+**Logic:**
+1. **Parse แต่ละหน้าแยก** (เผื่อมีหลายใบ ม.น.2)
+2. สำหรับแต่ละหน้า:
+   - Extract date จากหน้านั้น (Thai format: "วันที่ X เดือน Y พ.ศ. Z" หรือ "dd/mm/yyyy")
+   - Extract tables using `<table>...</table>` pattern
+   - For each row:
+     - Extract cells
+     - Check if `cells[0]` matches pattern `^\d+\.\s*(.+)$` (e.g., "1. นายธงชัย")
+     - Extract name from match group
+     - Skip metadata rows (ที่ทำการ, ที่อยู่, วัตถุประสงค์)
+     - Create member object with `name` and `position` (address & phone = null)
+3. **เลือกหน้าที่ถูกต้อง:**
+   - **ถ้ามี date:** เลือกหน้าที่มี date ล่าสุด
+   - **ถ้าไม่มี date:** เลือกหน้าที่มี `orderInGroup` มากที่สุด
+4. Return members จากหน้าที่เลือก
+
+**Date Patterns Supported:**
+- `วันที่ X เดือน Y พ.ศ. Z` (Thai format)
+- `ณ วันที่ X เดือน Y พ.ศ. Z`
+- `dd/mm/yyyy` (numeric format)
+- `dd/mm/yy` (2-digit year, auto-convert to Buddhist year)
+
+**Selection Priority:**
+```
+IF มีเอกสาร "หนังสือให้อำนาจและรายละเอียดการเปลี่ยนแปลง(ม.น.2)(เปลี่ยนแปลง)"
+  → ถ้ามีหลายใบ: เลือกใบที่มี date ล่าสุด
+  → parse จากเอกสารนี้ (parseCommitteeMembersFromMN2)
+ELSE IF มีเอกสาร "บัญชีรายชื่อกรรมการมูลนิธิ"
+  → parse จากบัญชีรายชื่อปกติ (parseCommitteeMembersData)
+```
+
+**ตัวอย่าง:** Group 132
 
 ---
 

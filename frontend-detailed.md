@@ -846,15 +846,31 @@ ManualLabelPage
 
 **Tab 2: Committee Members**
 
-**Table:**
+**Features:**
 
-| Column | Description |
-|--------|-------------|
-| # | Order number |
-| Name | ชื่อกรรมการ |
-| Position | ตำแหน่ง (ประธาน, กรรมการ, etc.) |
-| Address | ที่อยู่ |
-| Phone | เบอร์โทรศัพท์ |
+| Feature | Description |
+|---------|-------------|
+| **Drag & Drop Reordering** | ลากเพื่อเรียงลำดับกรรมการ (⋮⋮ icon) |
+| **Auto-save** | บันทึกลำดับอัตโนมัติเมื่อลาก |
+| **Visual Feedback** | Opacity 50% เมื่อกำลังลาก |
+
+**Card Display:**
+
+| Component | Description |
+|-----------|-------------|
+| **Drag Handle** | ⋮⋮ icon (แสดงเมื่อ hover) |
+| **Order Number** | หมายเลขลำดับ (1, 2, 3, ...) |
+| **Name** | ชื่อ-นามสกุลกรรมการ |
+| **Position** | ตำแหน่ง (ประธาน, กรรมการ, etc.) |
+| **Address** | ที่อยู่ |
+| **Phone** | เบอร์โทรศัพท์ |
+| **Delete Button** | ปุ่มลบ (แสดงเมื่อ hover) |
+
+**Drag & Drop:**
+- Library: **dnd-kit** (sortable)
+- Activation: ลาก drag handle (⋮⋮)
+- Strategy: Vertical list sorting
+- Updates: `orderIndex` field ของทุก members หลัง reorder
 
 ---
 
@@ -1131,68 +1147,133 @@ Final Review & Approval Stage - รวม Stage 03 + 04 review
 
 #### Detail Page (`/stages/05-review/[groupId]`)
 
-##### Layout: Side-by-Side Summary
+##### Layout: 2 Tabs (Foundation + Committee) - Read-only View
 
 ```
 ┌──────────────────────────────────────────────┐
 │              [Header]                        │
-├──────────────────┬───────────────────────────┤
-│ Stage 03 Summary │ Stage 04 Summary          │
-│ (PDF Labeling)   │ (Data Extraction)         │
-│                  │                           │
-│ • Match rate     │ • Foundation status       │
-│ • Documents      │ • Committee count         │
-│ • Reviewer       │ • Parse date              │
-│ • Date           │ • Reviewer                │
-└──────────────────┴───────────────────────────┘
+│   ← Back | Logo | Foundation Name            │
+│            📄 Documents Button               │
+├──────────────────────────────────────────────┤
+│  [Tabs: Foundation Instrument | Committee]  │
+├──────────────────────────────────────────────┤
 │                                              │
-│        [Final Review Decision]               │
-│        • Notes (optional)                    │
-│        • Approve Button                      │
+│          [Tab Content - Read Only]           │
+│                                              │
+├──────────────────────────────────────────────┤
+│     [Approve/Reject Section]                 │
 └──────────────────────────────────────────────┘
 ```
 
-##### Stage 03 Summary
+**สำคัญ:** หน้านี้แสดงข้อมูลเหมือน Stage 04 เลย แต่เป็น **read-only** (ไม่ให้แก้ไข)
 
-**Display:**
-- Match rate (X/Y matched, Z% matched)
-- Documents found (count)
-- Reviewer name
-- Review date
+---
 
-##### Stage 04 Summary
+##### Header Section
 
-**Display:**
-- Foundation instrument status (Yes/No)
-- Committee members count + list
-- Parse date
-- Reviewer name
+**Left Section:**
+- ← Back button
+- Logo มูลนิธิ (ถ้ามี)
+- Foundation Name
+- Organization name (ถ้ามี)
 
-##### Final Review Decision
+**Right Section:**
+- 📄 Documents button (เปิด `/documents/[groupId]` ใน new window)
+
+---
+
+##### Tab 1: Foundation Instrument (Read-only)
+
+**Display เหมือน Stage 04 แต่ไม่ให้แก้ไข:**
+
+**1. Basic Information**
+- Foundation Name (text display)
+- Short Name (text display)
+- Address (text display, whitespace-pre-wrap)
+- Logo Description (text display, whitespace-pre-wrap)
+
+**2. Charter Sections (Collapsible)**
+- List ของหมวดทั้งหมด
+- แต่ละหมวดแสดง:
+  - หมวด {number}: {title}
+  - จำนวนข้อ
+- Click เพื่อ expand/collapse
+- แสดง Articles และ Sub-items:
+  ```
+  หมวด 1: ชื่อและที่ตั้ง
+    ข้อ 1: มูลนิธินี้ชื่อว่า...
+      (1.1) ชื่อย่อว่า...
+    ข้อ 2: ที่ตั้ง...
+  ```
+
+**Empty State:**
+- แสดงเมื่อไม่มีข้อมูล foundation
+- Icon + message: "No Foundation Instrument Data"
+
+---
+
+##### Tab 2: Committee Members (Read-only)
+
+**Display เหมือน Stage 04 แต่ไม่ให้แก้ไข:**
+
+**List Display:**
+- แต่ละกรรมการแสดงใน card
+- Numbered (1, 2, 3, ...)
+- Grid layout: Name, Position, Phone, Address
+- ไม่มีปุ่ม Add, Delete, Reorder
+
+**Empty State:**
+- แสดงเมื่อไม่มีกรรมการ
+- Icon + message: "No Committee Members"
+
+---
+
+##### Approve/Reject Section (อยู่ด้านล่าง tabs)
+
+**แสดงเมื่อ:** `isFinalApproved = false`
 
 **Form:**
 - **Notes/Comments** (optional) - textarea
-- **Approve Button** - submit form
+  - Placeholder: "Add any notes or comments about this review..."
+  - 4 rows
+  - สามารถพิมพ์ notes ได้ตอน approve
 
-**API:**
-- `POST /files/parsed-group/:groupId/final-approve`
-- Body:
-  ```json
-  {
-    "reviewer": "John Doe",  // from JWT user.name
-    "notes": "All data verified"
-  }
-  ```
+**Action Buttons:**
 
-**Effect:**
-- Update `isFinalApproved = true`
-- Save `final_reviewer`, `final_approved_at`, `final_review_notes`
+| Button | Styling | Action |
+|--------|---------|--------|
+| **Approve & Ready for Upload** | Green gradient (emerald-500 → emerald-600) | Call approve API |
+| **Reject** | Red gradient (rose-500 → rose-600) | Show confirm → Navigate back |
 
-##### Admin Only
+**Approve Flow:**
+1. User กด "Approve & Ready for Upload"
+2. Call API: `POST /files/final-review-groups/:groupId/approve`
+3. Body: `{ reviewerName: user.name, notes: "..." }`
+4. Update `isFinalApproved = true`
+5. Refresh data
+6. Show success alert
 
-**Permission:**
-- เฉพาะ **admin** สามารถ approve ได้
-- Check `user.role === 'admin'` from JWT
+**Reject Flow:**
+1. User กด "Reject"
+2. Show confirmation dialog
+3. ถ้ายืนยัน → Alert + Navigate back to `/stages/05-review`
+4. ไม่ call API (แค่กลับไปหน้า list)
+
+---
+
+##### Approved State Display
+
+**แสดงเมื่อ:** `isFinalApproved = true`
+
+**Green Badge:**
+- ✓ Approved
+- By {finalReviewer} on {finalApprovedAt}
+
+**Review Notes Card:**
+- แสดง `finalReviewNotes` (ถ้ามี)
+- Whitespace preserved
+
+**ซ่อน Approve/Reject buttons**
 
 ---
 
@@ -1200,18 +1281,56 @@ Final Review & Approval Stage - รวม Stage 03 + 04 review
 
 | Feature | Description |
 |---------|-------------|
-| ✅ **Combined Review** | Stage 03 + 04 ใน 1 หน้า |
-| ✅ **Final Approval** | Quality gate ก่อน Stage 06 |
+| ✅ **Read-only Display** | แสดงข้อมูล Stage 04 แบบ read-only (ไม่ให้แก้ไข) |
+| ✅ **2 Tabs** | Foundation Instrument + Committee Members |
+| ✅ **Charter Hierarchy** | หมวด → ข้อ → อนุข้อ (collapsible) |
+| ✅ **Approve/Reject** | Dual action buttons |
+| ✅ **Documents Link** | เปิด Documents viewer ใน new window |
 | ✅ **Audit Trail** | Reviewer, timestamp, notes |
-| ✅ **Admin Control** | Approval by admin only |
 
 #### API Calls
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/files/final-review-groups` | GET | Groups ready for final review |
-| `/files/parsed-group/:groupId` | GET | Detail ของ group |
-| `/files/parsed-group/:groupId/final-approve` | POST | Approve group |
+| `/files/parsed-group/:groupId` | GET | Detail ของ group (Foundation + Committee) |
+| `/files/final-review-groups/:groupId/approve` | POST | Approve group (Body: `{ reviewerName, notes }`) |
+
+#### UI Components Tree
+
+```
+FinalReviewDetailPage
+├── Header
+│   ├── BackButton
+│   ├── Logo (ถ้ามี)
+│   ├── FoundationName
+│   ├── Organization (ถ้ามี)
+│   └── DocumentsButton (เปิด new window)
+├── StatusBadge (ถ้า approved)
+├── Tabs
+│   ├── TabButton (Foundation Instrument)
+│   └── TabButton (Committee Members)
+├── TabContent: Foundation
+│   ├── BasicInfo (read-only)
+│   │   ├── Name
+│   │   ├── ShortName
+│   │   ├── Address
+│   │   └── LogoDescription
+│   └── CharterSections (collapsible)
+│       └── Section → Articles → SubItems
+├── TabContent: Committee
+│   └── MembersList (read-only)
+│       └── MemberCard
+│           ├── Number
+│           ├── Name
+│           ├── Position
+│           ├── Phone
+│           └── Address
+└── ApproveRejectSection (ถ้ายัง approved)
+    ├── NotesTextarea
+    ├── ApproveButton
+    └── RejectButton
+```
 
 ---
 
