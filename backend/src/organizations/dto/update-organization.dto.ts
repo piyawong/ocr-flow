@@ -1,13 +1,17 @@
 import { IsString, IsOptional, IsBoolean, IsInt } from 'class-validator';
 
-export class UpdateDistrictOfficeDto {
+export class UpdateOrganizationDto {
+  @IsOptional()
+  @IsString()
+  districtOfficeName?: string;
+
   @IsOptional()
   @IsString()
   name?: string;
 
   @IsOptional()
   @IsString()
-  foundationName?: string;
+  type?: string;
 
   @IsOptional()
   @IsString()
@@ -24,4 +28,8 @@ export class UpdateDistrictOfficeDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  matchedGroupId?: number;
 }

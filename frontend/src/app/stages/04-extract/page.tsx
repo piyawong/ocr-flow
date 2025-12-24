@@ -16,11 +16,14 @@ interface ParsedGroup {
   committeeCount: number;
   isParseDataReviewed: boolean;
   parseDataReviewer: string | null;
+  lockedBy: number | null;
+  lockedByName: string | null;
+  lockedAt: string | null;
 }
 
 export default function Stage04Extract() {
   const router = useRouter();
-  const { isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const { canAccessStage04 } = usePermission();
   const [groups, setGroups] = useState<ParsedGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,7 +43,36 @@ export default function Stage04Extract() {
 
   useEffect(() => {
     fetchGroups();
-  }, [fetchGroups]);
+
+    // ✅ SSE: Listen to GROUP_LOCKED and GROUP_UNLOCKED events
+    const groupEventsSource = new EventSource(`${API_URL}/files/events`);
+
+    groupEventsSource.onmessage = (event) => {
+      try {
+        const eventData = JSON.parse(event.data);
+
+        if (eventData.type === 'GROUP_LOCKED' || eventData.type === 'GROUP_UNLOCKED') {
+          console.log('🔄 Group lock status changed:', eventData);
+          fetchGroups();
+        } else if (eventData.type === 'GROUP_PARSED') {
+          console.log('✅ Group parsed:', eventData);
+          fetchGroups();
+        }
+      } catch (err) {
+        console.error('Error parsing SSE event:', err);
+      }
+    };
+
+    groupEventsSource.onerror = (err) => {
+      console.error('SSE connection error:', err);
+    };
+
+    // Cleanup SSE connection on unmount
+    return () => {
+      groupEventsSource.close();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-';
@@ -216,6 +248,7 @@ export default function Stage04Extract() {
                       <th className="px-6 py-4 text-center font-semibold text-text-secondary">สถานะ Review</th>
                       <th className="px-6 py-4 text-left font-semibold text-text-secondary">ผู้ Review</th>
                       <th className="px-6 py-4 text-center font-semibold text-text-secondary">วันที่ Parse</th>
+                      <th className="px-6 py-4 text-left font-semibold text-text-secondary">Locked By</th>
                       <th className="px-6 py-4 text-center font-semibold text-text-secondary">Actions</th>
                     </tr>
                   </thead>
@@ -290,16 +323,84 @@ export default function Stage04Extract() {
                         <td className="px-6 py-4 text-center text-text-secondary text-sm">
                           {formatDate(group.parseDataAt)}
                         </td>
+                        <td className="px-6 py-4 text-text-primary">
+                          {group.lockedBy ? (
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                                <svg className="w-3.5 h-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                </svg>
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="font-medium text-sm text-amber-400">{group.lockedByName || 'Unknown'}</span>
+                                {group.lockedAt && (
+                                  <span className="text-[10px] text-text-secondary">
+                                    {new Date(group.lockedAt).toLocaleTimeString()}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-text-secondary italic text-xs">-</span>
+                          )}
+                        </td>
                         <td className="px-6 py-4 text-center">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              router.push(`/stages/04-extract/${group.groupId}`);
-                            }}
-                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-700 text-white font-medium text-sm hover:from-blue-700 hover:to-purple-800 hover:shadow-lg transition-all duration-200 active:scale-[0.98]"
-                          >
-                            Review
-                          </button>
+                          {(() => {
+                            const isLockedByOther = group.lockedBy && group.lockedBy !== user?.id;
+                            const LOCK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+                            const lockAge = group.lockedAt ? Date.now() - new Date(group.lockedAt).getTime() : 0;
+                            const isLockExpired = lockAge > LOCK_TIMEOUT_MS;
+
+                            if (isLockedByOther) {
+                              if (isLockExpired) {
+                                // ✅ Lock expired - User can take over
+                                return (
+                                  <div className="flex flex-col gap-1 items-center">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        router.push(`/stages/04-extract/${group.groupId}`);
+                                      }}
+                                      className="px-4 py-2 rounded-xl bg-amber-500 text-white font-medium text-sm hover:bg-amber-600 hover:shadow-lg transition-all duration-200 active:scale-[0.98]"
+                                    >
+                                      ⚠️ Take Over
+                                    </button>
+                                    <span className="text-[10px] text-amber-400 font-medium">
+                                      Lock expired
+                                    </span>
+                                  </div>
+                                );
+                              } else {
+                                // ✅ Still locked - Disabled
+                                return (
+                                  <div className="flex flex-col gap-1 items-center">
+                                    <button
+                                      disabled
+                                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-700 text-white font-medium text-sm opacity-50 cursor-not-allowed"
+                                    >
+                                      🔒 Locked
+                                    </button>
+                                    <span className="text-[10px] text-amber-400 font-medium">
+                                      {group.lockedByName || 'In use'}
+                                    </span>
+                                  </div>
+                                );
+                              }
+                            }
+
+                            // ✅ Not locked or locked by self - Normal button
+                            return (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  router.push(`/stages/04-extract/${group.groupId}`);
+                                }}
+                                className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-700 text-white font-medium text-sm hover:from-blue-700 hover:to-purple-800 hover:shadow-lg transition-all duration-200 active:scale-[0.98]"
+                              >
+                                Review
+                              </button>
+                            );
+                          })()}
                         </td>
                       </tr>
                     ))}

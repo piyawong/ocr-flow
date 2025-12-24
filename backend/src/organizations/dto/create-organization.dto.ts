@@ -1,11 +1,14 @@
 import { IsString, IsOptional, IsBoolean, IsInt } from 'class-validator';
 
-export class CreateDistrictOfficeDto {
+export class CreateOrganizationDto {
   @IsString()
-  name: string; // ชื่อสำนักงานเขต
+  districtOfficeName: string; // สำนักงานเขต
 
   @IsString()
-  foundationName: string; // ชื่อมูลนิธิ
+  name: string; // ชื่อองค์กร
+
+  @IsString()
+  type: string; // ประเภท: "สมาคม" | "มูลนิธิ"
 
   @IsString()
   registrationNumber: string; // เลข กท.
@@ -21,4 +24,8 @@ export class CreateDistrictOfficeDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean; // เปิด/ปิดการใช้งาน
+
+  @IsOptional()
+  @IsInt()
+  matchedGroupId?: number; // FK to groups.id (optional)
 }

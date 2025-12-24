@@ -252,6 +252,12 @@ export default function Stage03PdfLabel() {
         if (eventData.type === 'GROUP_LOCKED' || eventData.type === 'GROUP_UNLOCKED') {
           console.log('🔄 Group lock status changed:', eventData);
           fetchGroups();
+        } else if (eventData.type === 'GROUP_REVIEWED') {
+          console.log('✅ Group reviewed:', eventData);
+          fetchGroups();
+        } else if (eventData.type === 'GROUP_PARSED') {
+          console.log('📊 Group parsed:', eventData);
+          fetchGroups();
         }
       } catch (err) {
         console.error('Error parsing SSE event:', err);

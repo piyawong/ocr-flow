@@ -1,6 +1,6 @@
 # OCR Flow v2 - API Reference
 
-> **อัปเดตล่าสุด:** 2025-12-19
+> **อัปเดตล่าสุด:** 2025-12-24 (Migrate districts → organizations)
 > **เอกสารนี้อธิบาย:** API Endpoints ทั้งหมดของระบบ OCR Flow v2
 
 ---
@@ -9,13 +9,14 @@
 
 1. [ภาพรวม API](#ภาพรวม-api)
 2. [Authentication](#authentication)
-3. [Files Module (Stage 01-02-04)](#files-module-stage-01-02-04)
-4. [Labeled Files Module (Stage 03)](#labeled-files-module-stage-03)
-5. [Templates Module](#templates-module)
-6. [Task Runner Module (Stage 01)](#task-runner-module-stage-01)
-7. [Label Runner Module (Stage 02)](#label-runner-module-stage-02)
-8. [Parse Runner Module (Stage 03)](#parse-runner-module-stage-03)
-9. [Quick Lookup Table](#quick-lookup-table)
+3. [Organizations Module](#organizations-module)
+4. [Files Module (Stage 01-02-04)](#files-module-stage-01-02-04)
+5. [Labeled Files Module (Stage 03)](#labeled-files-module-stage-03)
+6. [Templates Module](#templates-module)
+7. [Task Runner Module (Stage 01)](#task-runner-module-stage-01)
+8. [Label Runner Module (Stage 02)](#label-runner-module-stage-02)
+9. [Parse Runner Module (Stage 03)](#parse-runner-module-stage-03)
+10. [Quick Lookup Table](#quick-lookup-table)
 
 ---
 
@@ -268,6 +269,187 @@ Authorization: Bearer <admin-token>
 **Default Credentials:**
 - Email: `admin@ocrflow.local`
 - Password: `admin123`
+
+---
+
+## 🏢 Organizations Module
+
+**Purpose:** จัดการข้อมูลองค์กร (สำนักงานเขต) และการเชื่อมโยงกับกลุ่มไฟล์
+
+### 1. Create Organization
+**Endpoint:** `POST /organizations`
+
+**Purpose:** สร้างองค์กร (สำนักงานเขต) ใหม่
+
+**Headers:**
+```
+Authorization: Bearer <admin-token>
+```
+
+**Request Body:**
+```json
+{
+  "name": "สำนักงานเขตจอมทอง",
+  "groupName": "จอมทอง",
+  "registrationNumber": "30",
+  "description": "สำนักงานเขตจอมทอง สำหรับการจัดการเอกสาร",
+  "displayOrder": 1,
+  "isActive": true,
+  "matchedGroupId": 1
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Organization created successfully",
+  "organization": {
+    "id": 1,
+    "name": "สำนักงานเขตจอมทอง",
+    "groupName": "จอมทอง",
+    "registrationNumber": "30",
+    "description": "สำนักงานเขตจอมทอง สำหรับการจัดการเอกสาร",
+    "displayOrder": 1,
+    "isActive": true,
+    "matchedGroupId": 1,
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z"
+  }
+}
+```
+
+---
+
+### 2. Get All Organizations
+**Endpoint:** `GET /organizations`
+
+**Purpose:** ดึงรายการองค์กรทั้งหมด (รองรับ filter by active status)
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `active` | string | undefined | Filter: 'true' (active only), 'false' (inactive only), undefined (all) |
+
+**Example:**
+```
+GET /organizations?active=true
+```
+
+**Response:**
+```json
+{
+  "total": 2,
+  "organizations": [
+    {
+      "id": 1,
+      "name": "สำนักงานเขตจอมทอง",
+      "groupName": "จอมทอง",
+      "registrationNumber": "30",
+      "description": "สำนักงานเขตจอมทอง สำหรับการจัดการเอกสาร",
+      "displayOrder": 1,
+      "isActive": true,
+      "matchedGroupId": 1,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": 2,
+      "name": "สำนักงานเขตดินแดง",
+      "groupName": "ดินแดง",
+      "registrationNumber": "31",
+      "description": null,
+      "displayOrder": 2,
+      "isActive": true,
+      "matchedGroupId": 2,
+      "createdAt": "2025-01-01T01:00:00.000Z",
+      "updatedAt": "2025-01-01T01:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+### 3. Get Single Organization
+**Endpoint:** `GET /organizations/:id`
+
+**Purpose:** ดึงข้อมูลองค์กร (สำนักงานเขต) ตาม ID
+
+**Response:**
+```json
+{
+  "organization": {
+    "id": 1,
+    "name": "สำนักงานเขตจอมทอง",
+    "groupName": "จอมทอง",
+    "registrationNumber": "30",
+    "description": "สำนักงานเขตจอมทอง สำหรับการจัดการเอกสาร",
+    "displayOrder": 1,
+    "isActive": true,
+    "matchedGroupId": 1,
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z"
+  }
+}
+```
+
+---
+
+### 4. Update Organization
+**Endpoint:** `PATCH /organizations/:id`
+
+**Purpose:** แก้ไขข้อมูลองค์กร (สำนักงานเขต)
+
+**Headers:**
+```
+Authorization: Bearer <admin-token>
+```
+
+**Request Body:**
+```json
+{
+  "name": "สำนักงานเขตจอมทอง (อัปเดต)",
+  "groupName": "จอมทอง",
+  "displayOrder": 5,
+  "isActive": false
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Organization updated successfully",
+  "organization": {
+    "id": 1,
+    "name": "สำนักงานเขตจอมทอง (อัปเดต)",
+    "groupName": "จอมทอง",
+    "registrationNumber": "30",
+    "displayOrder": 5,
+    "isActive": false,
+    "matchedGroupId": 1,
+    "updatedAt": "2025-01-02T00:00:00.000Z"
+  }
+}
+```
+
+---
+
+### 5. Delete Organization
+**Endpoint:** `DELETE /organizations/:id`
+
+**Purpose:** ลบองค์กร (สำนักงานเขต)
+
+**Headers:**
+```
+Authorization: Bearer <admin-token>
+```
+
+**Response:**
+```json
+{
+  "message": "Organization deleted successfully"
+}
+```
 
 ---
 
@@ -1577,6 +1759,16 @@ data: {"groupId":1,"hasFoundationInstrument":true,"committeeCount":5}
 | PATCH | `/auth/users/:id` | Update user | Protected | Admin |
 | DELETE | `/auth/users/:id` | Delete user | Protected | Admin |
 | POST | `/auth/init-admin` | Create admin | Public | - |
+
+### Organizations Endpoints
+
+| Method | Endpoint | Purpose | Auth | Role |
+|--------|----------|---------|------|------|
+| POST | `/organizations` | Create organization | Protected | Admin |
+| GET | `/organizations` | Get all organizations | Protected | - |
+| GET | `/organizations/:id` | Get single organization | Protected | - |
+| PATCH | `/organizations/:id` | Update organization | Protected | Admin |
+| DELETE | `/organizations/:id` | Delete organization | Protected | Admin |
 
 ### Files Endpoints (Stage 01-02-04)
 

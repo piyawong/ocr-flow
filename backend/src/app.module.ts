@@ -13,7 +13,8 @@ import { ParseRunnerModule } from './parse-runner/parse-runner.module';
 import { TemplatesModule } from './templates/templates.module';
 import { AuthModule } from './auth/auth.module';
 import { ActivityLogsModule } from './activity-logs/activity-logs.module';
-import { DistrictsModule } from './districts/districts.module';
+import { OrganizationsModule } from './organizations/organizations.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 
 @Module({
@@ -44,7 +45,8 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
     TemplatesModule,
     AuthModule,
     ActivityLogsModule,
-    DistrictsModule,
+    OrganizationsModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [

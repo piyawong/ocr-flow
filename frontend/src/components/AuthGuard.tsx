@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { getFirstAccessibleStage, hasStageAccess } from '@/lib/api';
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -30,8 +31,31 @@ export default function AuthGuard({
 
     // If admin is required but user is not admin
     if (requireAdmin && user?.role !== 'admin') {
-      router.push('/stages/01-raw'); // Redirect to main page
+      const firstStage = getFirstAccessibleStage(user);
+      if (firstStage) {
+        router.push(firstStage); // Redirect to first accessible stage
+      } else {
+        router.push('/login'); // No accessible stage, go back to login
+      }
       return;
+    }
+
+    // Check if user has access to current stage
+    if (user && pathname.startsWith('/stages/')) {
+      const hasAccess = hasStageAccess(user, pathname);
+
+      if (!hasAccess) {
+        // User doesn't have access to this stage, redirect to first accessible stage
+        const firstStage = getFirstAccessibleStage(user);
+
+        if (firstStage && firstStage !== pathname) {
+          router.push(firstStage);
+        } else if (!firstStage) {
+          // No accessible stage at all, redirect to login
+          router.push('/login');
+        }
+        return;
+      }
     }
   }, [isLoading, isAuthenticated, requireAuth, requireAdmin, user, router, pathname]);
 

@@ -6,10 +6,13 @@ import {
   UpdateDateColumn,
   OneToMany,
   OneToOne,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { File } from './file.entity';
 import { FoundationInstrument } from './foundation-instrument.entity';
 import { CommitteeMember } from './committee-member.entity';
+import { User } from '../auth/user.entity';
 
 @Entity('groups')
 export class Group {
@@ -81,6 +84,10 @@ export class Group {
 
   @Column({ type: 'timestamp', nullable: true })
   lockedAt: Date | null; // When the group was locked
+
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: 'lockedBy' })
+  lockedByUser: User | null;
 
   @CreateDateColumn()
   createdAt: Date;

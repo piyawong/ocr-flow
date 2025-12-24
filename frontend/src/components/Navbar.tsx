@@ -13,7 +13,7 @@ import { Badge } from './ui/Badge';
 import { Modal, ModalHeader, ModalTitle, ModalDescription, ModalBody, ModalFooter } from './ui/Modal';
 
 const navItems = [
-  { href: '/', label: 'Dashboard' },
+  { href: '/dashboard', label: 'Dashboard' },
   { href: '/stages', label: 'Stages' },
   { href: '/templates', label: 'Templates' },
 ];
@@ -21,7 +21,7 @@ const navItems = [
 const adminNavItems = [
   { href: '/admin', label: 'Admin' },
   { href: '/logs', label: 'Logs' },
-  { href: '/districts', label: 'Districts' },
+  { href: '/organizations', label: 'Organizations' },
 ];
 
 // Stage routes with their permissions
@@ -102,7 +102,7 @@ export default function Navbar() {
     <>
       <nav className="flex items-center justify-between px-8 h-[60px] bg-nav-bg border-b border-border-color sticky top-0 z-[100] shadow-sm">
         <div className="flex items-center gap-8">
-          <Link href="/" className="text-2xl font-bold text-accent no-underline">
+          <Link href="/dashboard" className="text-2xl font-bold text-accent no-underline">
             OCR Flow
           </Link>
           {isAuthenticated && (

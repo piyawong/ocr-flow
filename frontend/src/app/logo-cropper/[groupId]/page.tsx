@@ -119,7 +119,7 @@ export default function LogoCropperPage() {
     if (labeledFiles.length > 0 && selectedFileIndex < labeledFiles.length) {
       const file = labeledFiles[selectedFileIndex];
       setImageLoading(true);
-      setImageUrl(`${API_URL}/labeled-files/${file.id}/preview`);
+      setImageUrl(`${API_URL}/files/${file.groupedFileId}/preview`);
       setCropArea(null);
       setCroppedPreview(null);
     }
@@ -670,7 +670,7 @@ export default function LogoCropperPage() {
                   }`}
                 >
                   <img
-                    src={`${API_URL}/labeled-files/${file.id}/preview`}
+                    src={`${API_URL}/files/${file.groupedFileId}/preview`}
                     alt={`Page ${idx + 1}`}
                     className="w-full h-full object-cover"
                   />

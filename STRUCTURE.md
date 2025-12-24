@@ -1,6 +1,6 @@
 # OCR Flow v2 - Documentation Hub
 
-> **อัปเดตล่าสุด:** 2025-12-19 (สร้างไฟล์รายละเอียดทั้งหมด: backend, frontend, database, api-reference)
+> **อัปเดตล่าสุด:** 2025-12-24 (Migrate districts → organizations, เพิ่ม matchedGroupId FK)
 > **วัตถุประสงค์:** Navigation hub สำหรับเอกสาร OCR Flow v2
 
 ---
@@ -74,7 +74,7 @@ OCR-flow-v2/
 
 ### Database
 - 🗄️ **ทำงานกับ Database** → [database-detailed.md](./database-detailed.md)
-  - Database Schema (10 tables)
+  - Database Schema (11 tables)
   - Tables & Relations พร้อม Foreign Keys
   - ER Diagram (ASCII + Mermaid)
   - CASCADE DELETE behavior
@@ -210,6 +210,7 @@ docker-compose up -d
 
 | Module | Purpose | Details |
 |--------|---------|---------|
+| **dashboard** | System Overview | Dashboard metrics และ statistics |
 | **files** | Upload + Grouping | [backend-detailed.md](./backend-detailed.md#1-files-module-stage-01--stage-02) |
 | **labeled-files** | PDF Labeling | [backend-detailed.md](./backend-detailed.md#2-labeled-files-module-stage-03) |
 | **task-runner** | OCR Background | [backend-detailed.md](./backend-detailed.md#3-task-runner-module-stage-01) |
@@ -224,16 +225,16 @@ docker-compose up -d
 | Table | Purpose | Details |
 |-------|---------|---------|
 | **users** | Authentication | [database-detailed.md](./database-detailed.md#0-users-authentication) |
-| **files** | Upload tracking | [database-detailed.md](./database-detailed.md#1-files-รวม-stage-01--stage-02) |
-| **groups** | Grouping metadata | [database-detailed.md](./database-detailed.md#2-groups-stage-02-metadata--stage-03-status--stage-04-review--stage-05-approval) |
-| **documents** | **Label results (Main)** | [database-detailed.md](./database-detailed.md#31-documents---labeled-documents-main-label-storage) |
-| **labeled_files** | Page-to-Document mapping | [database-detailed.md](./database-detailed.md#3-labeled_files---page-to-document-mapping) |
-| **templates** | Auto label config | [database-detailed.md](./database-detailed.md#4-templates-auto-label-configuration) |
-| **foundation_instruments** | ตราสาร (parsed) | [database-detailed.md](./database-detailed.md#5-foundation_instruments-parsed-data-ตราสาร) |
-| **charter_sections** | หมวดตราสาร | [database-detailed.md](./database-detailed.md#6-charter_sections-หมวดต่างๆ-ของตราสาร) |
-| **charter_articles** | ข้อตราสาร | [database-detailed.md](./database-detailed.md#7-charter_articles-ข้อต่างๆ-ในแต่ละหมวด) |
-| **charter_sub_items** | อนุข้อตราสาร | [database-detailed.md](./database-detailed.md#8-charter_sub_items-ข้อย่อยของข้อ) |
-| **committee_members** | กรรมการ (parsed) | [database-detailed.md](./database-detailed.md#9-committee_members-กรรมการมูลนิธิ) |
+| **files** | Upload tracking | [database-detailed.md](./database-detailed.md#1-files-upload--grouping) |
+| **groups** | Grouping metadata | [database-detailed.md](./database-detailed.md#2-groups---metadata--status-tracking) |
+| **documents** | **Label results (Main)** | [database-detailed.md](./database-detailed.md#3-documents---labeled-documents-main-label-storage) |
+| **templates** | Auto label config | [database-detailed.md](./database-detailed.md#4-templates---auto-label-configuration) |
+| **foundation_instruments** | ตราสาร (parsed) | [database-detailed.md](./database-detailed.md#5-foundation_instruments---ตราสารมูลนิธิ) |
+| **charter_sections** | หมวดตราสาร | [database-detailed.md](./database-detailed.md#6-charter_sections---หมวดของตราสาร) |
+| **charter_articles** | ข้อตราสาร | [database-detailed.md](./database-detailed.md#7-charter_articles---ข้อในแต่ละหมวด) |
+| **charter_sub_items** | อนุข้อตราสาร | [database-detailed.md](./database-detailed.md#8-charter_sub_items---ข้อย่อยของข้อ) |
+| **committee_members** | กรรมการ (parsed) | [database-detailed.md](./database-detailed.md#9-committee_members---กรรมการมูลนิธิ) |
+| **organizations** | องค์กร/สำนักงาน | [database-detailed.md](./database-detailed.md#10-organizations---องค์กรมูลนิธิ) |
 
 ---
 

@@ -8,7 +8,7 @@ import { CharterSection } from '../files/charter-section.entity';
 import { CharterArticle } from '../files/charter-article.entity';
 import { CharterSubItem } from '../files/charter-sub-item.entity';
 import { CommitteeMember as CommitteeMemberEntity } from '../files/committee-member.entity';
-import { DistrictOffice } from '../districts/entities/district-office.entity';
+import { Organization } from '../organizations/entities/organization.entity';
 import { Group } from '../files/group.entity';
 
 // Thai to Arabic numeral mapping
@@ -54,8 +54,8 @@ export class ParseRunnerService {
     private foundationInstrumentRepo: Repository<FoundationInstrument>,
     @InjectRepository(CommitteeMemberEntity)
     private committeeMemberRepo: Repository<CommitteeMemberEntity>,
-    @InjectRepository(DistrictOffice)
-    private districtOfficeRepo: Repository<DistrictOffice>,
+    @InjectRepository(Organization)
+    private organizationRepo: Repository<Organization>,
     @InjectRepository(Group)
     private groupRepo: Repository<Group>,
   ) {}
@@ -418,42 +418,49 @@ export class ParseRunnerService {
       const foundationName = foundationInstrumentData.name.trim();
 
       if (foundationName) {
-        console.log(`[ParseData] Searching district for foundation: "${foundationName}"`);
+        console.log(`[ParseData] Searching organization for foundation: "${foundationName}"`);
 
         // Try exact match first (case-insensitive)
-        let districtOffice = await this.districtOfficeRepo
-          .createQueryBuilder('district')
-          .where('LOWER(district.foundationName) = LOWER(:foundationName)', { foundationName })
-          .andWhere('district.isActive = :isActive', { isActive: true })
+        let organization = await this.organizationRepo
+          .createQueryBuilder('organization')
+          .where('LOWER(organization.name) = LOWER(:foundationName)', { foundationName })
+          .andWhere('organization.isActive = :isActive', { isActive: true })
           .getOne();
 
         // If no exact match, try partial match
-        if (!districtOffice) {
-          districtOffice = await this.districtOfficeRepo
-            .createQueryBuilder('district')
-            .where('LOWER(district.foundationName) LIKE LOWER(:foundationName)', {
+        if (!organization) {
+          organization = await this.organizationRepo
+            .createQueryBuilder('organization')
+            .where('LOWER(organization.name) LIKE LOWER(:foundationName)', {
               foundationName: `%${foundationName}%`,
             })
-            .andWhere('district.isActive = :isActive', { isActive: true })
+            .andWhere('organization.isActive = :isActive', { isActive: true })
             .getOne();
         }
 
-        if (districtOffice) {
-          console.log(`[ParseData] ✓ Found district: ${districtOffice.name} (เลข กท. ${districtOffice.registrationNumber})`);
+        if (organization) {
+          console.log(`[ParseData] ✓ Found organization: ${organization.districtOfficeName} (เลข กท. ${organization.registrationNumber})`);
 
-          // Update group with district info
+          // Update group with organization info
           await this.groupRepo.update(groupId, {
-            districtOffice: districtOffice.name,
-            registrationNumber: districtOffice.registrationNumber,
+            districtOffice: organization.districtOfficeName,
+            registrationNumber: organization.registrationNumber,
           });
         } else {
-          console.log(`[ParseData] ✗ No district match found for: "${foundationName}"`);
+          console.log(`[ParseData] ✗ No organization match found for: "${foundationName}"`);
         }
       }
     }
 
     // Update group parseData status
     await this.filesService.updateGroupParseData(groupId, null);
+
+    // ✅ Send SSE event: GROUP_PARSED
+    this.filesService.emitEvent({
+      type: 'GROUP_PARSED',
+      groupId,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   // Parse a single group by ID (force=true to re-parse even if already parsed)

@@ -37,6 +37,9 @@ export class FoundationInstrument {
   @Column({ name: 'logo_description', type: 'text', nullable: true })
   logoDescription: string;
 
+  @Column({ name: 'is_cancelled', type: 'boolean', default: false })
+  isCancelled: boolean;
+
   @OneToMany(() => CharterSection, (section) => section.foundationInstrument, {
     cascade: true,
   })

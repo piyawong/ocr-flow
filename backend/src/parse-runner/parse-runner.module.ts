@@ -9,7 +9,7 @@ import { CharterSection } from '../files/charter-section.entity';
 import { CharterArticle } from '../files/charter-article.entity';
 import { CharterSubItem } from '../files/charter-sub-item.entity';
 import { CommitteeMember } from '../files/committee-member.entity';
-import { DistrictOffice } from '../districts/entities/district-office.entity';
+import { Organization } from '../organizations/entities/organization.entity';
 import { Group } from '../files/group.entity';
 
 @Module({
@@ -20,7 +20,7 @@ import { Group } from '../files/group.entity';
       CharterArticle,
       CharterSubItem,
       CommitteeMember,
-      DistrictOffice,
+      Organization,
       Group,
     ]),
     FilesModule,

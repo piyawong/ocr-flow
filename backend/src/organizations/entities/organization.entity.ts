@@ -4,18 +4,24 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { Group } from '../../files/group.entity';
 
-@Entity('district_offices')
-export class DistrictOffice {
+@Entity('organizations')
+export class Organization {
   @PrimaryGeneratedColumn()
   id: number;
 
   @Column({ type: 'varchar', length: 255, unique: true })
-  name: string; // ชื่อสำนักงานเขต (เช่น "สำนักงานเขตจอมทอง")
+  districtOfficeName: string; // สำนักงานเขต (เช่น "สำนักงานเขตจอมทอง")
 
   @Column({ type: 'varchar', length: 255 })
-  foundationName: string; // ชื่อมูลนิธิ (เช่น "จอมทอง")
+  name: string; // ชื่อองค์กร/มูลนิธิ/สมาคม (เช่น "มูลนิธิจอมทอง")
+
+  @Column({ type: 'varchar', length: 50 })
+  type: string; // ประเภท: "สมาคม" | "มูลนิธิ"
 
   @Column({ type: 'varchar', length: 100 })
   registrationNumber: string; // เลข กท. (เช่น "30", "31")
@@ -28,6 +34,13 @@ export class DistrictOffice {
 
   @Column({ default: true })
   isActive: boolean; // เปิด/ปิดการใช้งาน
+
+  @Column({ nullable: true })
+  matchedGroupId: number | null; // FK to groups.id
+
+  @ManyToOne(() => Group, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'matchedGroupId' })
+  matchedGroup: Group | null; // Relation to Group entity
 
   @CreateDateColumn()
   createdAt: Date;

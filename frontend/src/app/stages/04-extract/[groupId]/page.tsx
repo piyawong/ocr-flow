@@ -28,6 +28,20 @@ const PlusIcon = ({ className = '' }: { className?: string }) => (
   </svg>
 );
 
+// Insert icon (arrow down) for inserting items below
+const InsertIcon = ({ className = '' }: { className?: string }) => (
+  <svg className={`w-4 h-4 ${className}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 13l-7 7-7-7m14-8l-7 7-7-7" />
+  </svg>
+);
+
+// Insert up icon (arrow up) for inserting items above
+const InsertUpIcon = ({ className = '' }: { className?: string }) => (
+  <svg className={`w-4 h-4 ${className}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 11l7-7 7 7M5 19l7-7 7 7" />
+  </svg>
+);
+
 // Trash icon for deleting
 const TrashIcon = ({ className = '' }: { className?: string }) => (
   <svg className={`w-4 h-4 ${className}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -108,6 +122,7 @@ interface FoundationInstrument {
   shortName: string;
   address: string;
   logoDescription: string;
+  isCancelled: boolean;
   charterSections: CharterSection[];
 }
 
@@ -221,6 +236,72 @@ export default function GroupDetailPage() {
     setExpandedSections(new Set());
     setExpandedArticles(new Set());
   }, []);
+
+  // ✅ Lock group on mount, unlock on unmount
+  useEffect(() => {
+    if (!groupId) return;
+
+    let lockAcquired = false;
+
+    // Try to lock the group
+    const lockGroup = async () => {
+      try {
+        const res = await fetchWithAuth(`/files/group/${groupId}/lock`, {
+          method: 'POST',
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          if (res.status === 409) {
+            // Group is locked by another user
+            alert(
+              `⚠️ This group is currently being edited by ${error.lockedByName}.\n\n` +
+              `You cannot edit it until they finish.\n\n` +
+              `Returning to group list...`
+            );
+            router.push('/stages/04-extract');
+            return;
+          }
+          throw new Error('Failed to lock group');
+        }
+
+        lockAcquired = true;
+        console.log('✅ Group locked successfully');
+      } catch (err) {
+        console.error('Failed to lock group:', err);
+        alert('Failed to lock group. Returning to list.');
+        router.push('/stages/04-extract');
+      }
+    };
+
+    lockGroup();
+
+    // Heartbeat: Renew lock every 5 minutes
+    const heartbeatInterval = setInterval(async () => {
+      if (lockAcquired) {
+        try {
+          await fetchWithAuth(`/files/group/${groupId}/lock/renew`, {
+            method: 'PUT',
+          });
+          console.log('✅ Lock renewed');
+        } catch (err) {
+          console.error('Failed to renew lock:', err);
+        }
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+
+    // Unlock on unmount
+    return () => {
+      clearInterval(heartbeatInterval);
+
+      if (lockAcquired) {
+        // Unlock group (fire and forget)
+        fetchWithAuth(`/files/group/${groupId}/lock`, {
+          method: 'DELETE',
+        }).catch((err) => console.error('Failed to unlock group:', err));
+      }
+    };
+  }, [groupId, router]);
 
   useEffect(() => {
     const fetchGroupDetail = async () => {
@@ -578,6 +659,202 @@ export default function GroupDetailPage() {
           : s
       ),
     });
+  };
+
+  // Insert functions for adding items between existing items
+  const insertSectionAfter = (afterSectionId: number) => {
+    if (!editedFoundation) return;
+    const sections = editedFoundation.charterSections;
+    const afterIndex = sections.findIndex(s => s.id === afterSectionId);
+    if (afterIndex === -1) return;
+
+    const newSection: CharterSection = {
+      id: Date.now(),
+      number: String(sections.length + 1),
+      title: 'หมวดใหม่',
+      orderIndex: afterIndex + 1,
+      articles: [],
+    };
+
+    const newSections = [
+      ...sections.slice(0, afterIndex + 1),
+      newSection,
+      ...sections.slice(afterIndex + 1),
+    ];
+
+    setEditedFoundation({
+      ...editedFoundation,
+      charterSections: newSections,
+    });
+  };
+
+  const insertArticleAfter = (sectionId: number, afterArticleId: number) => {
+    if (!editedFoundation) return;
+    setEditedFoundation({
+      ...editedFoundation,
+      charterSections: editedFoundation.charterSections.map(s => {
+        if (s.id === sectionId) {
+          const articles = s.articles;
+          const afterIndex = articles.findIndex(a => a.id === afterArticleId);
+          if (afterIndex === -1) return s;
+
+          const newArticle: Article = {
+            id: Date.now(),
+            number: String(articles.length + 1),
+            content: 'ข้อใหม่',
+            orderIndex: afterIndex + 1,
+            subItems: [],
+          };
+
+          const newArticles = [
+            ...articles.slice(0, afterIndex + 1),
+            newArticle,
+            ...articles.slice(afterIndex + 1),
+          ];
+
+          return { ...s, articles: newArticles };
+        }
+        return s;
+      }),
+    });
+  };
+
+  const insertSubItemAfter = (sectionId: number, articleId: number, afterSubItemId: number) => {
+    if (!editedFoundation) return;
+    setEditedFoundation({
+      ...editedFoundation,
+      charterSections: editedFoundation.charterSections.map(s =>
+        s.id === sectionId
+          ? {
+              ...s,
+              articles: s.articles.map(a => {
+                if (a.id === articleId) {
+                  const subItems = a.subItems || [];
+                  const afterIndex = subItems.findIndex(si => si.id === afterSubItemId);
+                  if (afterIndex === -1) return a;
+
+                  const newSubItem: SubItem = {
+                    id: Date.now(),
+                    number: `${a.number}.${subItems.length + 1}`,
+                    content: 'อนุข้อใหม่',
+                    orderIndex: afterIndex + 1,
+                  };
+
+                  const newSubItems = [
+                    ...subItems.slice(0, afterIndex + 1),
+                    newSubItem,
+                    ...subItems.slice(afterIndex + 1),
+                  ];
+
+                  return { ...a, subItems: newSubItems };
+                }
+                return a;
+              }),
+            }
+          : s
+      ),
+    });
+    // Auto-expand the article when adding sub-item
+    const key = `${sectionId}-${articleId}`;
+    setExpandedArticles(prev => new Set([...prev, key]));
+  };
+
+  // Insert Before functions for adding items above existing items
+  const insertSectionBefore = (beforeSectionId: number) => {
+    if (!editedFoundation) return;
+    const sections = editedFoundation.charterSections;
+    const beforeIndex = sections.findIndex(s => s.id === beforeSectionId);
+    if (beforeIndex === -1) return;
+
+    const newSection: CharterSection = {
+      id: Date.now(),
+      number: String(sections.length + 1),
+      title: 'หมวดใหม่',
+      orderIndex: beforeIndex,
+      articles: [],
+    };
+
+    const newSections = [
+      ...sections.slice(0, beforeIndex),
+      newSection,
+      ...sections.slice(beforeIndex),
+    ];
+
+    setEditedFoundation({
+      ...editedFoundation,
+      charterSections: newSections,
+    });
+  };
+
+  const insertArticleBefore = (sectionId: number, beforeArticleId: number) => {
+    if (!editedFoundation) return;
+    setEditedFoundation({
+      ...editedFoundation,
+      charterSections: editedFoundation.charterSections.map(s => {
+        if (s.id === sectionId) {
+          const articles = s.articles;
+          const beforeIndex = articles.findIndex(a => a.id === beforeArticleId);
+          if (beforeIndex === -1) return s;
+
+          const newArticle: Article = {
+            id: Date.now(),
+            number: String(articles.length + 1),
+            content: 'ข้อใหม่',
+            orderIndex: beforeIndex,
+            subItems: [],
+          };
+
+          const newArticles = [
+            ...articles.slice(0, beforeIndex),
+            newArticle,
+            ...articles.slice(beforeIndex),
+          ];
+
+          return { ...s, articles: newArticles };
+        }
+        return s;
+      }),
+    });
+  };
+
+  const insertSubItemBefore = (sectionId: number, articleId: number, beforeSubItemId: number) => {
+    if (!editedFoundation) return;
+    setEditedFoundation({
+      ...editedFoundation,
+      charterSections: editedFoundation.charterSections.map(s =>
+        s.id === sectionId
+          ? {
+              ...s,
+              articles: s.articles.map(a => {
+                if (a.id === articleId) {
+                  const subItems = a.subItems || [];
+                  const beforeIndex = subItems.findIndex(si => si.id === beforeSubItemId);
+                  if (beforeIndex === -1) return a;
+
+                  const newSubItem: SubItem = {
+                    id: Date.now(),
+                    number: `${a.number}.${subItems.length + 1}`,
+                    content: 'อนุข้อใหม่',
+                    orderIndex: beforeIndex,
+                  };
+
+                  const newSubItems = [
+                    ...subItems.slice(0, beforeIndex),
+                    newSubItem,
+                    ...subItems.slice(beforeIndex),
+                  ];
+
+                  return { ...a, subItems: newSubItems };
+                }
+                return a;
+              }),
+            }
+          : s
+      ),
+    });
+    // Auto-expand the article when adding sub-item
+    const key = `${sectionId}-${articleId}`;
+    setExpandedArticles(prev => new Set([...prev, key]));
   };
 
   const updateSubItem = (sectionId: number, articleId: number, subItemId: number, field: keyof SubItem, value: any) => {
@@ -1027,6 +1304,51 @@ export default function GroupDetailPage() {
                           placeholder="อธิบายลักษณะตราสัญลักษณ์"
                         />
                       </div>
+
+                    </div>
+
+                    {/* Cancelled Status - Prominent Card */}
+                    <div className={`rounded-2xl border-2 p-6 transition-all duration-300 ${
+                      displayFoundation.isCancelled
+                        ? 'bg-gradient-to-br from-red-50 via-red-50/80 to-orange-50 dark:from-red-950/30 dark:via-red-900/20 dark:to-orange-900/20 border-red-300 dark:border-red-700 shadow-lg shadow-red-500/10'
+                        : 'bg-gradient-to-br from-slate-50 via-slate-50/50 to-gray-50 dark:from-slate-800/30 dark:via-slate-800/20 dark:to-gray-800/20 border-border-color/30 hover:border-red-200 dark:hover:border-red-800/50'
+                    }`}>
+                      <label className="flex items-start gap-4 cursor-pointer group">
+                        <div className="pt-1">
+                          <input
+                            type="checkbox"
+                            checked={displayFoundation.isCancelled || false}
+                            onChange={(e) => updateFoundationField('isCancelled', e.target.checked)}
+                            className="w-6 h-6 rounded-lg border-2 border-red-400 dark:border-red-600 text-red-600 dark:text-red-500 focus:ring-4 focus:ring-red-500/30 focus:outline-none transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <span className={`text-base font-bold transition-colors duration-200 ${
+                              displayFoundation.isCancelled
+                                ? 'text-red-600 dark:text-red-400'
+                                : 'text-text-primary group-hover:text-red-600 dark:group-hover:text-red-400'
+                            }`}>
+                              มูลนิธิ/สมาคมนี้ยกเลิกแล้ว
+                            </span>
+                            {displayFoundation.isCancelled && (
+                              <span className="ml-auto px-3 py-1 rounded-full text-xs font-bold bg-red-600 dark:bg-red-500 text-white shadow-md animate-pulse">
+                                ยกเลิก
+                              </span>
+                            )}
+                          </div>
+                          <p className={`text-sm transition-colors duration-200 ${
+                            displayFoundation.isCancelled
+                              ? 'text-red-700 dark:text-red-300'
+                              : 'text-text-secondary group-hover:text-red-600/80 dark:group-hover:text-red-400/80'
+                          }`}>
+                            กรุณาเลือกช่องนี้หากมูลนิธิหรือสมาคมถูกยกเลิก/ยุบเลิกแล้ว
+                          </p>
+                        </div>
+                      </label>
                     </div>
 
                     {/* Charter Sections - Outline/Tree View */}
@@ -1100,10 +1422,14 @@ export default function GroupDetailPage() {
                                     <ChevronIcon expanded={isSectionExpanded} />
                                   </button>
 
-                                  {/* Section Badge */}
-                                  <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-700 text-white font-bold text-sm flex items-center justify-center shadow-md">
-                                    {section.number || sectionIdx + 1}
-                                  </div>
+                                  {/* Section Number - Editable */}
+                                  <input
+                                    type="text"
+                                    value={section.number}
+                                    onChange={(e) => updateSection(section.id, 'number', e.target.value)}
+                                    className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-700 text-white font-bold text-sm text-center border-2 border-transparent hover:border-blue-400 focus:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-300/30 transition-all duration-200 shadow-md"
+                                    placeholder={(sectionIdx + 1).toString()}
+                                  />
 
                                   {/* Section Title - Inline Editable */}
                                   <input
@@ -1127,6 +1453,20 @@ export default function GroupDetailPage() {
                                       title="เพิ่มข้อ"
                                     >
                                       <PlusIcon />
+                                    </button>
+                                    <button
+                                      onClick={() => insertSectionBefore(section.id)}
+                                      className="w-8 h-8 flex items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-colors"
+                                      title="แทรกหมวดใหม่ด้านบน"
+                                    >
+                                      <InsertUpIcon />
+                                    </button>
+                                    <button
+                                      onClick={() => insertSectionAfter(section.id)}
+                                      className="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors"
+                                      title="แทรกหมวดใหม่ด้านล่าง"
+                                    >
+                                      <InsertIcon />
                                     </button>
                                     <button
                                       onClick={() => removeSection(section.id)}
@@ -1201,6 +1541,20 @@ export default function GroupDetailPage() {
                                                   <PlusIcon className="w-3.5 h-3.5" />
                                                 </button>
                                                 <button
+                                                  onClick={() => insertArticleBefore(section.id, article.id)}
+                                                  className="w-7 h-7 flex items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-colors"
+                                                  title="แทรกข้อใหม่ด้านบน"
+                                                >
+                                                  <InsertUpIcon className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button
+                                                  onClick={() => insertArticleAfter(section.id, article.id)}
+                                                  className="w-7 h-7 flex items-center justify-center rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors"
+                                                  title="แทรกข้อใหม่ด้านล่าง"
+                                                >
+                                                  <InsertIcon className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button
                                                   onClick={() => removeArticle(section.id, article.id)}
                                                   className="w-7 h-7 flex items-center justify-center rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors"
                                                   title="ลบข้อ"
@@ -1237,14 +1591,30 @@ export default function GroupDetailPage() {
                                                         placeholder="เนื้อหาอนุข้อ"
                                                       />
 
-                                                      {/* Delete Button */}
-                                                      <button
-                                                        onClick={() => removeSubItem(section.id, article.id, subItem.id)}
-                                                        className="w-6 h-6 flex items-center justify-center rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 mt-0.5"
-                                                        title="ลบอนุข้อ"
-                                                      >
-                                                        <TrashIcon className="w-3 h-3" />
-                                                      </button>
+                                                      {/* Action Buttons */}
+                                                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 flex-shrink-0 mt-0.5">
+                                                        <button
+                                                          onClick={() => insertSubItemBefore(section.id, article.id, subItem.id)}
+                                                          className="w-6 h-6 flex items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-colors"
+                                                          title="แทรกอนุข้อใหม่ด้านบน"
+                                                        >
+                                                          <InsertUpIcon className="w-3 h-3" />
+                                                        </button>
+                                                        <button
+                                                          onClick={() => insertSubItemAfter(section.id, article.id, subItem.id)}
+                                                          className="w-6 h-6 flex items-center justify-center rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors"
+                                                          title="แทรกอนุข้อใหม่ด้านล่าง"
+                                                        >
+                                                          <InsertIcon className="w-3 h-3" />
+                                                        </button>
+                                                        <button
+                                                          onClick={() => removeSubItem(section.id, article.id, subItem.id)}
+                                                          className="w-6 h-6 flex items-center justify-center rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors"
+                                                          title="ลบอนุข้อ"
+                                                        >
+                                                          <TrashIcon className="w-3 h-3" />
+                                                        </button>
+                                                      </div>
                                                     </div>
                                                   ))}
                                                 </div>

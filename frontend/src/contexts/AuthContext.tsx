@@ -16,7 +16,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (data: LoginRequest) => Promise<void>;
+  login: (data: LoginRequest) => Promise<User>;
   logout: () => void;
   refreshUser: () => Promise<void>;
 }
@@ -51,6 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const response = await apiLogin(data);
     setAccessToken(response.accessToken);
     setUser(response.user);
+    return response.user;
   }, []);
 
   const logout = useCallback(() => {

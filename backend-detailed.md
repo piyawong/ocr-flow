@@ -1,6 +1,6 @@
 # OCR Flow v2 - Backend Architecture (รายละเอียด)
 
-> **อัปเดตล่าสุด:** 2025-12-20 (เพิ่ม Global Auth Guard + @Public() สำหรับ SSE endpoints)
+> **อัปเดตล่าสุด:** 2025-12-24 (Migrate districts → organizations)
 > **วัตถุประสงค์:** เอกสารรายละเอียดสถาปัตยกรรม Backend สำหรับนักพัฒนา
 
 ---
@@ -19,8 +19,11 @@
 10. [Templates Module](#7-templates-module)
 11. [Auth Module](#8-auth-module)
 12. [MinIO Module](#9-minio-module)
-13. [Background Task Patterns](#background-task-patterns)
-14. [Service Methods สำคัญ](#service-methods-สำคัญ)
+13. [Organizations Module](#10-organizations-module)
+14. [Activity Logs Module](#11-activity-logs-module)
+15. [Dashboard Module](#12-dashboard-module)
+16. [Background Task Patterns](#background-task-patterns)
+17. [Service Methods สำคัญ](#service-methods-สำคัญ)
 
 ---
 
@@ -87,6 +90,9 @@ backend/src/
 ├── templates/          # Template management
 ├── auth/               # Authentication & Authorization
 ├── minio/              # Object storage integration
+├── organizations/      # Organization/District management
+├── activity-logs/      # Activity logging
+├── dashboard/          # Dashboard statistics & analytics
 ├── app.module.ts       # Root module
 └── main.ts             # Entry point
 ```
@@ -103,6 +109,9 @@ backend/src/
 | **templates** | Template Config | All | Template |
 | **auth** | Authentication | All | User |
 | **minio** | Storage | All | - |
+| **organizations** | Organization/District Management | All | Organization |
+| **activity-logs** | Activity Logging | All | ActivityLog |
+| **dashboard** | Dashboard Analytics | All | - |
 
 ---
 
@@ -1316,6 +1325,357 @@ await this.minioService.deleteFile('ocr-documents', path);
 
 ---
 
+## 10. Organizations Module
+
+### Purpose
+จัดการข้อมูลองค์กร/สำนักงานเขต พร้อมการเชื่อมโยงกับกลุ่มเอกสารที่ parse แล้ว
+
+### Entity
+
+```typescript
+@Entity('organizations')
+export class Organization {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ type: 'varchar', length: 255, unique: true })
+  name: string;  // ชื่อองค์กร (เช่น "สำนักงานเขตจอมทอง")
+
+  @Column({ type: 'varchar', length: 255 })
+  groupName: string;  // ชื่อกลุ่ม (เช่น "จอมทอง")
+
+  @Column({ type: 'varchar', length: 100 })
+  registrationNumber: string;  // เลข กท. (เช่น "30", "31")
+
+  @Column({ type: 'text', nullable: true })
+  description: string | null;  // คำอธิบายเพิ่มเติม
+
+  @Column({ default: 0 })
+  displayOrder: number;  // ลำดับการแสดงผล
+
+  @Column({ default: true })
+  isActive: boolean;  // เปิด/ปิดการใช้งาน
+
+  @Column({ nullable: true })
+  matchedGroupId: number | null;  // FK to groups.id
+
+  @ManyToOne(() => Group, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'matchedGroupId' })
+  matchedGroup: Group | null;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
+}
+```
+
+### API Endpoints
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | `/organizations` | ดึง organizations ทั้งหมด (with optional filter) | Yes |
+| GET | `/organizations/:id` | ดึง organization ตาม ID | Yes |
+| POST | `/organizations` | สร้าง organization ใหม่ | Yes (Admin) |
+| PATCH | `/organizations/:id` | แก้ไข organization | Yes (Admin) |
+| DELETE | `/organizations/:id` | ลบ organization | Yes (Admin) |
+
+#### GET /organizations - Query Parameters
+
+```typescript
+interface GetOrganizationsQuery {
+  active?: 'true' | 'false';  // Optional: filter by isActive status
+}
+```
+
+#### GET /organizations - Response
+
+```json
+{
+  "total": 5,
+  "organizations": [
+    {
+      "id": 1,
+      "name": "สำนักงานเขตจอมทอง",
+      "groupName": "จอมทอง",
+      "registrationNumber": "30",
+      "description": "เขตจอมทอง",
+      "displayOrder": 1,
+      "isActive": true,
+      "matchedGroupId": 5,
+      "createdAt": "2025-12-19T10:00:00.000Z",
+      "updatedAt": "2025-12-19T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+#### POST /organizations - Request Body
+
+```json
+{
+  "name": "สำนักงานเขตจอมทอง",
+  "groupName": "จอมทอง",
+  "registrationNumber": "30",
+  "description": "เขตจอมทอง",
+  "displayOrder": 1
+}
+```
+
+#### PATCH /organizations/:id - Request Body
+
+```json
+{
+  "name": "สำนักงานเขตจอมทองใหม่",
+  "groupName": "จอมทองใหม่",
+  "registrationNumber": "30",
+  "description": "อัพเดท",
+  "displayOrder": 2,
+  "isActive": true,
+  "matchedGroupId": 5
+}
+```
+
+### Service Methods
+
+```typescript
+class OrganizationsService {
+  // Create
+  async create(createDto: CreateOrganizationDto): Promise<Organization>
+
+  // Query
+  async findAll(isActive?: boolean): Promise<Organization[]>
+  async findOne(id: number): Promise<Organization>
+
+  // Update
+  async update(id: number, updateDto: UpdateOrganizationDto): Promise<Organization>
+
+  // Delete
+  async delete(id: number): Promise<void>
+}
+```
+
+---
+
+## 11. Activity Logs Module
+
+### Purpose
+บันทึก activity logs สำหรับ audit trail และการติดตามการเปลี่ยนแปลงข้อมูล
+
+### Entity
+
+```typescript
+@Entity('activity_logs')
+export class ActivityLog {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  userId: number;  // User ID who performed the action
+
+  @Column()
+  action: string;  // Action type (e.g., 'FILE_UPLOAD', 'GROUP_LABEL', 'DATA_PARSE')
+
+  @Column({ type: 'varchar', length: 50 })
+  resourceType: string;  // Type of resource (e.g., 'FILE', 'GROUP', 'ORGANIZATION')
+
+  @Column({ nullable: true })
+  resourceId: number;  // ID of the affected resource
+
+  @Column({ type: 'jsonb', nullable: true })
+  details: any;  // Additional details about the action
+
+  @Column({ type: 'varchar', length: 50, default: 'PENDING' })
+  status: string;  // Status (PENDING, SUCCESS, FAILED)
+
+  @Column({ type: 'text', nullable: true })
+  errorMessage: string | null;  // Error message if failed
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
+}
+```
+
+### API Endpoints
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | `/activity-logs` | ดึง activity logs (pagination, filtering) | Yes |
+| GET | `/activity-logs/:id` | ดึง activity log ตาม ID | Yes |
+| POST | `/activity-logs` | บันทึก activity log ใหม่ | Yes |
+
+#### GET /activity-logs - Query Parameters
+
+```typescript
+interface GetActivityLogsQuery {
+  page?: number;          // Default: 1
+  limit?: number;         // Default: 10
+  userId?: number;        // Filter by user
+  action?: string;        // Filter by action type
+  resourceType?: string;  // Filter by resource type
+  status?: string;        // Filter by status
+  startDate?: string;     // ISO date string
+  endDate?: string;       // ISO date string
+}
+```
+
+#### GET /activity-logs - Response
+
+```json
+{
+  "logs": [
+    {
+      "id": 1,
+      "userId": 1,
+      "action": "FILE_UPLOAD",
+      "resourceType": "FILE",
+      "resourceId": 10,
+      "details": {
+        "fileName": "document.pdf",
+        "fileSize": 1024
+      },
+      "status": "SUCCESS",
+      "errorMessage": null,
+      "createdAt": "2025-12-19T10:00:00.000Z"
+    }
+  ],
+  "total": 100,
+  "page": 1,
+  "limit": 10,
+  "totalPages": 10
+}
+```
+
+### Service Methods
+
+```typescript
+class ActivityLogsService {
+  // Query
+  async findAll(query: GetActivityLogsQuery): Promise<PaginatedResponse<ActivityLog>>
+  async findOne(id: number): Promise<ActivityLog>
+
+  // Create
+  async create(data: CreateActivityLogDto): Promise<ActivityLog>
+
+  // Helper
+  async logActivity(
+    userId: number,
+    action: string,
+    resourceType: string,
+    resourceId?: number,
+    details?: any
+  ): Promise<ActivityLog>
+}
+```
+
+---
+
+## 12. Dashboard Module
+
+### Purpose
+ดึงข้อมูลสถิติและ analytics สำหรับ dashboard page
+
+### API Endpoints
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | `/dashboard/stats` | ดึงสถิติทั่วไป (files, groups, templates) | Yes |
+| GET | `/dashboard/progress` | ดึง progress ของแต่ละ stage | Yes |
+| GET | `/dashboard/organizations-stats` | ดึงสถิติสำหรับแต่ละองค์กร | Yes |
+
+#### GET /dashboard/stats - Response
+
+```json
+{
+  "totalFiles": 150,
+  "totalGroups": 30,
+  "processedGroups": 25,
+  "labeledGroups": 20,
+  "parsedGroups": 18,
+  "reviewedGroups": 15,
+  "totalTemplates": 12,
+  "activeTemplates": 10,
+  "totalOrganizations": 5,
+  "activeOrganizations": 4
+}
+```
+
+#### GET /dashboard/progress - Response
+
+```json
+{
+  "stage01": {
+    "name": "Upload & OCR",
+    "total": 150,
+    "completed": 150,
+    "percentage": 100
+  },
+  "stage02": {
+    "name": "Grouping",
+    "total": 150,
+    "completed": 130,
+    "percentage": 87
+  },
+  "stage03": {
+    "name": "Labeling",
+    "total": 130,
+    "completed": 120,
+    "percentage": 92
+  },
+  "stage04": {
+    "name": "Parsing",
+    "total": 120,
+    "completed": 100,
+    "percentage": 83
+  },
+  "stage05": {
+    "name": "Review",
+    "total": 100,
+    "completed": 95,
+    "percentage": 95
+  }
+}
+```
+
+#### GET /dashboard/organizations-stats - Response
+
+```json
+{
+  "organizations": [
+    {
+      "id": 1,
+      "name": "สำนักงานเขตจอมทอง",
+      "groupName": "จอมทอง",
+      "totalGroups": 10,
+      "labeledGroups": 8,
+      "parsedGroups": 6,
+      "percentage": 60
+    }
+  ]
+}
+```
+
+### Service Methods
+
+```typescript
+class DashboardService {
+  // Statistics
+  async getStats(): Promise<DashboardStats>
+  async getProgress(): Promise<StageProgress>
+  async getOrganizationsStats(): Promise<OrganizationStats[]>
+
+  // Helper methods
+  private async countByStatus(field: string, value: any): Promise<number>
+  private async getGroupStatusDistribution(): Promise<GroupStatusDistribution>
+}
+```
+
+---
+
 ## Background Task Patterns
 
 ### Infinite Worker Loop Pattern
@@ -1527,6 +1887,33 @@ class BackgroundService {
 | `deleteFile(bucket, path)` | ลบไฟล์จาก MinIO | void |
 | `fileExists(bucket, path)` | ตรวจสอบว่าไฟล์มีอยู่หรือไม่ | boolean |
 
+### OrganizationsService
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `create(createDto)` | สร้าง organization ใหม่ | Organization |
+| `findAll(isActive)` | ดึง organizations ทั้งหมด (with optional filter) | Organization[] |
+| `findOne(id)` | ดึง organization ตาม ID | Organization |
+| `update(id, updateDto)` | แก้ไข organization | Organization |
+| `delete(id)` | ลบ organization | void |
+
+### ActivityLogsService
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `findAll(query)` | ดึง activity logs (pagination, filtering) | PaginatedResponse<ActivityLog> |
+| `findOne(id)` | ดึง activity log ตาม ID | ActivityLog |
+| `create(data)` | สร้าง activity log ใหม่ | ActivityLog |
+| `logActivity(userId, action, resourceType, resourceId, details)` | บันทึก activity (helper method) | ActivityLog |
+
+### DashboardService
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `getStats()` | ดึงสถิติทั่วไป (files, groups, templates, organizations) | DashboardStats |
+| `getProgress()` | ดึง progress ของแต่ละ stage | StageProgress |
+| `getOrganizationsStats()` | ดึงสถิติสำหรับแต่ละองค์กร | OrganizationStats[] |
+
 ---
 
 ## 📝 สรุป
@@ -1544,4 +1931,4 @@ Backend ของ OCR Flow v2 ถูกออกแบบมาเพื่อ:
 ---
 
 **สร้างโดย:** OCR Flow Development Team
-**Last Updated:** 2025-12-19
+**Last Updated:** 2025-12-24

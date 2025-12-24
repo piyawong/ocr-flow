@@ -282,50 +282,56 @@ export async function getActivityLogs(query: ActivityLogsQuery = {}): Promise<Ac
   return response.json();
 }
 
-// ==================== DISTRICTS API ====================
+// ==================== ORGANIZATIONS API ====================
 
-export interface DistrictOffice {
+export interface Organization {
   id: number;
-  name: string; // ชื่อสำนักงานเขต
-  foundationName: string; // ชื่อมูลนิธิ
+  districtOfficeName: string; // สำนักงานเขต
+  name: string; // ชื่อองค์กร
+  type: string; // ประเภท: "สมาคม" | "มูลนิธิ"
   registrationNumber: string; // เลข กท.
   description: string | null;
   displayOrder: number;
   isActive: boolean;
+  matchedGroupId: number | null; // FK to groups.id
   createdAt: string;
   updatedAt: string;
 }
 
-export interface DistrictOfficeListResponse {
+export interface OrganizationListResponse {
   total: number;
-  districtOffices: DistrictOffice[];
+  organizations: Organization[];
 }
 
-export interface DistrictOfficeResponse {
-  districtOffice: DistrictOffice;
+export interface OrganizationResponse {
+  organization: Organization;
 }
 
-export interface CreateDistrictOfficeDto {
+export interface CreateOrganizationDto {
+  districtOfficeName: string;
   name: string;
-  foundationName: string;
+  type: string;
   registrationNumber: string;
   description?: string;
   displayOrder?: number;
   isActive?: boolean;
+  matchedGroupId?: number;
 }
 
-export interface UpdateDistrictOfficeDto {
+export interface UpdateOrganizationDto {
+  districtOfficeName?: string;
   name?: string;
-  foundationName?: string;
+  type?: string;
   registrationNumber?: string;
   description?: string;
   displayOrder?: number;
   isActive?: boolean;
+  matchedGroupId?: number;
 }
 
-// Create district office
-export async function createDistrictOffice(data: CreateDistrictOfficeDto): Promise<DistrictOfficeResponse> {
-  const response = await fetchWithAuth('/districts', {
+// Create organization
+export async function createOrganization(data: CreateOrganizationDto): Promise<OrganizationResponse> {
+  const response = await fetchWithAuth('/organizations', {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -338,39 +344,39 @@ export async function createDistrictOffice(data: CreateDistrictOfficeDto): Promi
   return response.json();
 }
 
-// Get all district offices
-export async function getDistrictOffices(isActive?: boolean): Promise<DistrictOfficeListResponse> {
+// Get all organizations
+export async function getOrganizations(isActive?: boolean): Promise<OrganizationListResponse> {
   const params = new URLSearchParams();
   if (isActive !== undefined) {
     params.append('active', isActive.toString());
   }
 
-  const response = await fetchWithAuth(`/districts?${params.toString()}`);
+  const response = await fetchWithAuth(`/organizations?${params.toString()}`);
 
   if (!response.ok) {
-    throw new Error('Failed to fetch district offices');
+    throw new Error('Failed to fetch organizations');
   }
 
   return response.json();
 }
 
-// Get single district office
-export async function getDistrictOffice(id: number): Promise<DistrictOfficeResponse> {
-  const response = await fetchWithAuth(`/districts/${id}`);
+// Get single organization
+export async function getOrganization(id: number): Promise<OrganizationResponse> {
+  const response = await fetchWithAuth(`/organizations/${id}`);
 
   if (!response.ok) {
-    throw new Error('Failed to fetch district office');
+    throw new Error('Failed to fetch organization');
   }
 
   return response.json();
 }
 
-// Update district office
-export async function updateDistrictOffice(
+// Update organization
+export async function updateOrganization(
   id: number,
-  data: UpdateDistrictOfficeDto
-): Promise<DistrictOfficeResponse> {
-  const response = await fetchWithAuth(`/districts/${id}`, {
+  data: UpdateOrganizationDto
+): Promise<OrganizationResponse> {
+  const response = await fetchWithAuth(`/organizations/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
   });
@@ -383,9 +389,9 @@ export async function updateDistrictOffice(
   return response.json();
 }
 
-// Delete district office
-export async function deleteDistrictOffice(id: number): Promise<void> {
-  const response = await fetchWithAuth(`/districts/${id}`, {
+// Delete organization
+export async function deleteOrganization(id: number): Promise<void> {
+  const response = await fetchWithAuth(`/organizations/${id}`, {
     method: 'DELETE',
   });
 
@@ -393,4 +399,78 @@ export async function deleteDistrictOffice(id: number): Promise<void> {
     const error = await response.json().catch(() => ({ message: 'Delete failed' }));
     throw new Error(error.message || 'Delete failed');
   }
+}
+
+// ==================== USER STAGE ACCESS UTILITY ====================
+
+/**
+ * Get the first accessible stage for a user based on their role and permissions
+ * @param user - User object with role and permissions
+ * @returns Path to the first accessible stage (e.g., '/stages/03-pdf-label') or null if no access
+ */
+export function getFirstAccessibleStage(user: User | null): string | null {
+  // No user = no access
+  if (!user) {
+    return null;
+  }
+
+  // Admin can access all stages - start from stage 01
+  if (user.role === 'admin') {
+    return '/stages/01-raw';
+  }
+
+  // For regular users, only stages with specific permissions are accessible
+  // Define stage access requirements (in order of priority)
+  const stageAccessMap: { stage: string; permission: string }[] = [
+    { stage: '/stages/03-pdf-label', permission: StagePermission.STAGE_03_PDF_LABEL },
+    { stage: '/stages/04-extract', permission: StagePermission.STAGE_04_EXTRACT },
+    { stage: '/stages/05-review', permission: StagePermission.STAGE_05_REVIEW },
+  ];
+
+  // Get user permissions (default to empty array if not set)
+  const userPermissions = user.permissions || [];
+
+  // Find the first stage that the user has permission for
+  for (const { stage, permission } of stageAccessMap) {
+    if (userPermissions.includes(permission)) {
+      return stage;
+    }
+  }
+
+  // No accessible stage found
+  return null;
+}
+
+/**
+ * Check if user has access to a specific stage
+ * @param user - User object with role and permissions
+ * @param stagePath - Stage path (e.g., '/stages/03-pdf-label')
+ * @returns true if user has access, false otherwise
+ */
+export function hasStageAccess(user: User | null, stagePath: string): boolean {
+  if (!user) return false;
+
+  // Admin can access all stages
+  if (user.role === 'admin') {
+    return true;
+  }
+
+  // For regular users, check specific stage permissions only
+  const userPermissions = user.permissions || [];
+
+  if (stagePath.includes('03-pdf-label')) {
+    return userPermissions.includes(StagePermission.STAGE_03_PDF_LABEL);
+  }
+
+  if (stagePath.includes('04-extract')) {
+    return userPermissions.includes(StagePermission.STAGE_04_EXTRACT);
+  }
+
+  if (stagePath.includes('05-review')) {
+    return userPermissions.includes(StagePermission.STAGE_05_REVIEW);
+  }
+
+  // Stage 01, 02, 06 are admin-only
+  // Regular users cannot access these stages
+  return false;
 }

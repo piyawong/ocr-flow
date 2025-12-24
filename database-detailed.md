@@ -1,7 +1,7 @@
 # Database Schema - รายละเอียดฉบับสมบูรณ์
 
 > **สำหรับ:** OCR Flow v2 Database Documentation
-> **อัปเดตล่าสุด:** 2025-12-21 (เพิ่ม activity_logs table)
+> **อัปเดตล่าสุด:** 2025-12-24 (Migrate districts → organizations)
 
 ---
 
@@ -20,6 +20,7 @@
    - [7. charter_articles - ข้อในแต่ละหมวด](#7-charter_articles---ข้อในแต่ละหมวด)
    - [8. charter_sub_items - ข้อย่อยของข้อ](#8-charter_sub_items---ข้อย่อยของข้อ)
    - [9. committee_members - กรรมการมูลนิธิ](#9-committee_members---กรรมการมูลนิธิ)
+   - [10. organizations - องค์กร/มูลนิธิ](#10-organizations---องค์กรมูลนิธิ)
 4. [Relations & Foreign Keys](#relations--foreign-keys)
 5. [Cascade Delete Rules](#cascade-delete-rules)
 6. [Indexes](#indexes)
@@ -36,12 +37,13 @@
 - **Password:** postgres
 
 ### จำนวนตาราง
-- **ทั้งหมด:** 11 ตาราง
+- **ทั้งหมด:** 12 ตาราง
 - **หมวดหมู่:**
   - **Authentication:** 1 ตาราง (users)
   - **File Management:** 2 ตาราง (files, groups)
   - **Labeling:** 2 ตาราง (documents, templates)
   - **Parsed Data:** 5 ตาราง (foundation_instruments, charter_sections, charter_articles, charter_sub_items, committee_members)
+  - **Organizations:** 1 ตาราง (organizations)
   - **Activity Logging:** 1 ตาราง (activity_logs)
 
 ---
@@ -115,7 +117,7 @@
                   │ final_review_notes │         │
                   │                    │         │
                   │ -- Registration -- │         │
-                  │ district_office    │         │
+                  │ organization       │         │
                   │ registration_number│         │
                   │ logo_url           │         │
                   └────────────────────┘         │
@@ -243,7 +245,7 @@ erDiagram
         timestamp final_approved_at
         varchar final_reviewer
         text final_review_notes
-        text district_office
+        varchar organization
         varchar registration_number
         varchar logo_url
         timestamp created_at
@@ -290,6 +292,7 @@ erDiagram
         varchar short_name
         text address
         text logo_description
+        boolean is_cancelled
         timestamp created_at
         timestamp updated_at
     }
@@ -329,10 +332,21 @@ erDiagram
         timestamp created_at
     }
 
+    organizations {
+        int id PK
+        varchar groupName
+        varchar officeName
+        varchar registrationNumber
+        int matchedGroupId FK
+        timestamp created_at
+        timestamp updated_at
+    }
+
     files ||--o{ groups : "group_id"
     groups ||--o{ documents : "group_id (CASCADE)"
     groups ||--|| foundation_instruments : "group_id (CASCADE, UNIQUE)"
     groups ||--o{ committee_members : "group_id (CASCADE)"
+    groups ||--o{ organizations : "matchedGroupId"
     foundation_instruments ||--o{ charter_sections : "foundation_instrument_id (CASCADE)"
     charter_sections ||--o{ charter_articles : "charter_section_id (CASCADE)"
     charter_articles ||--o{ charter_sub_items : "charter_article_id (CASCADE)"
@@ -494,7 +508,7 @@ CREATE TABLE groups (
   final_review_notes TEXT NULL,
 
   -- Registration info
-  district_office TEXT NULL,
+  organization VARCHAR(255) NULL,
   registration_number VARCHAR(50) NULL,
   logo_url VARCHAR(500) NULL,
 
@@ -524,7 +538,7 @@ CREATE TABLE groups (
 | `final_approved_at` | TIMESTAMP | เวลาที่ approve | 05 |
 | `final_reviewer` | VARCHAR(255) | ผู้ approve (จาก JWT user.name) | 05 |
 | `final_review_notes` | TEXT | หมายเหตุจาก final reviewer | 05 |
-| `district_office` | TEXT | สำนักงานเขตที่จดทะเบียน | - |
+| `organization` | VARCHAR(255) | ชื่อองค์กร | - |
 | `registration_number` | VARCHAR(50) | เลขทะเบียนมูลนิธิ | - |
 | `logo_url` | VARCHAR(500) | URL ของ Logo มูลนิธิใน MinIO | - |
 | `created_at` | TIMESTAMP | วันที่สร้าง | - |
@@ -773,6 +787,7 @@ CREATE TABLE foundation_instruments (
   short_name VARCHAR(255) NULL,
   address TEXT NULL,
   logo_description TEXT NULL,
+  is_cancelled BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -788,6 +803,7 @@ CREATE TABLE foundation_instruments (
 | `short_name` | VARCHAR(255) | ชื่อย่อ (เช่น "ม.ก.ข.") | NULL |
 | `address` | TEXT | ที่ตั้งมูลนิธิ | NULL |
 | `logo_description` | TEXT | คำอธิบายตราสัญลักษณ์ | NULL |
+| `is_cancelled` | BOOLEAN | มูลนิธิ/สมาคมนี้ยกเลิกแล้วหรือไม่ | DEFAULT FALSE |
 | `created_at` | TIMESTAMP | วันที่สร้าง | DEFAULT NOW() |
 | `updated_at` | TIMESTAMP | วันที่อัปเดต | DEFAULT NOW() |
 
@@ -967,6 +983,49 @@ CREATE TABLE committee_members (
 
 ---
 
+### 10. organizations - องค์กร/มูลนิธิ
+
+**วัตถุประสงค์:** เก็บข้อมูลองค์กร/มูลนิธิและการจับคู่กับ groups
+
+**SQL Schema:**
+```sql
+CREATE TABLE organizations (
+  id SERIAL PRIMARY KEY,
+  groupName VARCHAR(255) NOT NULL,           -- ชื่อกลุ่ม
+  officeName VARCHAR(255) NOT NULL,          -- ชื่อสำนักงาน/องค์กร
+  registrationNumber VARCHAR(100) NULL,      -- เลขทะเบียน
+  matchedGroupId INTEGER NULL REFERENCES groups(id) ON DELETE SET NULL,  -- Group ที่จับคู่
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_organizations_matched_group_id ON organizations(matchedGroupId);
+```
+
+**ฟิลด์สำคัญ:**
+
+| ฟิลด์ | ประเภท | คำอธิบาย | Constraints |
+|------|--------|---------|-------------|
+| `id` | SERIAL | Primary key | PRIMARY KEY |
+| `groupName` | VARCHAR(255) | ชื่อกลุ่ม | NOT NULL |
+| `officeName` | VARCHAR(255) | ชื่อสำนักงาน/องค์กร | NOT NULL |
+| `registrationNumber` | VARCHAR(100) | เลขทะเบียน | NULL |
+| `matchedGroupId` | INTEGER | Foreign key to groups | NULL, REFERENCES groups(id) ON DELETE SET NULL |
+| `created_at` | TIMESTAMP | วันที่สร้าง | DEFAULT NOW() |
+| `updated_at` | TIMESTAMP | วันที่อัปเดต | DEFAULT NOW() |
+
+**Relations:**
+- `matchedGroupId` → `groups.id` (Many-to-One, nullable, SET NULL on delete)
+
+**Cascade Delete:**
+- เมื่อ delete group → organizations.matchedGroupId จะเป็น NULL (ไม่ delete organizations)
+
+**Indexes:**
+- Primary Key: `id`
+- Index: `matchedGroupId` (for faster joins)
+
+---
+
 ## Relations & Foreign Keys
 
 ### Foreign Keys Summary
@@ -977,6 +1036,7 @@ CREATE TABLE committee_members (
 | `documents` | `group_id` | `groups.id` | Many-to-One | ✅ CASCADE DELETE |
 | `foundation_instruments` | `group_id` | `groups.id` | One-to-One | ✅ CASCADE DELETE |
 | `committee_members` | `group_id` | `groups.id` | Many-to-One | ✅ CASCADE DELETE |
+| `organizations` | `matchedGroupId` | `groups.id` | Many-to-One | ✅ SET NULL |
 | `charter_sections` | `foundation_instrument_id` | `foundation_instruments.id` | Many-to-One | ✅ CASCADE DELETE |
 | `charter_articles` | `charter_section_id` | `charter_sections.id` | Many-to-One | ✅ CASCADE DELETE |
 | `charter_sub_items` | `charter_article_id` | `charter_articles.id` | Many-to-One | ✅ CASCADE DELETE |
@@ -991,7 +1051,8 @@ groups (1)
 │       └─────> charter_sections (N) - CASCADE DELETE
 │               └─────> charter_articles (N) - CASCADE DELETE
 │                       └─────> charter_sub_items (N) - CASCADE DELETE
-└─────> committee_members (N) - CASCADE DELETE
+├─────> committee_members (N) - CASCADE DELETE
+└─────> organizations (N) - SET NULL
 ```
 
 ---
@@ -1082,6 +1143,7 @@ groups (1)
 | `charter_sub_items` | `order_index` | Sorting sub items |
 | `committee_members` | `group_id` | Faster joins |
 | `committee_members` | `order_index` | Sorting members |
+| `organizations` | `matchedGroupId` | Faster joins with groups |
 
 ### Recommended Index Creation
 
@@ -1118,6 +1180,9 @@ CREATE INDEX idx_charter_sub_items_order_index ON charter_sub_items(order_index)
 -- committee_members
 CREATE INDEX idx_committee_members_group_id ON committee_members(group_id);
 CREATE INDEX idx_committee_members_order_index ON committee_members(order_index);
+
+-- organizations
+CREATE INDEX idx_organizations_matched_group_id ON organizations(matchedGroupId);
 ```
 
 ---
@@ -1133,20 +1198,21 @@ CREATE INDEX idx_committee_members_order_index ON committee_members(order_index)
 | `groups` | 21 | - | - |
 | `documents` | 13 | 1 FK | ✅ |
 | `templates` | 12 | - | - |
-| `foundation_instruments` | 7 | 1 FK | ✅ |
+| `foundation_instruments` | 8 | 1 FK | ✅ |
 | `charter_sections` | 5 | 1 FK | ✅ |
 | `charter_articles` | 5 | 1 FK | ✅ |
 | `charter_sub_items` | 5 | 1 FK | ✅ |
 | `committee_members` | 7 | 1 FK | ✅ |
+| `organizations` | 6 | 1 FK | ✅ SET NULL |
 
 ### Total
-- **ตาราง:** 10
-- **Foreign Keys:** 7
-- **Cascade Delete:** 6
+- **ตาราง:** 11
+- **Foreign Keys:** 8
+- **Cascade Delete:** 6 (CASCADE) + 1 (SET NULL)
 - **Unique Constraints:** 2
 
 ---
 
 **สร้างโดย:** OCR Flow Development Team
-**อัปเดตล่าสุด:** 2025-12-21
-**เวอร์ชัน:** 2.0
+**อัปเดตล่าสุด:** 2025-12-24 (Migrate districts → organizations)
+**เวอร์ชัน:** 2.1

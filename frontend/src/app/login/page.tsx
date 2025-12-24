@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { initAdmin } from '@/lib/api';
+import { initAdmin, getFirstAccessibleStage } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardContent, CardFooter } from '@/components/ui/Card';
@@ -12,7 +12,7 @@ import { LoadingState } from '@/components/ui/Spinner';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, isAuthenticated, isLoading } = useAuth();
+  const { login, isAuthenticated, isLoading, user } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,10 +22,14 @@ export default function LoginPage() {
 
   // Redirect if already authenticated
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      router.push('/stages/01-raw');
+    if (!isLoading && isAuthenticated && user) {
+      const firstStage = getFirstAccessibleStage(user);
+      if (firstStage) {
+        router.push(firstStage);
+      }
+      // If no accessible stage, stay on login page with error (handled by login flow)
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, isLoading, user, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,8 +37,16 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      await login({ email, password });
-      router.push('/stages/01-raw');
+      const user = await login({ email, password });
+      const firstStage = getFirstAccessibleStage(user);
+
+      // Check if user has access to any stage
+      if (!firstStage) {
+        setError('You do not have permission to access any stage. Please contact your administrator.');
+        return;
+      }
+
+      router.push(firstStage);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

@@ -559,6 +559,14 @@ export class LabeledFilesService {
         stage: ActivityStage.STAGE_03_PDF_LABEL,
         description,
       });
+
+      // ✅ Send SSE event: GROUP_REVIEWED
+      this.filesService.emitEvent({
+        type: 'GROUP_REVIEWED',
+        groupId,
+        reviewer,
+        timestamp: new Date().toISOString(),
+      });
     } else {
       result = { affected: 0 };
 

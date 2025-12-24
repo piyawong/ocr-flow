@@ -19,11 +19,12 @@ import {
 } from '../activity-logs/activity-log.entity';
 
 export interface FileEvent {
-  type: 'GROUP_COMPLETE' | 'GROUP_CREATED' | 'GROUP_LOCKED' | 'GROUP_UNLOCKED';
+  type: 'GROUP_COMPLETE' | 'GROUP_CREATED' | 'GROUP_LOCKED' | 'GROUP_UNLOCKED' | 'GROUP_PARSED' | 'GROUP_REVIEWED';
   groupId?: number;
   lockedBy?: number;
   lockedAt?: Date;
   unlockedBy?: number;
+  reviewer?: string;
   timestamp?: string;
 }
 
@@ -609,10 +610,13 @@ export class FilesService {
     committeeCount: number;
     isParseDataReviewed: boolean;
     parseDataReviewer: string | null;
+    lockedBy: number | null;
+    lockedByName: string | null;
+    lockedAt: Date | null;
   }>> {
     const groups = await this.groupRepository.find({
       where: { isParseData: true },
-      relations: ['foundationInstrument', 'committeeMembers'],
+      relations: ['foundationInstrument', 'committeeMembers', 'lockedByUser'],
       order: { parseDataAt: 'DESC' },
     });
 
@@ -630,6 +634,9 @@ export class FilesService {
         committeeCount: group.committeeMembers?.length || 0,
         isParseDataReviewed: group.isParseDataReviewed,
         parseDataReviewer: group.parseDataReviewer,
+        lockedBy: group.lockedBy,
+        lockedByName: group.lockedByUser?.name || null,
+        lockedAt: group.lockedAt,
       });
     }
 
@@ -771,6 +778,9 @@ export class FilesService {
           existingFI.shortName = data.foundationInstrument.shortName;
           existingFI.address = data.foundationInstrument.address;
           existingFI.logoDescription = data.foundationInstrument.logoDescription;
+          if (data.foundationInstrument.isCancelled !== undefined) {
+            existingFI.isCancelled = data.foundationInstrument.isCancelled;
+          }
 
           // Delete all existing nested relations
           for (const section of existingFI.charterSections || []) {
