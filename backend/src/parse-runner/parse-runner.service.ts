@@ -239,6 +239,13 @@ export class ParseRunnerService {
       }
     }
 
+    // Sort charter sections by section number (ascending) - use numeric comparison
+    data.charterSections.sort((a, b) => {
+      const numA = parseInt(a.number.trim(), 10);
+      const numB = parseInt(b.number.trim(), 10);
+      return numA - numB;
+    });
+
     return data;
   }
 

@@ -667,6 +667,28 @@ export class FilesService {
 
     if (!group) return null;
 
+    // Sort charter sections, articles, and sub-items by orderIndex
+    if (group.foundationInstrument?.charterSections) {
+      group.foundationInstrument.charterSections.sort((a, b) => a.orderIndex - b.orderIndex);
+
+      for (const section of group.foundationInstrument.charterSections) {
+        if (section.articles) {
+          section.articles.sort((a, b) => a.orderIndex - b.orderIndex);
+
+          for (const article of section.articles) {
+            if (article.subItems) {
+              article.subItems.sort((a, b) => a.orderIndex - b.orderIndex);
+            }
+          }
+        }
+      }
+    }
+
+    // Sort committee members by orderIndex
+    if (group.committeeMembers) {
+      group.committeeMembers.sort((a, b) => a.orderIndex - b.orderIndex);
+    }
+
     return {
       group,
       foundationInstrument: group.foundationInstrument,
