@@ -6,6 +6,22 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePermission } from '@/hooks/usePermission';
 import { fetchWithAuth } from '@/lib/api';
 import { DistrictOfficeCombobox } from '@/components/shared/DistrictOfficeCombobox';
+import {
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
 
@@ -56,6 +72,14 @@ const DocumentIcon = ({ className = '' }: { className?: string }) => (
   </svg>
 );
 
+// Drag Handle icon (⋮⋮)
+const DragHandleIcon = ({ className = '' }: { className?: string }) => (
+  <svg className={`w-4 h-4 ${className}`} fill="currentColor" viewBox="0 0 24 24">
+    <path d="M9 3C9 2.44772 8.55228 2 8 2C7.44772 2 7 2.44772 7 3V21C7 21.5523 7.44772 22 8 22C8.55228 22 9 21.5523 9 21V3Z" />
+    <path d="M17 3C17 2.44772 16.5523 2 16 2C15.4477 2 15 2.44772 15 3V21C15 21.5523 15.4477 22 16 22C16.5523 22 17 21.5523 17 21V3Z" />
+  </svg>
+);
+
 // Auto-resize textarea component
 const AutoResizeTextarea = ({
   value,
@@ -90,6 +114,32 @@ const AutoResizeTextarea = ({
       rows={minRows}
       style={{ overflow: 'hidden', resize: 'none' }}
     />
+  );
+};
+
+// Sortable wrapper component for draggable items
+const SortableItem = ({ id, children }: { id: string | number; children: React.ReactNode }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: id.toString() });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      {typeof children === 'function'
+        ? children({ listeners, isDragging })
+        : children}
+    </div>
   );
 };
 
@@ -186,9 +236,40 @@ export default function GroupDetailPage() {
   // Validation error modal state
   const [showValidationModal, setShowValidationModal] = useState(false);
 
+  // Track user interactions
+  const [hasVisitedFoundation, setHasVisitedFoundation] = useState(false);
+  const [hasVisitedCommittee, setHasVisitedCommittee] = useState(false);
+  const [hasSelectedLogo, setHasSelectedLogo] = useState(false);
+  const [showInteractionWarning, setShowInteractionWarning] = useState(false);
+
   // Collapse/expand state for outline view
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
   const [expandedArticles, setExpandedArticles] = useState<Set<string>>(new Set()); // format: "sectionId-articleId"
+
+  // Drag and drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // Start dragging after 8px movement
+      },
+    })
+  );
+
+  // Track tab visits
+  useEffect(() => {
+    if (activeTab === 'foundation') {
+      setHasVisitedFoundation(true);
+    } else if (activeTab === 'committee') {
+      setHasVisitedCommittee(true);
+    }
+  }, [activeTab]);
+
+  // Track logo selection
+  useEffect(() => {
+    if (editedDistrictOffice || groupDetail?.group?.logoUrl) {
+      setHasSelectedLogo(true);
+    }
+  }, [editedDistrictOffice, groupDetail?.group?.logoUrl]);
 
   // Toggle section expansion
   const toggleSection = useCallback((sectionId: number) => {
@@ -236,6 +317,95 @@ export default function GroupDetailPage() {
     setExpandedSections(new Set());
     setExpandedArticles(new Set());
   }, []);
+
+  // Drag and drop handlers
+  const handleSectionDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !editedFoundation) return;
+
+    const oldIndex = editedFoundation.charterSections.findIndex(s => s.id === Number(active.id));
+    const newIndex = editedFoundation.charterSections.findIndex(s => s.id === Number(over.id));
+
+    const reordered = arrayMove(editedFoundation.charterSections, oldIndex, newIndex);
+    const updatedSections = reordered.map((section, idx) => ({
+      ...section,
+      orderIndex: idx,
+    }));
+
+    setEditedFoundation({
+      ...editedFoundation,
+      charterSections: updatedSections,
+    });
+  };
+
+  const handleArticleDragEnd = (event: DragEndEvent, sectionId: number) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !editedFoundation) return;
+
+    const sectionIndex = editedFoundation.charterSections.findIndex(s => s.id === sectionId);
+    if (sectionIndex === -1) return;
+
+    const section = editedFoundation.charterSections[sectionIndex];
+    const oldIndex = section.articles.findIndex(a => a.id === Number(active.id));
+    const newIndex = section.articles.findIndex(a => a.id === Number(over.id));
+
+    const reordered = arrayMove(section.articles, oldIndex, newIndex);
+    const updatedArticles = reordered.map((article, idx) => ({
+      ...article,
+      orderIndex: idx,
+    }));
+
+    const updatedSections = [...editedFoundation.charterSections];
+    updatedSections[sectionIndex] = {
+      ...section,
+      articles: updatedArticles,
+    };
+
+    setEditedFoundation({
+      ...editedFoundation,
+      charterSections: updatedSections,
+    });
+  };
+
+  const handleSubItemDragEnd = (event: DragEndEvent, sectionId: number, articleId: number) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !editedFoundation) return;
+
+    const sectionIndex = editedFoundation.charterSections.findIndex(s => s.id === sectionId);
+    if (sectionIndex === -1) return;
+
+    const section = editedFoundation.charterSections[sectionIndex];
+    const articleIndex = section.articles.findIndex(a => a.id === articleId);
+    if (articleIndex === -1) return;
+
+    const article = section.articles[articleIndex];
+    const subItems = article.subItems || [];
+    const oldIndex = subItems.findIndex(si => si.id === Number(active.id));
+    const newIndex = subItems.findIndex(si => si.id === Number(over.id));
+
+    const reordered = arrayMove(subItems, oldIndex, newIndex);
+    const updatedSubItems = reordered.map((subItem, idx) => ({
+      ...subItem,
+      orderIndex: idx,
+    }));
+
+    const updatedArticles = [...section.articles];
+    updatedArticles[articleIndex] = {
+      ...article,
+      subItems: updatedSubItems,
+    };
+
+    const updatedSections = [...editedFoundation.charterSections];
+    updatedSections[sectionIndex] = {
+      ...section,
+      articles: updatedArticles,
+    };
+
+    setEditedFoundation({
+      ...editedFoundation,
+      charterSections: updatedSections,
+    });
+  };
 
   // ✅ Lock group on mount, unlock on unmount
   useEffect(() => {
@@ -393,7 +563,18 @@ export default function GroupDetailPage() {
 
   // Open save modal
   const handleOpenSaveModal = () => {
-    // Validate required fields first
+    // Check user interactions first
+    const missingInteractions: string[] = [];
+    if (!hasVisitedFoundation) missingInteractions.push('ตราสาร');
+    if (!hasVisitedCommittee) missingInteractions.push('กรรมการ');
+    if (!hasSelectedLogo) missingInteractions.push('เลือก Logo');
+
+    if (missingInteractions.length > 0) {
+      setShowInteractionWarning(true);
+      return;
+    }
+
+    // Validate required fields
     if (!validateFields()) {
       // Show validation error modal
       setShowValidationModal(true);
@@ -446,7 +627,8 @@ export default function GroupDetailPage() {
       }
 
       alert('บันทึกและ Review สำเร็จ!');
-      window.location.reload();
+      // Redirect to stage 04 list page
+      router.push('/stages/04-extract');
     } catch (err: any) {
       console.error('Error saving/reviewing:', err);
       alert(`Error: ${err.message}`);
@@ -469,6 +651,7 @@ export default function GroupDetailPage() {
       if (e.key === 'Escape') {
         if (showSaveModal) setShowSaveModal(false);
         if (showValidationModal) setShowValidationModal(false);
+        if (showInteractionWarning) setShowInteractionWarning(false);
       }
     };
 
@@ -535,7 +718,7 @@ export default function GroupDetailPage() {
     const newSection: CharterSection = {
       id: Date.now(),
       number: String(editedFoundation.charterSections.length + 1),
-      title: 'หมวดใหม่',
+      title: '',
       orderIndex: editedFoundation.charterSections.length,
       articles: [],
     };
@@ -572,7 +755,7 @@ export default function GroupDetailPage() {
           const newArticle: Article = {
             id: Date.now(),
             number: String(s.articles.length + 1),
-            content: 'ข้อใหม่',
+            content: '',
             orderIndex: s.articles.length,
             subItems: [],
           };
@@ -603,9 +786,28 @@ export default function GroupDetailPage() {
         s.id === sectionId
           ? {
               ...s,
-              articles: s.articles.map(a =>
-                a.id === articleId ? { ...a, [field]: value } : a
-              ),
+              articles: s.articles.map(a => {
+                if (a.id === articleId) {
+                  const updatedArticle = { ...a, [field]: value };
+
+                  // ถ้าแก้ไข number → อัปเดต sub items ทั้งหมด
+                  if (field === 'number' && a.subItems && a.subItems.length > 0) {
+                    updatedArticle.subItems = a.subItems.map(si => {
+                      // Parse "1.2" → ["1", "2"]
+                      const parts = si.number.split('.');
+                      const subNum = parts[1] || '1';
+
+                      return {
+                        ...si,
+                        number: `${value}.${subNum}`, // ใช้ main number ใหม่
+                      };
+                    });
+                  }
+
+                  return updatedArticle;
+                }
+                return a;
+              }),
             }
           : s
       ),
@@ -626,7 +828,7 @@ export default function GroupDetailPage() {
                   const newSubItem: SubItem = {
                     id: Date.now(),
                     number: `${a.number}.${subItems.length + 1}`,
-                    content: 'อนุข้อใหม่',
+                    content: '',
                     orderIndex: subItems.length,
                   };
                   return { ...a, subItems: [...subItems, newSubItem] };
@@ -668,10 +870,13 @@ export default function GroupDetailPage() {
     const afterIndex = sections.findIndex(s => s.id === afterSectionId);
     if (afterIndex === -1) return;
 
+    const currentSection = sections[afterIndex];
+    const currentNumber = parseInt(currentSection.number) || 0;
+
     const newSection: CharterSection = {
       id: Date.now(),
-      number: String(sections.length + 1),
-      title: 'หมวดใหม่',
+      number: String(currentNumber + 1),
+      title: '',
       orderIndex: afterIndex + 1,
       articles: [],
     };
@@ -698,10 +903,13 @@ export default function GroupDetailPage() {
           const afterIndex = articles.findIndex(a => a.id === afterArticleId);
           if (afterIndex === -1) return s;
 
+          const currentArticle = articles[afterIndex];
+          const currentNumber = parseInt(currentArticle.number) || 0;
+
           const newArticle: Article = {
             id: Date.now(),
-            number: String(articles.length + 1),
-            content: 'ข้อใหม่',
+            number: String(currentNumber + 1),
+            content: '',
             orderIndex: afterIndex + 1,
             subItems: [],
           };
@@ -733,10 +941,16 @@ export default function GroupDetailPage() {
                   const afterIndex = subItems.findIndex(si => si.id === afterSubItemId);
                   if (afterIndex === -1) return a;
 
+                  const currentSubItem = subItems[afterIndex];
+                  // Parse "4.5" → [4, 5]
+                  const parts = currentSubItem.number.split('.');
+                  const mainNum = parts[0] || a.number;
+                  const subNum = parseInt(parts[1] || '0');
+
                   const newSubItem: SubItem = {
                     id: Date.now(),
-                    number: `${a.number}.${subItems.length + 1}`,
-                    content: 'อนุข้อใหม่',
+                    number: `${mainNum}.${subNum + 1}`,
+                    content: '',
                     orderIndex: afterIndex + 1,
                   };
 
@@ -766,10 +980,13 @@ export default function GroupDetailPage() {
     const beforeIndex = sections.findIndex(s => s.id === beforeSectionId);
     if (beforeIndex === -1) return;
 
+    const currentSection = sections[beforeIndex];
+    const currentNumber = parseInt(currentSection.number) || 1;
+
     const newSection: CharterSection = {
       id: Date.now(),
-      number: String(sections.length + 1),
-      title: 'หมวดใหม่',
+      number: String(Math.max(1, currentNumber - 1)),
+      title: '',
       orderIndex: beforeIndex,
       articles: [],
     };
@@ -796,10 +1013,13 @@ export default function GroupDetailPage() {
           const beforeIndex = articles.findIndex(a => a.id === beforeArticleId);
           if (beforeIndex === -1) return s;
 
+          const currentArticle = articles[beforeIndex];
+          const currentNumber = parseInt(currentArticle.number) || 1;
+
           const newArticle: Article = {
             id: Date.now(),
-            number: String(articles.length + 1),
-            content: 'ข้อใหม่',
+            number: String(Math.max(1, currentNumber - 1)),
+            content: '',
             orderIndex: beforeIndex,
             subItems: [],
           };
@@ -831,10 +1051,16 @@ export default function GroupDetailPage() {
                   const beforeIndex = subItems.findIndex(si => si.id === beforeSubItemId);
                   if (beforeIndex === -1) return a;
 
+                  const currentSubItem = subItems[beforeIndex];
+                  // Parse "4.5" → [4, 5]
+                  const parts = currentSubItem.number.split('.');
+                  const mainNum = parts[0] || a.number;
+                  const subNum = parseInt(parts[1] || '1');
+
                   const newSubItem: SubItem = {
                     id: Date.now(),
-                    number: `${a.number}.${subItems.length + 1}`,
-                    content: 'อนุข้อใหม่',
+                    number: `${mainNum}.${Math.max(1, subNum - 1)}`,
+                    content: '',
                     orderIndex: beforeIndex,
                   };
 
@@ -1401,17 +1627,37 @@ export default function GroupDetailPage() {
 
                         {/* Outline Tree View */}
                         <div className="rounded-xl border border-border-color/30 overflow-hidden bg-bg-primary/30">
-                          {displayFoundation.charterSections.map((section, sectionIdx) => {
-                            const isSectionExpanded = expandedSections.has(section.id);
-                            const articleCount = section.articles?.length || 0;
+                          <DndContext
+                            sensors={sensors}
+                            collisionDetection={closestCenter}
+                            onDragEnd={handleSectionDragEnd}
+                          >
+                            <SortableContext
+                              items={displayFoundation.charterSections.map(s => s.id.toString())}
+                              strategy={verticalListSortingStrategy}
+                            >
+                              {displayFoundation.charterSections.map((section, sectionIdx) => {
+                                const isSectionExpanded = expandedSections.has(section.id);
+                                const articleCount = section.articles?.length || 0;
 
-                            return (
-                              <div key={section.id} className={sectionIdx > 0 ? 'border-t border-border-color/30' : ''}>
-                                {/* Section Header (Level 0) */}
-                                <div className="flex items-center gap-3 px-4 py-3.5 hover:bg-accent/10 transition-all duration-200 group bg-bg-secondary/50">
-                                  {/* Expand/Collapse Toggle */}
-                                  <button
-                                    onClick={() => toggleSection(section.id)}
+                                return (
+                                  <SortableItem key={section.id} id={section.id}>
+                                    {({ listeners, isDragging }: { listeners: any; isDragging: boolean }) => (
+                                      <div className={sectionIdx > 0 ? 'border-t border-border-color/30' : ''}>
+                                        {/* Section Header (Level 0) */}
+                                        <div className="flex items-center gap-3 px-4 py-3.5 hover:bg-accent/10 transition-all duration-200 group bg-bg-secondary/50">
+                                          {/* Drag Handle */}
+                                          <button
+                                            {...listeners}
+                                            className="w-6 h-8 flex items-center justify-center text-text-secondary hover:text-accent cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
+                                            title="ลากเพื่อเรียงลำดับ"
+                                          >
+                                            <DragHandleIcon />
+                                          </button>
+
+                                          {/* Expand/Collapse Toggle */}
+                                          <button
+                                            onClick={() => toggleSection(section.id)}
                                     className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-200 ${
                                       isSectionExpanded
                                         ? 'bg-accent/20 text-accent'
@@ -1482,18 +1728,38 @@ export default function GroupDetailPage() {
                                 <div className={`overflow-hidden transition-all duration-300 ease-out ${isSectionExpanded ? 'max-h-[10000px] opacity-100' : 'max-h-0 opacity-0'}`}>
                                   {section.articles && section.articles.length > 0 && (
                                     <div className="bg-bg-primary/50 border-t border-border-color/20">
-                                      {section.articles.map((article, articleIdx) => {
-                                        const articleKey = `${section.id}-${article.id}`;
-                                        const isArticleExpanded = expandedArticles.has(articleKey);
-                                        const hasSubItems = article.subItems && article.subItems.length > 0;
+                                      <DndContext
+                                        sensors={sensors}
+                                        collisionDetection={closestCenter}
+                                        onDragEnd={(event) => handleArticleDragEnd(event, section.id)}
+                                      >
+                                        <SortableContext
+                                          items={section.articles.map(a => a.id.toString())}
+                                          strategy={verticalListSortingStrategy}
+                                        >
+                                          {section.articles.map((article, articleIdx) => {
+                                            const articleKey = `${section.id}-${article.id}`;
+                                            const isArticleExpanded = expandedArticles.has(articleKey);
+                                            const hasSubItems = article.subItems && article.subItems.length > 0;
 
-                                        return (
-                                          <div key={article.id} className={articleIdx > 0 ? 'border-t border-border-color/20' : ''}>
-                                            {/* Article Row */}
-                                            <div className="flex items-start gap-3 pl-14 pr-4 py-3 hover:bg-accent/10 transition-all duration-200 group">
-                                              {/* Expand/Collapse Toggle for SubItems */}
-                                              <button
-                                                onClick={() => hasSubItems && toggleArticle(section.id, article.id)}
+                                            return (
+                                              <SortableItem key={article.id} id={article.id}>
+                                                {({ listeners: articleListeners, isDragging: isArticleDragging }: { listeners: any; isDragging: boolean }) => (
+                                                  <div className={articleIdx > 0 ? 'border-t border-border-color/20' : ''}>
+                                                    {/* Article Row */}
+                                                    <div className="flex items-start gap-3 pl-14 pr-4 py-3 hover:bg-accent/10 transition-all duration-200 group">
+                                                      {/* Drag Handle */}
+                                                      <button
+                                                        {...articleListeners}
+                                                        className="w-5 h-7 flex items-center justify-center text-text-secondary hover:text-accent cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity mt-0.5 flex-shrink-0"
+                                                        title="ลากเพื่อเรียงลำดับ"
+                                                      >
+                                                        <DragHandleIcon className="w-3.5 h-3.5" />
+                                                      </button>
+
+                                                      {/* Expand/Collapse Toggle for SubItems */}
+                                                      <button
+                                                        onClick={() => hasSubItems && toggleArticle(section.id, article.id)}
                                                 className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-200 mt-0.5 flex-shrink-0 ${
                                                   hasSubItems
                                                     ? isArticleExpanded
@@ -1568,16 +1834,35 @@ export default function GroupDetailPage() {
                                             <div className={`overflow-hidden transition-all duration-300 ease-out ${isArticleExpanded && hasSubItems ? 'max-h-[5000px] opacity-100' : 'max-h-0 opacity-0'}`}>
                                               {article.subItems && (
                                                 <div className="bg-bg-secondary/30 border-t border-border-color/10 ml-14">
-                                                  {article.subItems.map((subItem, subIdx) => (
-                                                    <div
-                                                      key={subItem.id}
-                                                      className={`flex items-start gap-3 pl-10 pr-4 py-2.5 hover:bg-accent/5 transition-all duration-200 group ${subIdx > 0 ? 'border-t border-border-color/10' : ''}`}
+                                                  <DndContext
+                                                    sensors={sensors}
+                                                    collisionDetection={closestCenter}
+                                                    onDragEnd={(event) => handleSubItemDragEnd(event, section.id, article.id)}
+                                                  >
+                                                    <SortableContext
+                                                      items={article.subItems.map(si => si.id.toString())}
+                                                      strategy={verticalListSortingStrategy}
                                                     >
-                                                      {/* SubItem Number */}
-                                                      <input
-                                                        type="text"
-                                                        value={subItem.number}
-                                                        onChange={(e) => updateSubItem(section.id, article.id, subItem.id, 'number', e.target.value)}
+                                                      {article.subItems.map((subItem, subIdx) => (
+                                                        <SortableItem key={subItem.id} id={subItem.id}>
+                                                          {({ listeners: subItemListeners, isDragging: isSubItemDragging }: { listeners: any; isDragging: boolean }) => (
+                                                            <div
+                                                              className={`flex items-start gap-3 pl-10 pr-4 py-2.5 hover:bg-accent/5 transition-all duration-200 group ${subIdx > 0 ? 'border-t border-border-color/10' : ''}`}
+                                                            >
+                                                              {/* Drag Handle */}
+                                                              <button
+                                                                {...subItemListeners}
+                                                                className="w-4 h-7 flex items-center justify-center text-text-secondary hover:text-accent cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                                                                title="ลากเพื่อเรียงลำดับ"
+                                                              >
+                                                                <DragHandleIcon className="w-3 h-3" />
+                                                              </button>
+
+                                                              {/* SubItem Number */}
+                                                              <input
+                                                                type="text"
+                                                                value={subItem.number}
+                                                                onChange={(e) => updateSubItem(section.id, article.id, subItem.id, 'number', e.target.value)}
                                                         className="flex-shrink-0 w-14 h-7 rounded-lg bg-purple-500/20 text-purple-300 font-medium text-xs text-center border border-purple-500/30 hover:border-purple-500/50 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all duration-200"
                                                         placeholder="อนุข้อ"
                                                       />
@@ -1615,14 +1900,22 @@ export default function GroupDetailPage() {
                                                           <TrashIcon className="w-3 h-3" />
                                                         </button>
                                                       </div>
-                                                    </div>
-                                                  ))}
+                                                            </div>
+                                                          )}
+                                                        </SortableItem>
+                                                      ))}
+                                                    </SortableContext>
+                                                  </DndContext>
                                                 </div>
                                               )}
                                             </div>
-                                          </div>
-                                        );
-                                      })}
+                                                  </div>
+                                                )}
+                                              </SortableItem>
+                                            );
+                                          })}
+                                        </SortableContext>
+                                      </DndContext>
                                     </div>
                                   )}
 
@@ -1640,9 +1933,13 @@ export default function GroupDetailPage() {
                                     </div>
                                   )}
                                 </div>
-                              </div>
-                            );
-                          })}
+                                      </div>
+                                    )}
+                                  </SortableItem>
+                                );
+                              })}
+                            </SortableContext>
+                          </DndContext>
                         </div>
                       </div>
                     )}
@@ -1848,6 +2145,86 @@ export default function GroupDetailPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
                 เข้าใจแล้ว
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Interaction Warning Modal */}
+      {showInteractionWarning && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-card-bg rounded-2xl border border-border-color/50 shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-amber-500/10 to-amber-500/5 px-6 py-5 border-b border-border-color/30">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/25">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-text-primary">⚠️ กรุณาตรวจสอบข้อมูล</h3>
+                  <p className="text-sm text-text-secondary mt-0.5">ยังไม่ได้ดูข้อมูลครบทุกส่วน</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="px-6 py-5">
+              <p className="text-text-primary mb-4">กรุณาตรวจสอบส่วนต่อไปนี้ก่อนบันทึก:</p>
+              <div className="space-y-3">
+                {!hasVisitedFoundation && (
+                  <div className="flex items-center gap-3 px-4 py-3 bg-amber-500/5 border border-amber-500/20 rounded-xl">
+                    <svg className="w-5 h-5 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                    </svg>
+                    <span className="text-text-primary font-medium">ยังไม่ได้เข้าดู Tab "ตราสาร"</span>
+                  </div>
+                )}
+                {!hasVisitedCommittee && (
+                  <div className="flex items-center gap-3 px-4 py-3 bg-amber-500/5 border border-amber-500/20 rounded-xl">
+                    <svg className="w-5 h-5 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    <span className="text-text-primary font-medium">ยังไม่ได้เข้าดู Tab "กรรมการ"</span>
+                  </div>
+                )}
+                {!hasSelectedLogo && (
+                  <div className="flex items-center gap-3 px-4 py-3 bg-amber-500/5 border border-amber-500/20 rounded-xl">
+                    <svg className="w-5 h-5 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <span className="text-text-primary font-medium">ยังไม่ได้เลือก Logo มูลนิธิ</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-bg-secondary/30 border-t border-border-color/30 flex items-center justify-between gap-3">
+              <button
+                onClick={() => setShowInteractionWarning(false)}
+                className="px-5 py-2.5 rounded-xl bg-bg-primary border border-border-color/50 text-text-secondary hover:bg-bg-secondary hover:text-text-primary hover:border-accent/50 transition-all duration-200"
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={() => {
+                  setShowInteractionWarning(false);
+                  // Set all as visited to allow save (bypass warning)
+                  setHasVisitedFoundation(true);
+                  setHasVisitedCommittee(true);
+                  setHasSelectedLogo(true);
+                  // Open save modal
+                  setTimeout(() => handleOpenSaveModal(), 100);
+                }}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 text-white font-medium hover:from-amber-700 hover:to-amber-800 hover:shadow-lg transition-all duration-200 flex items-center gap-2 active:scale-[0.98]"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+                บันทึกต่อ (ข้ามการตรวจสอบ)
               </button>
             </div>
           </div>

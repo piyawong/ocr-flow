@@ -245,6 +245,30 @@ export class FilesController {
     return { message: 'Files reordered successfully' };
   }
 
+  @Put('charter-sections/reorder')
+  async reorderCharterSections(
+    @Body() body: { items: Array<{ id: number; orderIndex: number }> },
+  ) {
+    await this.filesService.reorderCharterSections(body.items);
+    return { message: 'Charter sections reordered successfully' };
+  }
+
+  @Put('charter-articles/reorder')
+  async reorderCharterArticles(
+    @Body() body: { items: Array<{ id: number; orderIndex: number }> },
+  ) {
+    await this.filesService.reorderCharterArticles(body.items);
+    return { message: 'Charter articles reordered successfully' };
+  }
+
+  @Put('charter-sub-items/reorder')
+  async reorderCharterSubItems(
+    @Body() body: { items: Array<{ id: number; orderIndex: number }> },
+  ) {
+    await this.filesService.reorderCharterSubItems(body.items);
+    return { message: 'Charter sub items reordered successfully' };
+  }
+
   @Post('clear-grouping')
   async clearGrouping() {
     await this.filesService.clearGroupedFiles();

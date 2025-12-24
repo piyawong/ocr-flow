@@ -37,6 +37,12 @@ export class FilesService {
     private fileRepository: Repository<File>,
     @InjectRepository(Group)
     private groupRepository: Repository<Group>,
+    @InjectRepository(CharterSection)
+    private charterSectionRepository: Repository<CharterSection>,
+    @InjectRepository(CharterArticle)
+    private charterArticleRepository: Repository<CharterArticle>,
+    @InjectRepository(CharterSubItem)
+    private charterSubItemRepository: Repository<CharterSubItem>,
     private minioService: MinioService,
     private dataSource: DataSource,
     private activityLogsService: ActivityLogsService,
@@ -1234,5 +1240,46 @@ export class FilesService {
     // Renew lock timestamp
     group.lockedAt = new Date();
     await this.groupRepository.save(group);
+  }
+
+  // ========== CHARTER REORDER OPERATIONS ==========
+
+  /**
+   * Reorder charter sections
+   */
+  async reorderCharterSections(items: Array<{ id: number; orderIndex: number }>): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const sectionRepo = manager.getRepository(CharterSection);
+
+      for (const item of items) {
+        await sectionRepo.update(item.id, { orderIndex: item.orderIndex });
+      }
+    });
+  }
+
+  /**
+   * Reorder charter articles within a section
+   */
+  async reorderCharterArticles(items: Array<{ id: number; orderIndex: number }>): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const articleRepo = manager.getRepository(CharterArticle);
+
+      for (const item of items) {
+        await articleRepo.update(item.id, { orderIndex: item.orderIndex });
+      }
+    });
+  }
+
+  /**
+   * Reorder charter sub items within an article
+   */
+  async reorderCharterSubItems(items: Array<{ id: number; orderIndex: number }>): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const subItemRepo = manager.getRepository(CharterSubItem);
+
+      for (const item of items) {
+        await subItemRepo.update(item.id, { orderIndex: item.orderIndex });
+      }
+    });
   }
 }
