@@ -183,9 +183,29 @@ export class FilesService {
   }
 
   async markAsProcessed(id: number): Promise<void> {
+    // Get file to check if it has editedPath
+    const file = await this.fileRepository.findOne({ where: { id } });
+    if (!file) {
+      throw new NotFoundException(`File with ID ${id} not found`);
+    }
+
+    // Cleanup editedPath if exists
+    if (file.editedPath) {
+      try {
+        // Delete edited file from MinIO
+        await this.minioService.deleteFile(file.editedPath);
+      } catch (error) {
+        // Log error but don't fail the processing
+        console.error(`Failed to delete editedPath ${file.editedPath}:`, error.message);
+      }
+    }
+
+    // Update file status and clear editedPath fields
     await this.fileRepository.update(id, {
       processed: true,
       processedAt: new Date(),
+      editedPath: null,
+      hasEdited: false,
     });
   }
 
@@ -232,6 +252,83 @@ export class FilesService {
     });
 
     return this.fileRepository.findOne({ where: { id } });
+  }
+
+  // ========== STAGE 00: REVIEW OPERATIONS ==========
+  async markAsReviewed(id: number, isReviewed: boolean): Promise<File> {
+    const file = await this.fileRepository.findOne({ where: { id } });
+    if (!file) {
+      throw new NotFoundException(`File with ID ${id} not found`);
+    }
+
+    file.isReviewed = isReviewed;
+    file.reviewedAt = isReviewed ? new Date() : null;
+
+    await this.fileRepository.save(file);
+
+    return file;
+  }
+
+  async saveEditedImage(
+    id: number,
+    uploadedFile: { buffer: Buffer; mimetype: string; originalname: string; size: number },
+  ): Promise<File> {
+    const file = await this.fileRepository.findOne({ where: { id } });
+    if (!file) {
+      throw new NotFoundException(`File with ID ${id} not found`);
+    }
+
+    // Generate edited file path in raw_temp folder (same filename)
+    const originalPath = file.storagePath; // e.g., "raw/123.jpeg"
+    const pathParts = originalPath.split('/');
+    const filename = pathParts[pathParts.length - 1]; // e.g., "123.jpeg"
+
+    // Change folder to raw_temp
+    const folder = pathParts[0]; // e.g., "raw"
+    const editedFolder = `${folder}_temp`; // e.g., "raw_temp"
+
+    // Keep same filename
+    const editedPath = `${editedFolder}/${filename}`; // e.g., "raw_temp/123.jpeg"
+
+    // Upload edited file to MinIO
+    await this.minioService.uploadFile(
+      editedPath,
+      uploadedFile.buffer,
+      uploadedFile.mimetype || 'image/jpeg',
+    );
+
+    // Update file record
+    file.editedPath = editedPath;
+    file.hasEdited = true;
+
+    await this.fileRepository.save(file);
+
+    return file;
+  }
+
+  async resetEditedImage(id: number): Promise<File> {
+    const file = await this.fileRepository.findOne({ where: { id } });
+    if (!file) {
+      throw new NotFoundException(`File with ID ${id} not found`);
+    }
+
+    // Delete edited file from MinIO if exists
+    if (file.editedPath) {
+      try {
+        await this.minioService.deleteFile(file.editedPath);
+      } catch (err) {
+        // Ignore if file doesn't exist in MinIO
+        console.warn(`Failed to delete edited file ${file.editedPath}:`, err);
+      }
+    }
+
+    // Reset database fields
+    file.editedPath = null;
+    file.hasEdited = false;
+
+    await this.fileRepository.save(file);
+
+    return file;
   }
 
   async deleteFile(id: number): Promise<void> {

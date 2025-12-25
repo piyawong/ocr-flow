@@ -14,6 +14,7 @@ interface Stage {
 }
 
 const allStages: Stage[] = [
+  { id: '00', label: 'Upload', href: '/stages/00-upload' },
   { id: '01', label: 'Raw Images', href: '/stages/01-raw' },
   { id: '02', label: 'Group', href: '/stages/02-group' },
   { id: '03', label: 'PDF Label', href: '/stages/03-pdf-label', permission: StagePermission.STAGE_03_PDF_LABEL },

@@ -1,16 +1,16 @@
 # OCR Flow v2 - Documentation Hub
 
-> **อัปเดตล่าสุด:** 2025-12-24 (Migrate districts → organizations, เพิ่ม matchedGroupId FK)
+> **อัปเดตล่าสุด:** 2025-12-25 (Unified Theme System - Single Source)
 > **วัตถุประสงค์:** Navigation hub สำหรับเอกสาร OCR Flow v2
 
 ---
 
 ## 🎯 ภาพรวมระบบ (สั้นๆ)
 
-**OCR Flow v2** เป็นระบบ Document Processing ที่ทำงานแบบอัตโนมัติผ่าน 6 ขั้นตอนหลัก:
+**OCR Flow v2** เป็นระบบ Document Processing ที่ทำงานแบบอัตโนมัติผ่าน 7 ขั้นตอนหลัก:
 
 ```
-01-RAW → 02-GROUP → 03-PDF-LABEL → 04-EXTRACT → 05-REVIEW → 06-UPLOAD
+00-UPLOAD → 01-RAW → 02-GROUP → 03-PDF-LABEL → 04-EXTRACT → 05-REVIEW → 06-UPLOAD
 ```
 
 **เป้าหมายหลัก:**
@@ -27,6 +27,14 @@
 OCR-flow-v2/
 ├── backend/          # NestJS Backend (API, Services, Database)
 ├── frontend/         # Next.js Frontend (UI, Pages, Components)
+│   └── stages/
+│       ├── 00-upload/      # Stage 00: Upload Images (Simple upload only)
+│       ├── 01-raw/         # Stage 01: Raw Images + OCR
+│       ├── 02-group/       # Stage 02: Grouping
+│       ├── 03-pdf-label/   # Stage 03: PDF Labeling
+│       ├── 04-extract/     # Stage 04: Data Extraction
+│       ├── 05-review/      # Stage 05: Final Review
+│       └── 06-upload/      # Stage 06: Upload Final
 ├── templates/        # PDF Examples (ตัวอย่างเอกสาร)
 ├── ref/             # Python Reference (OCR processing scripts)
 ├── frontend-detailed.md      # ✓ มีแล้ว (Frontend architecture)
@@ -176,7 +184,12 @@ docker-compose up -d
 │                         OCR FLOW SYSTEM                             │
 └─────────────────────────────────────────────────────────────────────┘
 
-01. RAW (Upload)
+00. UPLOAD (Upload Images)
+    └─> User อัพโหลดไฟล์ (JPEG images only)
+    └─> บันทึกใน MinIO + PostgreSQL
+    └─> Simple upload interface (ไม่มี OCR processing)
+
+01. RAW (Upload + OCR)
     └─> User อัพโหลดไฟล์ (images/PDFs)
     └─> บันทึกใน MinIO + PostgreSQL
     └─> รอประมวลผล OCR
@@ -368,6 +381,91 @@ NEXT_PUBLIC_API_URL=http://localhost:4004
 ### Stage 06: UPLOAD (Final Upload)
 1. Upload เฉพาะ groups ที่ approved
 2. Final destination (ยังไม่ implement)
+
+---
+
+## 🎨 Theme System (IMPORTANT - Read Before Styling!)
+
+### Unified Theme Configuration
+
+**⚠️ SINGLE SOURCE OF TRUTH:**
+- **ไฟล์หลัก:** `frontend/src/app/globals.css` (บรรทัด 215-326)
+- **Format:** HSL (for Tailwind compatibility)
+- **Selectors:** `:root, [data-theme='light']` และ `.dark, [data-theme='dark']`
+
+### Theme Variables (HSL Format)
+
+```css
+/* Light Theme */
+:root, [data-theme='light'] {
+  --bg-primary: 210 40% 98%;      /* #f8fafc */
+  --text-primary: 215 25% 27%;    /* #1e293b */
+  --border-color: 214 32% 91%;    /* #e2e8f0 */
+  --success: 142 71% 45%;         /* #22c55e */
+  --warning: 38 92% 50%;          /* #f59e0b */
+  --danger: 0 84% 60%;            /* #ef4444 */
+}
+
+/* Dark Theme */
+.dark, [data-theme='dark'] {
+  --bg-primary: 222 47% 11%;      /* #0f172a */
+  --text-primary: 210 40% 98%;    /* #f1f5f9 */
+  --border-color: 215 25% 27%;    /* #334155 */
+  /* ... same semantic colors ... */
+}
+```
+
+### วิธีใช้งาน
+
+```tsx
+// ✅ ถูกต้อง - ใช้ HSL via Tailwind
+<div className="bg-bg-primary text-text-primary border-border-color" />
+
+// ✅ ถูกต้อง - Semantic colors
+<div className="text-success bg-warning/10" />
+
+// ✅ ถูกต้อง - Theme-aware colors
+<div className="text-amber-600 dark:text-amber-400" />
+
+// ❌ ผิด - Hard-coded colors (ไม่ adapt theme)
+<div className="text-white bg-gray-900" />
+```
+
+### กฎสำคัญ (MUST FOLLOW!)
+
+1. **ห้ามแก้ theme variables ใน 2 ที่:**
+   - ❌ ห้ามสร้าง CSS variables ซ้ำ
+   - ❌ ห้ามใช้ Hex colors (#fff) ใน globals.css
+
+2. **แก้ theme ต้องแก้ที่เดียว:**
+   - ✅ แก้ใน `globals.css` (บรรทัด 215-326)
+   - ✅ ใช้ HSL format เท่านั้น
+   - ✅ อัปเดตทั้ง light และ dark
+
+3. **ใช้ Tailwind classes:**
+   - ✅ `text-text-primary` (adapt theme)
+   - ✅ `text-blue-600 dark:text-blue-400` (explicit)
+   - ❌ `text-white` (hard-coded)
+
+4. **ทดสอบทั้ง 2 themes:**
+   - Toggle 🌙/☀️ เพื่อเช็ค contrast
+   - เช็ค text visibility บน light และ dark
+
+### การแก้ปัญหา Theme
+
+**ถ้า text มองไม่เห็นใน light theme:**
+```tsx
+// แก้จาก
+className="text-purple-400"
+
+// เป็น
+className="text-purple-600 dark:text-purple-400"
+```
+
+**ถ้าต้องการเพิ่มสีใหม่:**
+1. เพิ่มใน `globals.css` (HSL format)
+2. เพิ่มใน `tailwind.config.ts` → `colors`
+3. ทดสอบทั้ง light และ dark
 
 ---
 

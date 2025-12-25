@@ -4,6 +4,9 @@ OCR Microservice using Typhoon OCR API.
 This service wraps the typhoon-ocr Python library to provide
 OCR capabilities via HTTP API, supporting parallel requests.
 
+Each OCR request runs in a separate process with its own environment,
+avoiding race conditions when using different API keys concurrently.
+
 Usage:
     POST /ocr - OCR a single image (base64 or file upload)
     POST /ocr/batch - OCR multiple images in parallel
@@ -15,6 +18,7 @@ import os
 import base64
 import tempfile
 import asyncio
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Optional
 from contextlib import asynccontextmanager
@@ -24,8 +28,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 
-# Typhoon OCR library
-from typhoon_ocr import ocr_document
+
+# =============================================================================
+# PROCESS POOL (Global)
+# =============================================================================
+
+# ProcessPoolExecutor for running OCR in separate processes
+# Each process has its own environment, avoiding race conditions with API keys
+process_pool: Optional[ProcessPoolExecutor] = None
 
 
 # =============================================================================
@@ -100,6 +110,52 @@ def post_process_ocr_text(text: str) -> str:
     return result
 
 
+def _ocr_worker(
+    image_data: bytes,
+    api_key: str,
+    task_type: str,
+    figure_language: str
+) -> tuple[str, float]:
+    """
+    Worker function that runs in a separate process.
+
+    Each process has its own environment, so setting TYPHOON_API_KEY
+    here won't affect other concurrent requests.
+    """
+    import os
+    import tempfile
+    from typhoon_ocr import ocr_document
+
+    # Set API key for this process (isolated from other processes)
+    os.environ['TYPHOON_API_KEY'] = api_key
+
+    # Save image to temp file
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        tmp.write(image_data)
+        tmp_path = tmp.name
+
+    try:
+        # Run OCR
+        markdown = ocr_document(
+            pdf_or_image_path=tmp_path,
+            model="typhoon-ocr",
+            figure_language=figure_language,
+            task_type=task_type
+        )
+
+        # Post-process OCR text
+        processed_text = post_process_ocr_text(markdown)
+
+        return processed_text, 0.0
+
+    finally:
+        # Clean up temp file
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
+
+
 async def perform_ocr(
     image_data: bytes,
     api_key: str,
@@ -108,6 +164,9 @@ async def perform_ocr(
 ) -> tuple[str, float]:
     """
     Perform OCR on image data using Typhoon OCR API.
+
+    Runs in a separate process to isolate the API key environment variable,
+    allowing multiple concurrent requests with different API keys.
 
     Args:
         image_data: Raw image bytes
@@ -118,47 +177,21 @@ async def perform_ocr(
     Returns:
         Tuple of (text, confidence)
     """
-    # Save image to temp file (typhoon_ocr requires file path)
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-        tmp.write(image_data)
-        tmp_path = tmp.name
+    global process_pool
 
-    try:
-        # Temporarily set API key for this request
-        original_key = os.environ.get('TYPHOON_API_KEY')
-        os.environ['TYPHOON_API_KEY'] = api_key
+    loop = asyncio.get_event_loop()
 
-        try:
-            # Run OCR in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
-            markdown = await loop.run_in_executor(
-                None,
-                lambda: ocr_document(
-                    pdf_or_image_path=tmp_path,
-                    model="typhoon-ocr",
-                    figure_language=figure_language,
-                    task_type=task_type
-                )
-            )
+    # Run OCR in a separate process
+    result = await loop.run_in_executor(
+        process_pool,
+        _ocr_worker,
+        image_data,
+        api_key,
+        task_type,
+        figure_language
+    )
 
-            # Post-process OCR text
-            processed_text = post_process_ocr_text(markdown)
-
-            return processed_text, 0.0
-
-        finally:
-            # Restore original key
-            if original_key:
-                os.environ['TYPHOON_API_KEY'] = original_key
-            elif 'TYPHOON_API_KEY' in os.environ:
-                del os.environ['TYPHOON_API_KEY']
-
-    finally:
-        # Clean up temp file
-        try:
-            os.unlink(tmp_path)
-        except:
-            pass
+    return result
 
 
 # =============================================================================
@@ -168,9 +201,19 @@ async def perform_ocr(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    print("🚀 OCR Microservice starting...")
+    global process_pool
+
+    # Get max workers from env or default to 10 (matching number of API keys)
+    max_workers = int(os.environ.get('OCR_MAX_WORKERS', '10'))
+
+    print(f"🚀 OCR Microservice starting with {max_workers} worker processes...")
+    process_pool = ProcessPoolExecutor(max_workers=max_workers)
+
     yield
+
     print("👋 OCR Microservice shutting down...")
+    process_pool.shutdown(wait=True)
+    print("✅ Process pool shut down cleanly")
 
 
 app = FastAPI(

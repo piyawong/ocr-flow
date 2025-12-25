@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Put,
+  Patch,
   Delete,
   Param,
   Body,
@@ -38,6 +39,99 @@ export class FilesController {
     };
   }
 
+  // ========== SPECIFIC ROUTES FIRST (must be before generic :id route) ==========
+
+  @Public()
+  @Get(':id/preview')
+  async getPreview(
+    @Param('id', ParseIntPipe) id: number,
+    @Res() res: Response,
+  ) {
+    const file = await this.filesService.findOne(id);
+    if (!file) {
+      throw new NotFoundException('File not found');
+    }
+
+    // Use edited image if available, otherwise use original
+    const imagePath = file.hasEdited && file.editedPath ? file.editedPath : file.storagePath;
+
+    const buffer = await this.filesService.getFileBuffer(imagePath);
+    res.set({
+      'Content-Type': file.mimeType,
+      'Content-Length': buffer.length,
+      'Cache-Control': 'no-cache', // Don't cache edited images
+    });
+    res.send(buffer);
+  }
+
+  @Post(':id/rotate')
+  async rotateImage(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { degrees: number },
+  ) {
+    const degrees = body.degrees || 90;
+    const file = await this.filesService.rotateImage(id, degrees);
+    return {
+      message: `Image rotated ${degrees} degrees`,
+      file,
+    };
+  }
+
+  @Patch(':id/review')
+  async markAsReviewed(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { isReviewed: boolean },
+  ) {
+    const file = await this.filesService.markAsReviewed(id, body.isReviewed);
+    return {
+      message: `File ${body.isReviewed ? 'marked as reviewed' : 'unmarked as reviewed'}`,
+      file,
+    };
+  }
+
+  @Post(':id/save-edited')
+  @UseInterceptors(FilesInterceptor('file', 1))
+  async saveEditedImage(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFiles() files: Array<{ buffer: Buffer; mimetype: string; originalname: string; size: number }>,
+  ) {
+    if (!files || files.length === 0) {
+      throw new NotFoundException('No file provided');
+    }
+
+    const file = await this.filesService.saveEditedImage(id, files[0]);
+    return {
+      message: 'Edited image saved successfully',
+      file,
+    };
+  }
+
+  @Delete(':id/reset-edited')
+  async resetEditedImage(@Param('id', ParseIntPipe) id: number) {
+    const file = await this.filesService.resetEditedImage(id);
+    return {
+      message: 'Edited image removed, reset to original',
+      file,
+    };
+  }
+
+  // ========== GENERIC ROUTES (must be after specific routes) ==========
+
+  @Get(':id')
+  async findOne(@Param('id', ParseIntPipe) id: number) {
+    const file = await this.filesService.findOne(id);
+    if (!file) {
+      throw new NotFoundException(`File with ID ${id} not found`);
+    }
+    return file;
+  }
+
+  @Delete(':id')
+  async deleteFile(@Param('id', ParseIntPipe) id: number) {
+    await this.filesService.deleteFile(id);
+    return { message: 'File deleted' };
+  }
+
   @Get()
   async findAll(
     @Query('page') page?: string,
@@ -66,44 +160,7 @@ export class FilesController {
     };
   }
 
-  @Public()
-  @Get(':id/preview')
-  async getPreview(
-    @Param('id', ParseIntPipe) id: number,
-    @Res() res: Response,
-  ) {
-    const file = await this.filesService.findOne(id);
-    if (!file) {
-      throw new NotFoundException('File not found');
-    }
-
-    const buffer = await this.filesService.getFileBuffer(file.storagePath);
-    res.set({
-      'Content-Type': file.mimeType,
-      'Content-Length': buffer.length,
-      'Cache-Control': 'public, max-age=3600',
-    });
-    res.send(buffer);
-  }
-
-  @Post(':id/rotate')
-  async rotateImage(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() body: { degrees: number },
-  ) {
-    const degrees = body.degrees || 90;
-    const file = await this.filesService.rotateImage(id, degrees);
-    return {
-      message: `Image rotated ${degrees} degrees`,
-      file,
-    };
-  }
-
-  @Delete(':id')
-  async deleteFile(@Param('id', ParseIntPipe) id: number) {
-    await this.filesService.deleteFile(id);
-    return { message: 'File deleted' };
-  }
+  // ========== ACTION ENDPOINTS ==========
 
   @Post('clear')
   async clearAll() {

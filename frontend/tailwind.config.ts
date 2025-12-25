@@ -10,32 +10,25 @@ const config: Config = {
   theme: {
   	extend: {
   		colors: {
-  			'bg-primary': 'var(--bg-primary)',
-  			'bg-secondary': 'var(--bg-secondary)',
-  			'bg-tertiary': 'var(--bg-tertiary)',
-  			'card-bg': 'var(--card-bg)',
-  			'nav-bg': 'var(--nav-bg)',
-  			'text-primary': 'var(--text-primary)',
-  			'text-secondary': 'var(--text-secondary)',
-  			'text-muted': 'var(--text-muted)',
-  			'border-color': 'var(--border-color)',
-  			'divider-color': 'var(--divider-color)',
-  			'hover-bg': 'var(--hover-bg)',
-  			'active-bg': 'var(--active-bg)',
-  			accent: {
-  				DEFAULT: 'hsl(var(--accent))',
-  				foreground: 'hsl(var(--accent-foreground))'
-  			},
-  			'accent-light': 'var(--accent-light)',
-  			'accent-dark': 'var(--accent-dark)',
-  			success: 'var(--success)',
-  			'success-light': 'var(--success-light)',
-  			warning: 'var(--warning)',
-  			'warning-light': 'var(--warning-light)',
-  			danger: 'var(--danger)',
-  			'danger-light': 'var(--danger-light)',
-  			info: 'var(--info)',
-  			'info-light': 'var(--info-light)',
+  			// Custom project colors (HSL format via CSS variables)
+  			'bg-primary': 'hsl(var(--bg-primary))',
+  			'bg-secondary': 'hsl(var(--bg-secondary))',
+  			'bg-tertiary': 'hsl(var(--bg-tertiary))',
+  			'card-bg': 'hsl(var(--card-bg))',
+  			'nav-bg': 'hsl(var(--nav-bg))',
+  			'text-primary': 'hsl(var(--text-primary))',
+  			'text-secondary': 'hsl(var(--text-secondary))',
+  			'text-muted': 'hsl(var(--text-muted))',
+  			'border-color': 'hsl(var(--border-color))',
+  			'divider-color': 'hsl(var(--divider-color))',
+
+  			// Semantic colors
+  			success: 'hsl(var(--success))',
+  			warning: 'hsl(var(--warning))',
+  			danger: 'hsl(var(--danger))',
+  			info: 'hsl(var(--info))',
+
+  			// Shadcn UI colors
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
   			card: {

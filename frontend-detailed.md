@@ -1,7 +1,7 @@
 # Frontend Architecture - OCR Flow v2
 
 > **เอกสารฉบับนี้:** รวบรวมรายละเอียดสถาปัตยกรรม Frontend ทั้งหมด
-> **อัปเดตล่าสุด:** 2025-12-19
+> **อัปเดตล่าสุด:** 2025-12-25 (Unified Theme System + Stage 00 Canvas Drawing)
 > **สำหรับ:** นักพัฒนา Frontend (Developer Documentation)
 
 ---
@@ -12,6 +12,7 @@
 2. [Styling System](#-styling-system)
 3. [Project Structure](#-project-structure)
 4. [Pages (Stages)](#-pages-stages)
+   - [Stage 00: Upload Images](#stage-00-upload-images-stages00-upload)
    - [Stage 01: Raw Upload](#stage-01-raw-upload-stagesraw)
    - [Stage 02: Group](#stage-02-group-stagesgroup)
    - [Stage 03: PDF Label](#stage-03-pdf-label-stagespdf-label)
@@ -46,6 +47,17 @@
 ---
 
 ## 🎨 Styling System
+
+### ⚠️ IMPORTANT: Unified Theme System
+
+**Single Source of Truth:**
+- **ไฟล์:** `frontend/src/app/globals.css` (บรรทัด 215-326)
+- **Format:** HSL (NOT Hex!)
+- **Config:** `tailwind.config.ts` → references CSS variables
+
+**Before styling, READ:** [STRUCTURE.md - Theme System](./STRUCTURE.md#-theme-system-important---read-before-styling)
+
+---
 
 ### Tailwind CSS Configuration
 
@@ -124,7 +136,8 @@ frontend/
 ├── src/
 │   ├── app/                    # Next.js App Router
 │   │   ├── stages/
-│   │   │   ├── 01-raw/         # Stage 01: Upload
+│   │   │   ├── 00-upload/      # Stage 00: Upload Images (Simple)
+│   │   │   ├── 01-raw/         # Stage 01: Upload + OCR
 │   │   │   ├── 02-group/       # Stage 02: Grouping
 │   │   │   ├── 03-pdf-label/   # Stage 03: PDF Label
 │   │   │   │   └── manual/
@@ -150,6 +163,79 @@ frontend/
 ---
 
 ## 📄 Pages (Stages)
+
+### Stage 00: Upload Images (`/stages/00-upload`)
+
+#### หน้าที่ (Purpose)
+อัพโหลดไฟล์รูปภาพ (JPEG only) เข้าสู่ระบบ - Simple upload interface ไม่มี OCR processing
+
+#### Features
+
+##### 1. Simple Upload Modal
+- **Drag & Drop Support**: รองรับการลากไฟล์มาวาง
+- **JPEG Only**: รองรับเฉพาะไฟล์ .jpeg และ .jpg
+- **Batch Upload**: อัพโหลดทีละ 1 ไฟล์ (BATCH_SIZE = 1)
+- **Preview**: แสดง preview 6 ไฟล์แรก (MAX_PREVIEW_FILES = 6)
+- **Upload Progress**: แสดง progress bar และสถานะการอัพโหลด
+
+##### 2. Enhanced Status Cards (3 Cards)
+- **Total Images**: แสดงจำนวนไฟล์ทั้งหมดในระบบ
+- **Reviewed**: จำนวนไฟล์ที่ mark reviewed แล้ว (สีเขียว)
+- **Unreviewed**: จำนวนไฟล์ที่ยังไม่ได้ตรวจสอบ (สีเหลือง/เขียวถ้าครบแล้ว)
+
+**Features:**
+- Real-time count อัปเดตทันทีเมื่อ mark/unmark
+- Color-coded status (green = done, amber = pending)
+- "All Done" message เมื่อตรวจสอบครบทุกไฟล์
+
+##### 3. File Table with Review Status
+**Columns:**
+| Column | Type | Description |
+|--------|------|-------------|
+| # | Number | File number |
+| Preview | Image | Thumbnail (100x100px) |
+| File Name | Text | Original filename |
+| **Status** | Badge | **Reviewed** (green) / **Unreviewed** (amber) |
+| Created | DateTime | Upload timestamp |
+| Actions | Buttons | View, **Mark/Unmark**, Delete |
+
+**Review Feature:**
+- **Mark Button**: ปุ่มสำหรับ mark ว่าไฟล์นี้เกี่ยวข้อง/ไม่เกี่ยวข้อง
+- **Unmark Button**: ปุ่มสำหรับยกเลิก mark (เปลี่ยนจาก reviewed → unreviewed)
+- **Status Badge**: แสดงสถานะ Reviewed (green) / Unreviewed (amber)
+- **View Mode Toggle**:
+  - **All Files**: แสดงไฟล์ทั้งหมด
+  - **Unreviewed (N)**: แสดงเฉพาะไฟล์ที่ยังไม่ mark (N = จำนวน)
+
+##### 4. Image Preview Modal
+- **Full Image View**: แสดงรูปภาพขนาดเต็ม
+- **File Info**: File number, filename, created date
+- **Actions**: Download, Delete
+
+#### ความแตกต่างจาก Stage 01
+| Feature | Stage 00 | Stage 01 |
+|---------|----------|----------|
+| Upload | ✅ | ✅ |
+| OCR Processing | ❌ | ✅ |
+| Task Runner | ❌ | ✅ |
+| Terminal/Logs | ❌ | ✅ |
+| Processing Status | ❌ | ✅ |
+| Progress Tracking | ❌ | ✅ |
+
+#### Use Cases
+- **Upload raw images** เพื่อจัดเก็บเบื้องต้น
+- **Review & Filter** ตรวจสอบและ mark ไฟล์ที่เกี่ยวข้อง/ไม่เกี่ยวข้อง
+- **Quick Upload** upload ไฟล์ที่ไม่ต้องการ OCR ทันที
+- **Simple File Management** จัดการไฟล์แบบง่าย (view, delete)
+
+#### Workflow
+1. User upload images
+2. Review แต่ละไฟล์ว่าเกี่ยวข้องหรือไม่
+3. Mark ไฟล์ที่ต้องการเก็บไว้ (Mark = Reviewed)
+4. กรองดู Unreviewed เพื่อตรวจสอบไฟล์ที่ยังไม่ได้ mark
+5. เมื่อตรวจสอบครบทุกไฟล์ → All Done!
+
+---
 
 ### Stage 01: Raw Upload (`/stages/01-raw`)
 

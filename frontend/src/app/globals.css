@@ -3,119 +3,9 @@
 @tailwind utilities;
 
 /* ========================================
-   Design Tokens - CSS Variables
+   UNIFIED THEME SYSTEM - Single Source of Truth
+   Using HSL format for Tailwind compatibility
    ======================================== */
-
-:root,
-[data-theme='light'] {
-  /* Background Colors */
-  --bg-primary: #f8fafc;
-  --bg-secondary: #f1f5f9;
-  --bg-tertiary: #e2e8f0;
-  --card-bg: #ffffff;
-  --nav-bg: #ffffff;
-
-  /* Text Colors */
-  --text-primary: #1e293b;
-  --text-secondary: #64748b;
-  --text-muted: #94a3b8;
-
-  /* Border & Divider */
-  --border-color: #e2e8f0;
-  --divider-color: #e2e8f0;
-
-  /* Interactive States */
-  --hover-bg: #f1f5f9;
-  --active-bg: #e2e8f0;
-  --focus-ring: rgba(59, 130, 246, 0.3);
-
-  /* Semantic Colors */
-  --accent: #2563eb;
-  --accent-light: #eff6ff;
-  --accent-dark: #1d4ed8;
-  --accent-rgb: 37, 99, 235;
-
-  --success: #22c55e;
-  --success-light: #dcfce7;
-  --success-rgb: 34, 197, 94;
-
-  --warning: #f59e0b;
-  --warning-light: #fef3c7;
-  --warning-rgb: 245, 158, 11;
-
-  --danger: #ef4444;
-  --danger-light: #fee2e2;
-  --danger-rgb: 239, 68, 68;
-
-  --info: #3b82f6;
-  --info-light: #dbeafe;
-
-  /* Shadows */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-
-  /* Spacing Scale */
-  --space-xs: 0.25rem;
-  --space-sm: 0.5rem;
-  --space-md: 1rem;
-  --space-lg: 1.5rem;
-  --space-xl: 2rem;
-  --space-2xl: 3rem;
-
-  /* Border Radius */
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
-  --radius-2xl: 1.5rem;
-  --radius-full: 9999px;
-
-  /* Transitions */
-  --transition-fast: 150ms ease;
-  --transition-normal: 200ms ease;
-  --transition-slow: 300ms ease;
-}
-
-[data-theme='dark'] {
-  /* Background Colors */
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-tertiary: #334155;
-  --card-bg: #1e293b;
-  --nav-bg: #1e293b;
-
-  /* Text Colors */
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-
-  /* Border & Divider */
-  --border-color: #334155;
-  --divider-color: #334155;
-
-  /* Interactive States */
-  --hover-bg: #334155;
-  --active-bg: #475569;
-  --focus-ring: rgba(59, 130, 246, 0.4);
-
-  /* Semantic Colors - adjusted for dark mode */
-  --accent: #3b82f6;
-  --accent-light: #1e3a5f;
-  --accent-dark: #2563eb;
-  --accent-rgb: 59, 130, 246;
-  --success-light: #14532d;
-  --warning-light: #78350f;
-  --danger-light: #7f1d1d;
-  --info-light: #1e3a5f;
-
-  /* Shadows - more subtle in dark mode */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
-}
 
 /* ========================================
    Base Styles
@@ -323,7 +213,9 @@ a {
 
 
 @layer base {
-  :root {
+  :root,
+  [data-theme='light'] {
+    /* Shadcn base colors */
     --background: 0 0% 100%;
     --foreground: 0 0% 3.9%;
     --card: 0 0% 100%;
@@ -343,44 +235,88 @@ a {
     --border: 0 0% 89.8%;
     --input: 0 0% 89.8%;
     --ring: 0 0% 3.9%;
+
+    /* Custom project colors (HSL format) */
+    --bg-primary: 210 40% 98%;      /* #f8fafc */
+    --bg-secondary: 210 40% 96.1%;  /* #f1f5f9 */
+    --bg-tertiary: 214 32% 91%;     /* #e2e8f0 */
+    --card-bg: 0 0% 100%;           /* #ffffff */
+    --nav-bg: 0 0% 100%;            /* #ffffff */
+
+    --text-primary: 215 25% 27%;    /* #1e293b */
+    --text-secondary: 215 16% 47%;  /* #64748b */
+    --text-muted: 215 14% 64%;      /* #94a3b8 */
+
+    --border-color: 214 32% 91%;    /* #e2e8f0 */
+    --divider-color: 214 32% 91%;   /* #e2e8f0 */
+
+    /* Semantic colors */
+    --success: 142 71% 45%;         /* #22c55e */
+    --warning: 38 92% 50%;          /* #f59e0b */
+    --danger: 0 84% 60%;            /* #ef4444 */
+    --info: 217 91% 60%;            /* #3b82f6 */
+
+    /* Charts */
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
+
     --radius: 0.5rem;
   }
-  .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
+
+  .dark,
+  [data-theme='dark'] {
+    /* Shadcn base colors */
+    --background: 222 47% 11%;      /* #0f172a */
+    --foreground: 210 40% 98%;      /* #f1f5f9 */
+    --card: 215 28% 17%;            /* #1e293b */
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 11%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 212 72% 59%;
+
+    /* Custom project colors (HSL format) */
+    --bg-primary: 222 47% 11%;      /* #0f172a */
+    --bg-secondary: 215 28% 17%;    /* #1e293b */
+    --bg-tertiary: 215 25% 27%;     /* #334155 */
+    --card-bg: 215 28% 17%;         /* #1e293b */
+    --nav-bg: 215 28% 17%;          /* #1e293b */
+
+    --text-primary: 210 40% 98%;    /* #f1f5f9 */
+    --text-secondary: 215 14% 64%;  /* #94a3b8 */
+    --text-muted: 215 16% 47%;      /* #64748b */
+
+    --border-color: 215 25% 27%;    /* #334155 */
+    --divider-color: 215 25% 27%;   /* #334155 */
+
+    /* Semantic colors - same as light */
+    --success: 142 71% 45%;         /* #22c55e */
+    --warning: 38 92% 50%;          /* #f59e0b */
+    --danger: 0 84% 60%;            /* #ef4444 */
+    --info: 217 91% 60%;            /* #3b82f6 */
+
+    /* Charts */
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
   }
-}
 
-
-
-@layer base {
   * {
     @apply border-border;
   }

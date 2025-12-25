@@ -14,11 +14,13 @@ export enum ActivityAction {
   CREATE = 'create',
   UPDATE = 'update',
   DELETE = 'delete',
+  REVIEWED = 'reviewed',
   REVIEW = 'review',
   APPROVE = 'approve',
 }
 
 export enum ActivityEntityType {
+  FILE = 'file',
   DOCUMENT = 'document',
   FOUNDATION_INSTRUMENT = 'foundation_instrument',
   CHARTER_SECTION = 'charter_section',
@@ -29,6 +31,7 @@ export enum ActivityEntityType {
 }
 
 export enum ActivityStage {
+  STAGE_00_UPLOAD = '00-upload',
   STAGE_03_PDF_LABEL = '03-pdf-label',
   STAGE_04_EXTRACT = '04-extract',
   STAGE_05_REVIEW = '05-review',

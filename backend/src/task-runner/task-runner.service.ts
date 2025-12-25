@@ -73,6 +73,9 @@ export class TaskRunnerService {
       this.configService.get('TYPHOON_OCR_API_KEY_5', ''),
       this.configService.get('TYPHOON_OCR_API_KEY_6', ''),
       this.configService.get('TYPHOON_OCR_API_KEY_7', ''),
+      this.configService.get('TYPHOON_OCR_API_KEY_8', ''),
+      this.configService.get('TYPHOON_OCR_API_KEY_9', ''),
+      this.configService.get('TYPHOON_OCR_API_KEY_10', ''),
     ].filter((key) => key.length > 0);
   }
 
@@ -179,7 +182,20 @@ export class TaskRunnerService {
         );
 
         const startTime = Date.now();
-        const buffer = await this.filesService.getFileBuffer(file.storagePath);
+
+        // ⭐ Priority: Use editedPath if available (edited image from Stage 00)
+        const pathToOcr = file.editedPath || file.storagePath;
+        const isUsingEditedPath = !!file.editedPath;
+
+        if (isUsingEditedPath) {
+          this.log(
+            threadNum,
+            `Using edited image for #${file.fileNumber}`,
+            'info',
+          );
+        }
+
+        const buffer = await this.filesService.getFileBuffer(pathToOcr);
         const ocrText = await this.callOcrService(buffer, apiKey);
         const isBookmark = this.isBookmarkText(ocrText);
         const elapsedSeconds = (Date.now() - startTime) / 1000;

@@ -416,6 +416,14 @@ CREATE TABLE files (
   mime_type VARCHAR(100) NOT NULL,
   size BIGINT NOT NULL,
 
+  -- Stage 00: Review tracking (Mark relevant/not relevant files)
+  is_reviewed BOOLEAN DEFAULT FALSE,
+  reviewed_at TIMESTAMP NULL,
+
+  -- Stage 00: Edited image (after drawing/masking)
+  edited_path VARCHAR(500) NULL,
+  has_edited BOOLEAN DEFAULT FALSE,
+
   -- Stage 01: Upload tracking
   processed BOOLEAN DEFAULT FALSE,
   processed_at TIMESTAMP NULL,
@@ -440,17 +448,29 @@ CREATE TABLE files (
 | `storage_path` | VARCHAR(500) | Path ใน MinIO (bucket: raw/) | NOT NULL |
 | `mime_type` | VARCHAR(100) | MIME type (image/jpeg, application/pdf) | NOT NULL |
 | `size` | BIGINT | ขนาดไฟล์ (bytes) | NOT NULL |
-| `processed` | BOOLEAN | สถานะการประมวลผล OCR | DEFAULT FALSE |
-| `processed_at` | TIMESTAMP | เวลาที่ประมวลผล OCR เสร็จ | NULL |
+| `is_reviewed` | BOOLEAN | **Stage 00** - Mark ว่าตรวจสอบแล้ว (relevant/not relevant) | DEFAULT FALSE |
+| `reviewed_at` | TIMESTAMP | **Stage 00** - เวลาที่ mark reviewed | NULL |
+| `edited_path` | VARCHAR(500) | **Stage 00** - Path ของไฟล์ที่แก้ไขแล้ว (after drawing/masking) | NULL |
+| `has_edited` | BOOLEAN | **Stage 00** - มีการแก้ไขไฟล์หรือไม่ | DEFAULT FALSE |
+| `processed` | BOOLEAN | **Stage 01** - สถานะการประมวลผล OCR | DEFAULT FALSE |
+| `processed_at` | TIMESTAMP | **Stage 01** - เวลาที่ประมวลผล OCR เสร็จ | NULL |
 | `group_id` | INTEGER | Foreign key to groups | REFERENCES groups(id) |
 | `order_in_group` | INTEGER | ลำดับของไฟล์ใน group | NULL |
 | `ocr_text` | TEXT | ข้อความจาก OCR (สำหรับ pattern matching) | NULL |
 | `is_bookmark` | BOOLEAN | ไฟล์นี้เป็น BOOKMARK หรือไม่ | DEFAULT FALSE |
 | `created_at` | TIMESTAMP | วันที่อัปโหลด | DEFAULT NOW() |
 
-**Stage 01 - Upload:**
+**Stage 00 - Upload & Review:**
+- `is_reviewed = false` - ยังไม่ได้ตรวจสอบว่าไฟล์เกี่ยวข้องหรือไม่
+- `is_reviewed = true` - ตรวจสอบแล้ว (mark ว่าเกี่ยวข้องหรือไม่เกี่ยวข้อง)
+- `edited_path` - Path ของไฟล์ที่แก้ไขแล้ว (drawing/masking) ใน MinIO
+- `has_edited` - Flag ว่ามีการแก้ไขหรือไม่
+
+**Stage 01 - OCR Processing:**
 - `processed = false` - รอประมวลผล OCR
 - `processed = true` - OCR เสร็จแล้ว
+- ⚠️ **OCR Priority:** ถ้ามี `edited_path` (has_edited = true) → OCR จาก edited_path แทน storage_path
+- ⚠️ **Auto Cleanup:** หลัง OCR เสร็จ → ลบไฟล์จาก edited_path ใน MinIO และ clear field
 
 **Stage 02 - Grouping:**
 - `group_id` - ID ของ group ที่ไฟล์นี้อยู่

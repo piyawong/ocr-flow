@@ -28,6 +28,20 @@ export class File {
   @Column()
   size: number;
 
+  // Stage 00: Review tracking (for uploaded images)
+  @Column({ default: false })
+  isReviewed: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  reviewedAt: Date | null;
+
+  // Stage 00: Edited image (after drawing/masking)
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  editedPath: string | null;
+
+  @Column({ default: false })
+  hasEdited: boolean;
+
   // Stage 01: Upload tracking
   @Column({ default: false })
   processed: boolean;
