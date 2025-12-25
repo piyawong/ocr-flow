@@ -92,7 +92,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-ocr-documents}
       MINIO_USE_SSL: "false"
-      FRONTEND_URL: http://localhost:3004
+      FRONTEND_URL: http://http://46.250.238.125/:3004
       # OCR Service URL (Python microservice)
       OCR_SERVICE_URL: http://ocr-service:8000
       # API Keys (passed to OCR service per request)
@@ -127,7 +127,7 @@ services:
     container_name: ocr-frontend
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:4004
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://46.250.238.125:4004}
     ports:
       - "3004:3004"
     depends_on:

@@ -14,7 +14,7 @@ export class Organization {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'varchar', length: 255, unique: true })
+  @Column({ type: 'varchar', length: 255 })
   districtOfficeName: string; // สำนักงานเขต (เช่น "สำนักงานเขตจอมทอง")
 
   @Column({ type: 'varchar', length: 255 })

@@ -4,6 +4,8 @@ import React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
+
 interface PageLabel {
   id: number;
   groupedFileId: number;
@@ -59,7 +61,7 @@ export const SortablePageItem = React.memo(function SortablePageItem({
   };
 
   const rotation = tempRotations[page.groupedFileId] || 0;
-  const thumbnailUrl = `http://localhost:4004/files/${page.groupedFileId}/thumbnail?cb=${imageCacheBuster}`;
+  const thumbnailUrl = `${API_URL}/files/${page.groupedFileId}/thumbnail?cb=${imageCacheBuster}`;
 
   return (
     <div

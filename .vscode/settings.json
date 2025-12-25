@@ -1,4 +1,10 @@
 {
+  "remote.autoForwardPorts": false,
+  "remote.portsAttributes": {
+    "*": {
+      "onAutoForward": "ignore"
+    }
+  },
   "workbench.colorCustomizations": {
     "activityBar.background": "#FFC107",
     "activityBar.foreground": "#000000",
