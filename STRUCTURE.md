@@ -1,6 +1,6 @@
 # OCR Flow v2 - Documentation Hub
 
-> **อัปเดตล่าสุด:** 2025-12-25 (Unified Theme System - Single Source)
+> **อัปเดตล่าสุด:** 2025-12-27 (เพิ่ม OCR Worker 4 ใช้ API Keys 13-16)
 > **วัตถุประสงค์:** Navigation hub สำหรับเอกสาร OCR Flow v2
 
 ---
@@ -114,6 +114,14 @@ OCR-flow-v2/
   - Template generation และ optimization
   - Pattern selection guidelines
 
+### Organization Output (Stage 05)
+- 📊 **Organization Data Output** → [Organization.md](./Organization.md)
+  - โครงสร้างข้อมูลสุดท้ายหลังจบ Stage 05
+  - Foundation Instrument (ตราสาร + หมวด + ข้อ + อนุข้อ)
+  - Committee Members (รายชื่อกรรมการ)
+  - Review Status (สถานะการ approve)
+  - Complete JSON output example
+
 ---
 
 ## 🚀 Quick Start
@@ -196,8 +204,8 @@ docker-compose up -d
 
 02. GROUP (Auto-grouping)
     └─> Task runner ทำ OCR + ตรวจจับ BOOKMARK
-    └─> จัดกลุ่มไฟล์แบบอัตโนมัติ
-    └─> บันทึก groups + metadata
+    └─> จัดกลุ่มไฟล์แบบอัตโนมัติด้วย BOOKMARK (delimiter-based)
+    └─> สร้าง groups เมื่อไฟล์ระหว่าง BOOKMARK OCR เสร็จครบ (atomic)
 
 03. PDF-LABEL (Pattern Matching)
     └─> Auto-label ด้วย pattern matching
@@ -210,13 +218,14 @@ docker-compose up -d
     └─> Mark extract data as reviewed
 
 05. REVIEW (Final Review)
-    └─> Review Stage 03 + 04 แบบ combined
-    └─> Final approval (admin only)
-    └─> บันทึก notes และ reviewer
+    └─> Review Stage 03 (PDF Labels) แยกอิสระ
+    └─> Review Stage 04 (Extract Data) แยกอิสระ
+    └─> สามารถ Approve/Reject แต่ละ stage แยกกันได้
+    └─> บันทึก notes, reviewer, timestamp แยกกัน
 
 06. UPLOAD (Final Upload)
     └─> Upload documents ไปยัง final destination
-    └─> เฉพาะ groups ที่ approved แล้ว
+    └─> เฉพาะ groups ที่ finalReview03 = 'approved' AND finalReview04 = 'approved'
 ```
 
 ### Key Modules
@@ -264,6 +273,7 @@ docker-compose up -d
 | [parse-data.md](./parse-data.md) | Data extraction logic (ตราสาร + กรรมการ) | ✓ |
 | [task-runner.md](./task-runner.md) | Background task patterns (Infinite Loop + SSE) | ✓ |
 | [template-learning-task.md](./template-learning-task.md) | Template optimization workflow | ✓ |
+| [Organization.md](./Organization.md) | ข้อมูล output หลังจบ Stage 05 (Final Review) | ✓ |
 | [STRUCTURE-old.md](./STRUCTURE-old.md) | โครงสร้างระบบแบบละเอียด (backup เดิม) | ✓ |
 
 ---
@@ -299,10 +309,27 @@ MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin
 MINIO_BUCKET=ocr-documents
 
-# OCR API (Typhoon OCR API)
+# OCR API (Typhoon OCR API - 4 workers × 4 keys = 16 total)
+# Worker 1: Keys 1-4
 TYPHOON_OCR_API_KEY_1=your-api-key-1
 TYPHOON_OCR_API_KEY_2=your-api-key-2
 TYPHOON_OCR_API_KEY_3=your-api-key-3
+TYPHOON_OCR_API_KEY_4=your-api-key-4
+# Worker 2: Keys 5-8
+TYPHOON_OCR_API_KEY_5=your-api-key-5
+TYPHOON_OCR_API_KEY_6=your-api-key-6
+TYPHOON_OCR_API_KEY_7=your-api-key-7
+TYPHOON_OCR_API_KEY_8=your-api-key-8
+# Worker 3: Keys 9-12
+TYPHOON_OCR_API_KEY_9=your-api-key-9
+TYPHOON_OCR_API_KEY_10=your-api-key-10
+TYPHOON_OCR_API_KEY_11=your-api-key-11
+TYPHOON_OCR_API_KEY_12=your-api-key-12
+# Worker 4: Keys 13-16
+TYPHOON_OCR_API_KEY_13=your-api-key-13
+TYPHOON_OCR_API_KEY_14=your-api-key-14
+TYPHOON_OCR_API_KEY_15=your-api-key-15
+TYPHOON_OCR_API_KEY_16=your-api-key-16
 
 # JWT
 JWT_SECRET=your-super-secret-jwt-key-change-in-production
@@ -353,11 +380,14 @@ NEXT_PUBLIC_API_URL=http://localhost:4004
 4. `processed = false` (รอประมวลผล)
 
 ### Stage 02: GROUP (Auto-grouping)
-1. Task runner OCR ทุกไฟล์ (Typhoon API)
-2. ตรวจจับ BOOKMARK (หน้าแบ่งกลุ่ม)
-3. จัดกลุ่มแบบ sequential (BOOKMARK = จุดแบ่ง)
-4. บันทึก groups + OCR text
-5. Mark `isComplete = true`
+1. OCR Workers (3 workers) ทำ OCR ทุกไฟล์ (Typhoon API)
+2. ตรวจจับ BOOKMARK (หน้าแบ่งกลุ่ม) - `ocrText.includes('BOOKMARK')`
+3. Grouping Worker จัดกลุ่มแบบ BOOKMARK-based:
+   - หา BOOKMARK ทั้งหมด (sorted by fileNumber)
+   - Process แบบ sequential pairs: [B1-B7], [B7-B12], ...
+   - รอให้ไฟล์ระหว่าง BOOKMARK OCR เสร็จครบ (ห้ามข้าม!)
+   - สร้าง group เมื่อครบทุกไฟล์ (atomic operation)
+4. บันทึก groups (created as complete) + OCR text
 
 ### Stage 03: PDF-LABEL (Pattern Matching)
 1. Label runner auto-label ทุก group
@@ -373,13 +403,16 @@ NEXT_PUBLIC_API_URL=http://localhost:4004
 4. Mark extract data as reviewed
 
 ### Stage 05: REVIEW (Final Review)
-1. Review Stage 03 + 04 แบบ combined
-2. Final approval (admin only)
-3. บันทึก notes และ reviewer
-4. Mark `isFinalApproved = true`
+1. Review Stage 03 (PDF Labels) แยกอิสระ
+2. Review Stage 04 (Extract Data) แยกอิสระ
+3. สามารถ Approve/Reject แต่ละ stage แยกกันได้
+4. บันทึก notes, reviewer, timestamp แยกกัน
+5. Mark `finalReview03` และ `finalReview04` = 'approved'/'rejected'
 
 ### Stage 06: UPLOAD (Final Upload)
-1. Upload เฉพาะ groups ที่ approved
+1. Upload เฉพาะ groups ที่:
+   - `finalReview03 = 'approved'` AND
+   - `finalReview04 = 'approved'`
 2. Final destination (ยังไม่ implement)
 
 ---

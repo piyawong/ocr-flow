@@ -10,43 +10,7 @@ export interface LogMessage {
   type: 'info' | 'success' | 'error' | 'warning';
 }
 
-interface OcrResult {
-  rawFileId: number;
-  fileNumber: number;
-  originalName: string;
-  storagePath: string;
-  mimeType: string;
-  size: number;
-  ocrText: string;
-  isBookmark: boolean;
-}
-
-class TaskQueue {
-  private queue: any[] = [];
-  private currentIndex = 0;
-
-  constructor(items: any[]) {
-    this.queue = [...items];
-  }
-
-  getNext(): any | null {
-    if (this.currentIndex >= this.queue.length) return null;
-    return this.queue[this.currentIndex++];
-  }
-
-  putBack(item: any): void {
-    // คืนไฟล์กลับ queue ต่อท้าย
-    this.queue.push(item);
-  }
-
-  hasMore(): boolean {
-    return this.currentIndex < this.queue.length;
-  }
-
-  getProgress(): { current: number; total: number } {
-    return { current: this.currentIndex, total: this.queue.length };
-  }
-}
+// ⭐ ลบ TaskQueue และ OcrResult - ใช้ Database แทน
 
 @Injectable()
 export class TaskRunnerService {
@@ -64,7 +28,7 @@ export class TaskRunnerService {
     // OCR Service URL (Python microservice)
     this.ocrServiceUrl = this.configService.get('OCR_SERVICE_URL', 'http://localhost:8000');
 
-    // API Keys (passed to OCR service per request for parallel processing)
+    // API Keys (all 16 keys - sent as array to OCR service for multi-key load balancing)
     this.apiKeys = [
       this.configService.get('TYPHOON_OCR_API_KEY_1', ''),
       this.configService.get('TYPHOON_OCR_API_KEY_2', ''),
@@ -76,6 +40,12 @@ export class TaskRunnerService {
       this.configService.get('TYPHOON_OCR_API_KEY_8', ''),
       this.configService.get('TYPHOON_OCR_API_KEY_9', ''),
       this.configService.get('TYPHOON_OCR_API_KEY_10', ''),
+      this.configService.get('TYPHOON_OCR_API_KEY_11', ''),
+      this.configService.get('TYPHOON_OCR_API_KEY_12', ''),
+      this.configService.get('TYPHOON_OCR_API_KEY_13', ''),
+      this.configService.get('TYPHOON_OCR_API_KEY_14', ''),
+      this.configService.get('TYPHOON_OCR_API_KEY_15', ''),
+      this.configService.get('TYPHOON_OCR_API_KEY_16', ''),
     ].filter((key) => key.length > 0);
   }
 
@@ -115,303 +85,401 @@ export class TaskRunnerService {
    * Call Python OCR microservice.
    *
    * The Python service uses typhoon-ocr library with:
+   * - Multi-key load balancing (4 API keys per worker)
    * - figure_language="Thai" (Thai language optimization)
    * - task_type="v1.5" (faster, single-prompt architecture)
-   * - Post-processing fixes for Thai OCR errors
+   * - Multi-Scale OCR + PaddleOCR + 2-Step LLM Ensemble
    *
    * @param imageBuffer - Image data as Buffer
-   * @param apiKey - Typhoon OCR API key (passed per request for parallel processing)
+   * @param apiKeys - Array of API keys (4 keys per worker)
    * @returns OCR text result
    */
   private async callOcrService(
     imageBuffer: Buffer,
-    apiKey: string,
+    apiKeys: string[],
   ): Promise<string> {
     const base64Image = imageBuffer.toString('base64');
 
-    const response = await fetch(`${this.ocrServiceUrl}/ocr`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        image_base64: base64Image,
-        api_key: apiKey,
-        task_type: 'v1.5',        // Faster, single-prompt architecture
-        figure_language: 'Thai',   // Thai language optimization
-      }),
-    });
+    // ⭐ ขยาย timeout เป็น 5 นาที (300,000ms) สำหรับไฟล์ใหญ่
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`OCR Service error: ${response.status} - ${errorText}`);
+    try {
+      const response = await fetch(`${this.ocrServiceUrl}/ocr`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image_base64: base64Image,
+          api_key: apiKeys,  // Send worker-specific keys (4 keys) for multi-key load balancing
+          task_type: 'v1.5',        // Faster, single-prompt architecture
+          figure_language: 'Thai',   // Thai language optimization
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OCR Service error: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(`OCR failed: ${data.error || 'Unknown error'}`);
+      }
+
+      return data.text;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error('OCR request timeout (5 minutes exceeded)');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const data = await response.json();
-
-    if (!data.success) {
-      throw new Error(`OCR failed: ${data.error || 'Unknown error'}`);
-    }
-
-    return data.text;
   }
 
   private isBookmarkText(text: string): boolean {
-    const normalizedText = text.toUpperCase().trim();
-    return normalizedText.includes('BOOKMARK') || normalizedText === 'BOOKMARK';
+    // Simple check: มีคำว่า "BOOKMARK" อยู่ในข้อความหรือไม่
+    const normalizedText = text.toUpperCase();
+    return normalizedText.includes('BOOKMARK');
   }
 
-  private async processFileWithRetry(
-    file: any,
-    apiKey: string,
-    threadNum: number,
-    maxRetries = 3,
-  ): Promise<OcrResult> {
-    let lastError: Error | null = null;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      if (!this.isRunning) {
-        throw new Error('Task stopped');
-      }
-
-      try {
-        this.log(
-          threadNum,
-          `Processing file #${file.fileNumber}: ${file.originalName}${attempt > 1 ? ` (retry ${attempt}/${maxRetries})` : ''}`,
-          'info',
-        );
-
-        const startTime = Date.now();
-
-        // ⭐ Priority: Use editedPath if available (edited image from Stage 00)
-        const pathToOcr = file.editedPath || file.storagePath;
-        const isUsingEditedPath = !!file.editedPath;
-
-        if (isUsingEditedPath) {
-          this.log(
-            threadNum,
-            `Using edited image for #${file.fileNumber}`,
-            'info',
-          );
-        }
-
-        const buffer = await this.filesService.getFileBuffer(pathToOcr);
-        const ocrText = await this.callOcrService(buffer, apiKey);
-        const isBookmark = this.isBookmarkText(ocrText);
-        const elapsedSeconds = (Date.now() - startTime) / 1000;
-
-        // Mark file as processed
-        await this.filesService.markAsProcessed(file.id);
-
-        this.log(
-          threadNum,
-          `OCR complete for #${file.fileNumber} in ${elapsedSeconds.toFixed(2)}s${isBookmark ? ' [BOOKMARK DETECTED]' : ''}`,
-          isBookmark ? 'warning' : 'success',
-        );
-
-        // Emit file processed event
-        this.log(threadNum, `FILE_PROCESSED:${file.id}`, 'info');
-
-        return {
-          rawFileId: file.id,
-          fileNumber: file.fileNumber,
-          originalName: file.originalName,
-          storagePath: file.storagePath,
-          mimeType: file.mimeType,
-          size: file.size,
-          ocrText,
-          isBookmark,
-        };
-      } catch (error) {
-        lastError = error;
-        if (attempt < maxRetries) {
-          this.log(
-            threadNum,
-            `Error processing #${file.fileNumber}, retrying... (${error.message})`,
-            'warning',
-          );
-          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
-        }
-      }
-    }
-
-    // All retries failed - throw error to stop worker
-    this.log(
-      threadNum,
-      `❌ Failed to process #${file.fileNumber} after ${maxRetries} attempts: ${lastError?.message}`,
-      'error',
-    );
-    this.log(
-      threadNum,
-      `⚠️ Thread ${threadNum} stopped. File #${file.fileNumber} returned to queue for other workers.`,
-      'warning',
-    );
-
-    throw new Error(`Failed after ${maxRetries} retries: ${lastError?.message}`);
-  }
-
+  /**
+   * ⭐ OCR Worker แบบใหม่ - Stateless, Database-backed Queue
+   *
+   * Logic:
+   * 1. Loop ตลอดไป (ไม่หยุดเมื่อ retry ล้มเหลว)
+   * 2. getNextOcrJob() จาก database (with lock)
+   * 3. ไม่มีงาน → รอ 2 วินาที → loop ใหม่
+   * 4. มีงาน → ทำ OCR (retry 3 ครั้ง)
+   * 5. สำเร็จ → markOcrCompleted()
+   * 6. ล้มเหลว → markOcrFailed() (unlock สำหรับ retry โดย worker อื่น)
+   * 7. Loop ต่อ (ไม่หยุด worker)
+   */
   private async runOcrWorker(
     threadNum: number,
-    apiKey: string,
-    queue: TaskQueue,
-    resultsMap: Map<number, OcrResult>,
+    workerKeys: string[],
   ): Promise<void> {
-    while (queue.hasMore() && this.isRunning) {
-      const file = queue.getNext();
-      if (!file) break;
+    this.log(threadNum, `OCR Worker ${threadNum} started (Database queue)`, 'info');
 
+    while (this.isRunning) {
       try {
-        const result = await this.processFileWithRetry(file, apiKey, threadNum);
-        resultsMap.set(file.fileNumber, result);
-        // ⭐ ไม่ทำ grouping ที่นี่ - ให้ grouping worker ทำ
+        // ⭐ ดึงงานจาก database queue (with transaction + lock)
+        const file = await this.filesService.getNextOcrJob();
+
+        if (!file) {
+          // ไม่มีงาน - รอ 2 วินาที แล้ว loop ใหม่
+          await this.sleep(2000);
+          continue;
+        }
+
+        // มีงาน - ทำ OCR (retry 3 ครั้ง)
+        let lastError: Error | null = null;
+        let success = false;
+        const maxRetries = 3;
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          if (!this.isRunning) break;
+
+          try {
+            this.log(
+              threadNum,
+              `Processing file #${file.fileNumber}: ${file.originalName}${
+                attempt > 1 ? ` (retry ${attempt}/${maxRetries})` : ''
+              }${file.ocrFailedCount > 0 ? ` [prev fails: ${file.ocrFailedCount}]` : ''}`,
+              'info',
+            );
+
+            const startTime = Date.now();
+
+            // ⭐ Priority: Use editedPath if reviewed and edited (from Stage 00)
+            const pathToOcr =
+              file.isReviewed && file.editedPath
+                ? file.editedPath
+                : file.storagePath;
+            const isUsingEditedPath = !!(file.isReviewed && file.editedPath);
+
+            if (isUsingEditedPath) {
+              this.log(
+                threadNum,
+                `Using edited image for #${file.fileNumber}`,
+                'info',
+              );
+            }
+
+            const buffer = await this.filesService.getFileBuffer(pathToOcr);
+            const ocrText = await this.callOcrService(buffer, workerKeys);
+            const isBookmark = this.isBookmarkText(ocrText);
+            const elapsedSeconds = (Date.now() - startTime) / 1000;
+
+            // ✅ สำเร็จ - mark completed
+            await this.filesService.markOcrCompleted(
+              file.id,
+              ocrText,
+              isBookmark,
+            );
+
+            this.log(
+              threadNum,
+              `✅ OCR complete for #${file.fileNumber} in ${elapsedSeconds.toFixed(2)}s${isBookmark ? ' [BOOKMARK DETECTED]' : ''}`,
+              isBookmark ? 'warning' : 'success',
+            );
+
+            // Emit file processed event
+            this.log(threadNum, `FILE_PROCESSED:${file.id}`, 'info');
+
+            success = true;
+            break; // ออกจาก retry loop
+          } catch (error) {
+            lastError = error;
+            if (attempt < maxRetries) {
+              this.log(
+                threadNum,
+                `⚠️ Error processing #${file.fileNumber}, retrying... (${error.message})`,
+                'warning',
+              );
+              await this.sleep(1000 * attempt); // Backoff: 1s, 2s, 3s
+            }
+          }
+        }
+
+        // ❌ ล้มเหลบหลัง retry ครบ - mark failed (unlock สำหรับ worker อื่น retry)
+        if (!success && lastError) {
+          await this.filesService.markOcrFailed(file.id, lastError.message);
+          this.log(
+            threadNum,
+            `❌ Failed to process #${file.fileNumber} after ${maxRetries} attempts (total fails: ${file.ocrFailedCount + 1}): ${lastError.message}`,
+            'error',
+          );
+          this.log(
+            threadNum,
+            `🔄 File #${file.fileNumber} returned to queue for retry`,
+            'warning',
+          );
+        }
+
+        // ⭐ ไม่หยุด worker - loop ต่อเพื่อดึงงานถัดไป
       } catch (error) {
-        // Retry failed - คืนไฟล์กลับ queue และหยุด worker นี้
-        queue.putBack(file);
+        // Unexpected error - log แล้ว loop ต่อ
         this.log(
           threadNum,
-          `🔄 File #${file.fileNumber} returned to queue. Thread ${threadNum} terminated.`,
-          'warning',
+          `Unexpected error in OCR worker: ${error.message}`,
+          'error',
         );
-        break; // หยุด worker นี้
+        await this.sleep(2000); // รอก่อน retry
       }
     }
 
-    this.log(threadNum, `OCR Thread ${threadNum} finished`, 'info');
+    this.log(threadNum, `OCR Worker ${threadNum} stopped`, 'info');
   }
 
-  private async runGroupingWorker(
-    resultsMap: Map<number, OcrResult>,
-    allFiles: any[],
-  ): Promise<void> {
-    const groupingState = {
-      currentIndex: 0,
-      currentGroupId: null as number | null,
-      orderInGroup: 1,
-    };
+  /**
+   * ⭐ NEW: BOOKMARK-based Grouping Worker
+   *
+   * Logic:
+   * 1. หา BOOKMARK files ทั้งหมดที่ OCR เสร็จแล้ว (sorted by fileNumber)
+   * 2. Process แบบ sequential pairs: [B1-B7], [B7-B12], ...
+   * 3. สร้าง group จากไฟล์ระหว่าง BOOKMARK
+   * 4. ถ้าไฟล์ใดยัง OCR ไม่เสร็จ → รอ (ห้ามข้าม)
+   * 5. Last group (ไม่มี ending BOOKMARK) → auto-complete ถ้าไม่มีไฟล์รอ OCR
+   */
+  private async runGroupingWorker(): Promise<void> {
+    this.log(0, `🔄 Grouping worker started (BOOKMARK-based)`, 'info');
 
-    this.log(0, `🔄 Grouping worker started`, 'info');
+    while (this.isRunning) {
+      try {
+        // 1️⃣ หา BOOKMARK ทั้งหมดที่ OCR เสร็จแล้ว (sorted)
+        const bookmarks = await this.filesService.findBookmarks();
 
-    // Loop จนกว่าจะ group ครบทุกไฟล์
-    while (groupingState.currentIndex < allFiles.length && this.isRunning) {
-      const expectedFile = allFiles[groupingState.currentIndex];
-      const result = resultsMap.get(expectedFile.fileNumber);
+        if (bookmarks.length === 0) {
+          this.log(0, `⏳ No BOOKMARKs found, waiting...`, 'info');
+          await this.sleep(3000);
+          continue;
+        }
 
-      if (!result) {
-        // ไฟล์ยังไม่พร้อม - รอ 100ms แล้วลองใหม่
-        await this.sleep(100);
-        continue;
-      }
+        const bookmarkNumbers = bookmarks.map(b => `#${b.fileNumber}`).join(', ');
+        this.log(0, `📖 Found ${bookmarks.length} BOOKMARK(s): ${bookmarkNumbers}`, 'info');
 
-      // ⭐ ไฟล์พร้อมแล้ว - ทำ grouping ทันที (ไม่มี race condition)
-      if (result.isBookmark) {
-        // เจอ BOOKMARK → ปิด group ก่อนหน้า (ถ้ามีไฟล์)
-        if (groupingState.currentGroupId && groupingState.orderInGroup > 1) {
-          await this.filesService.markGroupComplete(groupingState.currentGroupId);
+        // 2️⃣ Process แบบ sequential pairs
+        let groupsCreated = 0;
+        for (let i = 0; i < bookmarks.length; i++) {
+          if (!this.isRunning) break;
+
+          const startBookmark = bookmarks[i];
+          const endBookmark = bookmarks[i + 1] || null;
+
           this.log(
             0,
-            `✅ Group ID=${groupingState.currentGroupId} completed (${groupingState.orderInGroup - 1} files)`,
+            `🔍 Processing pair: BOOKMARK #${startBookmark.fileNumber} → ${endBookmark ? `#${endBookmark.fileNumber}` : 'END'}`,
+            'info',
+          );
+
+          // ถ้าไม่มี ending BOOKMARK → เช็คว่าไม่มี pending files
+          if (!endBookmark) {
+            const pendingCount = await this.filesService.countUnprocessedFiles();
+            if (pendingCount > 0) {
+              this.log(
+                0,
+                `⏳ Last group: waiting for ${pendingCount} file(s) to complete OCR`,
+                'warning',
+              );
+              break; // ยังมีไฟล์รอ OCR → ข้าม group นี้ไปก่อน
+            }
+          }
+
+          // 3️⃣ หาไฟล์ระหว่าง startBookmark ถึง endBookmark
+          const startFileNumber = startBookmark.fileNumber;
+          const endFileNumber = endBookmark?.fileNumber || 999999;
+
+          const filesInRange = await this.filesService.findFilesBetween(
+            startFileNumber,
+            endFileNumber,
+          );
+
+          if (filesInRange.length === 0) {
+            this.log(0, `ℹ️ No files between #${startFileNumber} and #${endFileNumber}`, 'info');
+            continue;
+          }
+
+          const fileNumbersList = filesInRange.map(f => `#${f.fileNumber}`).join(', ');
+          this.log(
+            0,
+            `📦 Found ${filesInRange.length} file(s) in range [${startFileNumber+1}...${endFileNumber-1}]: ${fileNumbersList}`,
+            'info',
+          );
+
+          // 4️⃣ เช็คว่าไฟล์ทุกตัว OCR เสร็จหรือยัง
+          const unprocessedFiles = filesInRange.filter(f => !f.processed);
+          if (unprocessedFiles.length > 0) {
+            const unprocessedList = unprocessedFiles.map(f => `#${f.fileNumber}`).join(', ');
+            this.log(
+              0,
+              `⏳ Waiting for ${unprocessedFiles.length} file(s) to complete OCR: ${unprocessedList}`,
+              'warning',
+            );
+            continue; // ยังมีไฟล์รอ OCR → ข้าม group นี้ไปก่อน (ห้ามข้าม BOOKMARK!)
+          }
+
+          // ✅ ทุกไฟล์ OCR เสร็จแล้ว
+          this.log(
+            0,
+            `✓ All ${filesInRange.length} files in range [${startFileNumber+1}...${endFileNumber-1}] are processed`,
+            'success',
+          );
+
+          // 5️⃣ เช็คว่า group นี้ถูกสร้างแล้วหรือยัง
+          const existingGroup = await this.filesService.findGroupByRange(
+            startFileNumber,
+            endFileNumber,
+          );
+
+          if (existingGroup) {
+            this.log(
+              0,
+              `✓ Group already exists (ID=${existingGroup.id}) for range [${startFileNumber+1}...${endFileNumber-1}]`,
+              'info',
+            );
+            continue; // สร้างแล้ว → ข้าม
+          }
+
+          // 6️⃣ สร้าง group ใหม่ (with Transaction + Lock)
+          await this.createGroupFromRange(
+            filesInRange,
+            startFileNumber,
+            endFileNumber,
+          );
+
+          groupsCreated++;
+          this.log(
+            0,
+            `✅ Group created for files [${startFileNumber+1}...${endFileNumber-1}] (${filesInRange.length} files)`,
             'success',
           );
         }
 
-        // สร้าง Group ใหม่ (BOOKMARK เป็นแค่ตัวแบ่ง ไม่เก็บลง group)
-        const newGroup = await this.filesService.createGroup();
-        groupingState.currentGroupId = newGroup.id;
-        groupingState.orderInGroup = 1;
-
-        this.log(
-          0,
-          `File #${result.fileNumber} is BOOKMARK - created new Group ID=${newGroup.id}`,
-          'warning',
-        );
-
-        // Mark BOOKMARK file ว่าเป็น bookmark แต่ไม่ assign groupId
-        await this.filesService.updateFileGrouping(result.rawFileId, {
-          groupId: null,
-          orderInGroup: null,
-          ocrText: result.ocrText,
-          isBookmark: true,
-        });
-      } else {
-        // สร้าง Group ถ้ายังไม่มี (กรณีไฟล์แรกไม่ใช่ BOOKMARK)
-        if (!groupingState.currentGroupId) {
-          const newGroup = await this.filesService.createGroup();
-          groupingState.currentGroupId = newGroup.id;
-          this.log(0, `Created initial Group ID=${newGroup.id}`, 'info');
+        if (groupsCreated === 0) {
+          this.log(0, `⏳ No new groups created, waiting...`, 'info');
         }
 
-        // Add to group
-        await this.filesService.updateFileGrouping(result.rawFileId, {
-          groupId: groupingState.currentGroupId,
-          orderInGroup: groupingState.orderInGroup,
-          ocrText: result.ocrText,
-          isBookmark: result.isBookmark,
-        });
-
+        // รอสักครู่ก่อน loop รอบถัดไป
+        await this.sleep(2000);
+      } catch (error) {
         this.log(
           0,
-          `Grouped #${result.fileNumber} → Group ID=${groupingState.currentGroupId}, Order ${groupingState.orderInGroup}`,
-          'success',
+          `Grouping worker error: ${error.message}`,
+          'error',
         );
-        groupingState.orderInGroup++;
+        await this.sleep(3000);
+      }
+    }
+
+    this.log(0, `✅ Grouping worker stopped`, 'success');
+  }
+
+  /**
+   * ⭐ NEW: สร้าง group จากไฟล์ระหว่าง BOOKMARK (with Transaction + Lock)
+   */
+  private async createGroupFromRange(
+    filesInRange: any[],
+    startFileNumber: number,
+    endFileNumber: number,
+  ): Promise<void> {
+    const GROUPING_LOCK_KEY = 88888;
+
+    await this.filesService.dataSource.transaction(async (manager) => {
+      // Acquire advisory lock (ป้องกัน race condition)
+      await manager.query('SELECT pg_advisory_xact_lock($1)', [GROUPING_LOCK_KEY]);
+
+      // Double-check: เช็คว่า files ยังไม่ได้ group
+      const alreadyGroupedCount = await manager
+        .getRepository('files')
+        .createQueryBuilder('file')
+        .where('file.fileNumber > :start', { start: startFileNumber })
+        .andWhere('file.fileNumber < :end', { end: endFileNumber })
+        .andWhere('file.groupId IS NOT NULL')
+        .getCount();
+
+      if (alreadyGroupedCount > 0) {
+        this.log(
+          0,
+          `⏭️ Some files already grouped, skipping range [${startFileNumber+1}...${endFileNumber-1}]`,
+          'warning',
+        );
+        return;
       }
 
-      groupingState.currentIndex++;
-    }
+      // สร้าง group ใหม่ (created as complete atomically)
+      const group = await manager.getRepository('groups').save({});
 
-    // ปิด group สุดท้าย (ถ้ามีไฟล์)
-    if (groupingState.currentGroupId && groupingState.orderInGroup > 1) {
-      await this.filesService.markGroupComplete(groupingState.currentGroupId);
+      // Assign ไฟล์ทั้งหมดเข้า group
+      for (let i = 0; i < filesInRange.length; i++) {
+        const file = filesInRange[i];
+        await manager.getRepository('files').update(file.id, {
+          groupId: group.id,
+          orderInGroup: i + 1,
+        });
+      }
+
       this.log(
         0,
-        `✅ Final group ID=${groupingState.currentGroupId} completed (${groupingState.orderInGroup - 1} files)`,
+        `📦 Group ID=${group.id} created with ${filesInRange.length} files`,
         'success',
       );
-    }
 
-    this.log(0, `✅ Grouping worker finished`, 'success');
+      // Emit GROUP_COMPLETE event
+      this.filesService.emitEvent({
+        type: 'GROUP_COMPLETE',
+        groupId: group.id,
+        timestamp: new Date().toISOString(),
+      });
+    });
   }
 
   private async sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  private async processBatch(rawFiles: any[]): Promise<void> {
-    // Setup worker pool
-    const queue = new TaskQueue(rawFiles);
-    const resultsMap = new Map<number, OcrResult>();
-
-    this.log(0, `📦 Processing ${rawFiles.length} file(s) with ${this.apiKeys.length} OCR workers + 1 grouping worker`, 'info');
-
-    // ⭐ Create OCR workers (parallel processing)
-    const ocrWorkers = this.apiKeys.map((apiKey, index) => {
-      const threadNum = index + 1;
-      return this.runOcrWorker(threadNum, apiKey, queue, resultsMap);
-    });
-
-    // ⭐ Create grouping worker (single worker - no race condition)
-    const groupingWorker = this.runGroupingWorker(resultsMap, rawFiles);
-
-    // รอให้ทั้ง OCR workers และ grouping worker เสร็จ
-    await Promise.all([...ocrWorkers, groupingWorker]);
-
-    // Check if all files were processed
-    const processedCount = resultsMap.size;
-    const totalCount = rawFiles.length;
-
-    if (processedCount < totalCount) {
-      const failedCount = totalCount - processedCount;
-      this.log(
-        0,
-        `⚠️ Warning: ${failedCount} file(s) failed to process after all retries`,
-        'warning',
-      );
-    } else {
-      this.log(0, `✅ Batch complete: ${processedCount} file(s) processed and grouped`, 'success');
-    }
-
-    const groupCount = await this.filesService.getGroupCount();
-    this.log(0, `Total groups created: ${groupCount}`, 'info');
   }
 
   async startTask(): Promise<void> {
@@ -426,47 +494,50 @@ export class TaskRunnerService {
     }
 
     this.isRunning = true;
-    this.log(0, '=== ∞ Infinite Worker Loop Started ===', 'info');
-    this.log(0, `Using ${this.apiKeys.length} workers with retry logic`, 'info');
+    this.log(0, '=== ∞ Infinite Worker Pool Started ===', 'info');
+    this.log(0, `Using 4 OCR workers × 4 keys = ${this.apiKeys.length} total API keys`, 'info');
 
     try {
-      // Clear incomplete groups once at start
-      await this.filesService.clearIncompleteGroups();
-      this.log(0, 'Cleared incomplete grouped files', 'info');
+      // ⭐ Step 1: Reset stuck OCR jobs (crashed workers)
+      const resetCount = await this.filesService.resetStuckOcrJobs();
+      if (resetCount > 0) {
+        this.log(0, `Reset ${resetCount} stuck OCR job(s) from previous run`, 'warning');
+      }
 
-      // Infinite loop - ทำงานจนกว่าจะถูก stop
-      while (this.isRunning) {
-        // Get file IDs that are already grouped
-        const fileIdsInGroups = await this.filesService.getFileIdsInCompleteGroups();
+      // ⭐ Step 2: Setup worker pool (4 OCR workers + 1 Grouping worker)
+      const NUM_WORKERS = 4;
+      const KEYS_PER_WORKER = 4;
+      const workerKeyGroups: string[][] = [];
 
-        // Get unprocessed files
-        const allUnprocessedFiles = await this.filesService.findUnprocessed();
-
-        // Filter out files that are already grouped
-        const rawFiles = allUnprocessedFiles.filter(
-          file => !fileIdsInGroups.includes(file.id)
-        );
-
-        if (rawFiles.length === 0) {
-          this.log(0, '⏳ No unprocessed files. Waiting for new files...', 'info');
-          await this.sleep(5000); // รอ 5 วินาที
-          continue;
-        }
-
-        this.log(0, `📦 Found ${rawFiles.length} unprocessed file(s) to process`, 'info');
-
-        // ประมวลผล batch นี้
-        await this.processBatch(rawFiles);
-
-        // รอสักครู่ก่อน loop รอบถัดไป (ป้องกัน tight loop)
-        if (this.isRunning) {
-          await this.sleep(2000);
+      for (let i = 0; i < NUM_WORKERS; i++) {
+        const startIdx = i * KEYS_PER_WORKER;
+        const endIdx = startIdx + KEYS_PER_WORKER;
+        const workerKeys = this.apiKeys.slice(startIdx, endIdx);
+        if (workerKeys.length > 0) {
+          workerKeyGroups.push(workerKeys);
         }
       }
 
-      this.log(0, '=== ∞ Infinite Worker Loop Stopped ===', 'warning');
+      this.log(0, `Starting ${workerKeyGroups.length} OCR workers + 1 Grouping worker`, 'info');
+
+      // ⭐ Step 4: Start OCR Workers (infinite loop - ไม่หยุดเมื่อ retry ล้มเหลว)
+      const ocrWorkers = workerKeyGroups.map((workerKeys, index) => {
+        const threadNum = index + 1;
+        this.log(0, `OCR Worker ${threadNum}: Using ${workerKeys.length} API keys`, 'info');
+        return this.runOcrWorker(threadNum, workerKeys);
+      });
+
+      // ⭐ Step 5: Start Grouping Worker (infinite loop - skip files ที่ยัง processing)
+      const groupingWorker = this.runGroupingWorker();
+
+      // ⭐ รอให้ workers ทำงานต่อไป (จนกว่าจะ stop)
+      // ถ้า worker ใดหยุด (error) → Promise.all จะ resolve
+      await Promise.all([...ocrWorkers, groupingWorker]);
+
+      this.log(0, '=== ∞ All workers stopped ===', 'warning');
     } catch (error) {
-      this.log(0, `Worker loop error: ${error.message}`, 'error');
+      this.log(0, `Worker pool error: ${error.message}`, 'error');
+    } finally {
       this.isRunning = false;
     }
   }
