@@ -52,6 +52,9 @@ services:
     container_name: ocr-service-prod
     restart: always
     environment:
+      OCR_MAX_WORKERS: ${OCR_MAX_WORKERS:-4}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: "1"
       TYPHOON_OCR_API_KEY_1: ${TYPHOON_OCR_API_KEY_1:-}
       TYPHOON_OCR_API_KEY_2: ${TYPHOON_OCR_API_KEY_2:-}
       TYPHOON_OCR_API_KEY_3: ${TYPHOON_OCR_API_KEY_3:-}
@@ -79,11 +82,11 @@ services:
     deploy:
       resources:
         limits:
+          cpus: '4.0'
+          memory: 8G
+        reservations:
           cpus: '2.0'
           memory: 4G
-        reservations:
-          cpus: '1.0'
-          memory: 2G
     networks:
       - ocr-network-prod
 
