@@ -270,12 +270,26 @@ export class FilesService {
 
   /**
    * ⭐ Mark OCR สำเร็จ
+   * หลัง OCR เสร็จ จะลบ edited file และ clear editedPath (ใช้เฉพาะตอน OCR เท่านั้น)
    */
   async markOcrCompleted(
     fileId: number,
     ocrText: string,
     isBookmark: boolean,
   ): Promise<void> {
+    // Get file to check if has edited image
+    const file = await this.fileRepository.findOne({ where: { id: fileId } });
+
+    // Delete edited file from MinIO if exists (editedPath ใช้เฉพาะตอน OCR เท่านั้น)
+    if (file?.editedPath) {
+      try {
+        await this.minioService.deleteFile(file.editedPath);
+      } catch (error) {
+        console.error(`Failed to delete edited file after OCR: ${file.editedPath}`, error.message);
+        // Continue even if delete fails
+      }
+    }
+
     await this.fileRepository.update(fileId, {
       processed: true,
       processedAt: new Date(),
@@ -285,6 +299,9 @@ export class FilesService {
       isBookmark,
       // Reset error state
       lastOcrError: null,
+      // Clear edited file info (ใช้เฉพาะตอน OCR เท่านั้น)
+      editedPath: null,
+      hasEdited: false,
     });
   }
 

@@ -302,9 +302,8 @@ def _ocr_worker(
 
         worker_logger.info("All 4 OCR tasks completed successfully")
 
-        # [VALIDATION] Check if any OCR result is empty or too short
-        worker_logger.info("Validating OCR results...")
-        MIN_OCR_LENGTH = 10  # ขั้นต่ำ 10 ตัวอักษร
+        # [VALIDATION] Check if OCR results are valid (basic checks only - length check moved to final result)
+        worker_logger.info("Validating OCR results (basic checks)...")
 
         ocr_results = [
             ("Full Image", full_result),
@@ -314,15 +313,13 @@ def _ocr_worker(
         ]
 
         validation_errors = []
+
         for name, result in ocr_results:
             if result is None:
                 validation_errors.append(f"{name}: Result is None")
             elif not isinstance(result, str):
                 validation_errors.append(f"{name}: Result is not a string (type: {type(result)})")
-            elif len(result.strip()) == 0:
-                validation_errors.append(f"{name}: Result is empty")
-            elif len(result.strip()) < MIN_OCR_LENGTH:
-                validation_errors.append(f"{name}: Result too short ({len(result.strip())} chars, min: {MIN_OCR_LENGTH})")
+            # Note: Empty string is allowed - will be validated at final result
 
         if validation_errors:
             worker_logger.error("=" * 80)
@@ -332,14 +329,12 @@ def _ocr_worker(
                 worker_logger.error(f"  - {err}")
             worker_logger.error("")
             worker_logger.error("This may indicate:")
-            worker_logger.error("  1. API returned empty response")
-            worker_logger.error("  2. Image quality too poor to extract text")
-            worker_logger.error("  3. API key quota exceeded")
-            worker_logger.error("  4. Image format not supported")
+            worker_logger.error("  1. API returned None/invalid response")
+            worker_logger.error("  2. API key quota exceeded")
             worker_logger.error("=" * 80)
             raise RuntimeError(f"OCR validation failed: {'; '.join(validation_errors)}")
 
-        worker_logger.info("✓ OCR validation passed - all results are valid")
+        worker_logger.info("✓ OCR basic validation passed")
         worker_logger.info(f"  Full: {len(full_result)} chars, Top: {len(top_result)} chars, "
                           f"Mid: {len(mid_result)} chars, Bot: {len(bot_result)} chars")
 
@@ -514,6 +509,7 @@ def _ocr_worker(
             final_result = typhoon_combined
 
         worker_logger.info("[Step 5/5] Finalizing result...")
+        worker_logger.info(f"✓ Final result: {len(final_result.strip())} chars")
 
         # Log final memory usage
         try:

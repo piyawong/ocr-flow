@@ -126,6 +126,10 @@ services:
       TYPHOON_OCR_API_KEY_10: ${TYPHOON_OCR_API_KEY_10:-}
       TYPHOON_OCR_API_KEY_11: ${TYPHOON_OCR_API_KEY_11:-}
       TYPHOON_OCR_API_KEY_12: ${TYPHOON_OCR_API_KEY_12:-}
+      TYPHOON_OCR_API_KEY_13: ${TYPHOON_OCR_API_KEY_13:-}
+      TYPHOON_OCR_API_KEY_14: ${TYPHOON_OCR_API_KEY_14:-}
+      TYPHOON_OCR_API_KEY_15: ${TYPHOON_OCR_API_KEY_15:-}
+      TYPHOON_OCR_API_KEY_16: ${TYPHOON_OCR_API_KEY_16:-}
       # Portal API URL for Stage 06 upload (use host.docker.internal to reach host machine)
       PORTAL_API_URL: ${PORTAL_API_URL:-http://host.docker.internal:3001}
     ports:

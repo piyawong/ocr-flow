@@ -53,14 +53,12 @@ export class FilesController {
       throw new NotFoundException('File not found');
     }
 
-    // Use edited image if available, otherwise use original
-    const imagePath = file.hasEdited && file.editedPath ? file.editedPath : file.storagePath;
-
-    const buffer = await this.filesService.getFileBuffer(imagePath);
+    // Always use original file (editedPath ใช้เฉพาะตอน OCR เท่านั้น)
+    const buffer = await this.filesService.getFileBuffer(file.storagePath);
     res.set({
       'Content-Type': file.mimeType,
       'Content-Length': buffer.length,
-      'Cache-Control': 'no-cache', // Don't cache edited images
+      'Cache-Control': 'public, max-age=3600',
     });
     res.send(buffer);
   }
