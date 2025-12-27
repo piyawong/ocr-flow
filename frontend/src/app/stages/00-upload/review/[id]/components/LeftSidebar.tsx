@@ -8,7 +8,7 @@ interface LeftSidebarProps {
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (collapsed: boolean) => void;
   visibleFiles: Array<{ file: RawFile; originalIdx: number }>;
-  sidebarScrollRef: React.RefObject<HTMLDivElement>;
+  sidebarScrollRef: React.RefObject<HTMLDivElement | null>;
   onSelectFile: (fileId: number) => void;
 }
 
