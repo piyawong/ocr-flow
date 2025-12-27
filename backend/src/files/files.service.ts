@@ -242,16 +242,16 @@ export class FilesService {
       // Acquire advisory lock (blocks until lock is available)
       await manager.query('SELECT pg_advisory_xact_lock($1)', [OCR_LOCK_KEY]);
 
-      // Find next file to OCR
+      // Find next file to OCR (ต้อง reviewed ก่อนถึงจะ OCR ได้)
       const file = await manager
         .getRepository(File)
         .createQueryBuilder('file')
         .where('file.processed = false')
+        .andWhere('file.isReviewed = true')
         .andWhere(
           `(file.ocrProcessing = false OR file.ocrStartedAt < NOW() - INTERVAL '${OCR_TIMEOUT_MINUTES} minutes')`
         )
-        .orderBy('file.ocrFailedCount', 'ASC') // ไฟล์ที่ fail น้อยกว่าได้ priority
-        .addOrderBy('file.fileNumber', 'ASC') // ลำดับรอง: fileNumber
+        .orderBy('file.fileNumber', 'ASC') // เรียงตาม fileNumber เท่านั้น
         .getOne();
 
       if (!file) {
