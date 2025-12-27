@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Organization } from './entities/organization.entity';
@@ -20,15 +20,6 @@ export class OrganizationsService {
    * Create new organization
    */
   async create(createDto: CreateOrganizationDto): Promise<Organization> {
-    // Check if districtOfficeName already exists
-    const existing = await this.organizationRepository.findOne({
-      where: { districtOfficeName: createDto.districtOfficeName },
-    });
-
-    if (existing) {
-      throw new ConflictException(`Organization "${createDto.districtOfficeName}" already exists`);
-    }
-
     const organization = this.organizationRepository.create(createDto);
     return this.organizationRepository.save(organization);
   }
@@ -65,19 +56,7 @@ export class OrganizationsService {
    * Update organization
    */
   async update(id: number, updateDto: UpdateOrganizationDto): Promise<Organization> {
-    const organization = await this.findOne(id);
-
-    // Check if new districtOfficeName conflicts with existing
-    if (updateDto.districtOfficeName && updateDto.districtOfficeName !== organization.districtOfficeName) {
-      const existing = await this.organizationRepository.findOne({
-        where: { districtOfficeName: updateDto.districtOfficeName },
-      });
-
-      if (existing) {
-        throw new ConflictException(`Organization "${updateDto.districtOfficeName}" already exists`);
-      }
-    }
-
+    await this.findOne(id); // Verify organization exists
     await this.organizationRepository.update(id, updateDto);
     return this.findOne(id);
   }
