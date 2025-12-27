@@ -47,7 +47,7 @@ export default function Navbar() {
   // Get the first available stage for the user based on permissions
   const getFirstAvailableStage = () => {
     if (user?.role === 'admin') {
-      return '/stages/01-raw';
+      return '/stages/00-upload';
     }
 
     // For regular users, find first stage they have permission for
@@ -121,7 +121,7 @@ export default function Navbar() {
                       className={`
                         block px-4 py-2 text-[0.95rem] rounded-md transition-all duration-200 relative
                         ${isActive
-                          ? 'text-accent after:content-[""] after:absolute after:bottom-[-18px] after:left-1/2 after:-translate-x-1/2 after:w-10 after:h-[3px] after:bg-accent after:rounded-t-md'
+                          ? 'text-accent-foreground after:content-[""] after:absolute after:bottom-[-18px] after:left-1/2 after:-translate-x-1/2 after:w-10 after:h-[3px] after:bg-accent after:rounded-t-md'
                           : 'text-text-secondary hover:text-text-primary hover:bg-hover-bg'}
                       `}
                     >
@@ -140,16 +140,16 @@ export default function Navbar() {
               <div className="relative">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-accent-light rounded-md border border-accent hover:bg-accent/20 transition-all"
+                  className="flex items-center gap-2 px-3 py-1.5 bg-accent/10 rounded-md border border-accent/30 hover:bg-accent/20 transition-all"
                 >
-                  <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <svg className="w-4 h-4 text-accent-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                     <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
-                  <span className="text-[0.9rem] font-medium text-accent">{user.name}</span>
+                  <span className="text-[0.9rem] font-medium text-accent-foreground">{user.name}</span>
                   {user.role === 'admin' && (
                     <Badge variant="info" size="sm">Admin</Badge>
                   )}
-                  <svg className={`w-4 h-4 text-accent transition-transform ${showUserMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <svg className={`w-4 h-4 text-accent-foreground transition-transform ${showUserMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                     <path d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>

@@ -605,6 +605,10 @@ export default function Stage02Group() {
       await fetchWithAuth(`/files/clear-grouping`, { method: 'POST' });
       await fetchWithAuth(`/labeled-files/clear`, { method: 'POST' });
       await fetchWithAuth(`/label-runner/clear-logs`, { method: 'POST' });
+
+      // Clear Stage 00 review cache (because we reset isReviewed and deleted edited images)
+      sessionStorage.removeItem('stage00-review-files');
+
       setShowRevertConfirm(false);
       fetchGroups();
       setLogs([]);
@@ -621,6 +625,10 @@ export default function Stage02Group() {
     try {
       await fetchWithAuth(`/labeled-files/clear`, { method: 'POST' });
       await fetchWithAuth(`/label-runner/clear-logs`, { method: 'POST' });
+
+      // Clear Stage 00 review cache (defensive - ensure no stale data)
+      sessionStorage.removeItem('stage00-review-files');
+
       setShowResetConfirm(false);
       fetchGroups();
       setLogs([]);
@@ -699,11 +707,11 @@ export default function Stage02Group() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <BlurFade delay={0.1} inView>
                 <div className="bg-gradient-to-br from-accent/10 to-accent/5 p-5 rounded-xl border border-accent/20">
-                  <span className="block text-accent text-sm font-medium mb-2">Total Groups</span>
+                  <span className="block text-accent-foreground text-sm font-medium mb-2">Total Groups</span>
                   <span className="block text-4xl font-bold text-text-primary">
                     <NumberTicker value={labeledStats ? labeledStats.totalLabeled + groupCount : groupCount} className="text-text-primary" />
                   </span>
-                  <span className="block text-xs text-accent/70 mt-2">
+                  <span className="block text-xs text-text-secondary mt-2">
                     {labeledStats ? `${labeledStats.totalLabeled} labeled, ${groupCount} pending` :
                      groupCount > 0 ? 'document sets created' : 'no groups yet'}
                   </span>
@@ -739,7 +747,7 @@ export default function Stage02Group() {
                         ? 'text-emerald-400'
                         : 'text-amber-400'
                       : taskRunning
-                        ? 'text-accent'
+                        ? 'text-accent-foreground'
                         : groupCount > 0
                           ? 'text-amber-400'
                           : 'text-gray-400'
@@ -767,7 +775,7 @@ export default function Stage02Group() {
                         ? 'text-emerald-400/70'
                         : 'text-amber-400/70'
                       : taskRunning
-                        ? 'text-accent/70'
+                        ? 'text-text-secondary'
                         : groupCount > 0
                           ? 'text-amber-400/70'
                           : 'text-gray-400/70'
@@ -822,7 +830,7 @@ export default function Stage02Group() {
                 </span>
               )}
               {infinityLoopMode && (
-                <span className="flex items-center gap-2 bg-accent/15 text-accent px-3 py-1.5 rounded-lg text-xs font-semibold" title="Infinity Loop Mode: Auto-restart when unprocessed groups exist">
+                <span className="flex items-center gap-2 bg-accent/15 text-accent-foreground px-3 py-1.5 rounded-lg text-xs font-semibold" title="Infinity Loop Mode: Auto-restart when unprocessed groups exist">
                   ∞ Loop
                 </span>
               )}
@@ -975,10 +983,10 @@ export default function Stage02Group() {
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="bg-gradient-to-r from-accent/10 via-purple-500/5 to-transparent">
-                    <th className="p-4 px-5 text-left font-semibold text-accent text-sm uppercase tracking-wider">Group ID</th>
-                    <th className="p-4 px-5 text-left font-semibold text-accent text-sm uppercase tracking-wider">File Count</th>
-                    <th className="p-4 px-5 text-left font-semibold text-accent text-sm uppercase tracking-wider">Status</th>
-                    <th className="p-4 px-5 text-left font-semibold text-accent text-sm uppercase tracking-wider">Actions</th>
+                    <th className="p-4 px-5 text-left font-semibold text-text-primary text-sm uppercase tracking-wider">Group ID</th>
+                    <th className="p-4 px-5 text-left font-semibold text-text-primary text-sm uppercase tracking-wider">File Count</th>
+                    <th className="p-4 px-5 text-left font-semibold text-text-primary text-sm uppercase tracking-wider">Status</th>
+                    <th className="p-4 px-5 text-left font-semibold text-text-primary text-sm uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody>

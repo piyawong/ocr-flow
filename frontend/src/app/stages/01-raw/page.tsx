@@ -22,6 +22,8 @@ interface RawFile {
   size: number;
   processed: boolean;
   processedAt: string | null;
+  isReviewed: boolean; // Stage 00: true if marked as reviewed
+  hasEdited: boolean; // Stage 00: true if edited (drawing/masking)
   createdAt: string;
 }
 
@@ -867,11 +869,11 @@ export default function Stage01Raw() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <BlurFade delay={0.1} inView>
                 <div className="bg-gradient-to-br from-accent/10 to-accent/5 p-5 rounded-xl border border-accent/20">
-                  <span className="block text-accent text-sm font-medium mb-2">Total Images</span>
+                  <span className="block text-accent-foreground text-sm font-medium mb-2">Total Images</span>
                   <span className="block text-4xl font-bold text-text-primary">
                     <NumberTicker value={totalAllFiles || totalFiles} className="text-text-primary" />
                   </span>
-                  <span className="block text-xs text-accent/70 mt-2">
+                  <span className="block text-xs text-text-secondary mt-2">
                     {viewMode === 'all'
                       ? `Showing ${files.length} of ${totalFiles} files`
                       : `Progress Mode: ${totalFiles} pending files`}
@@ -889,7 +891,7 @@ export default function Stage01Raw() {
                         : 'from-emerald-500/10 to-emerald-500/5 border-emerald-500/20'
                 }`}>
                   <span className={`block text-sm font-medium mb-2 ${
-                    totalAllFiles === 0 || pendingCount > 0 ? 'text-warning' : taskRunning ? 'text-accent' : 'text-emerald-400'
+                    totalAllFiles === 0 || pendingCount > 0 ? 'text-warning' : taskRunning ? 'text-accent-foreground' : 'text-emerald-400'
                   }`}>Status</span>
                   <div className="flex items-center gap-2.5 text-xl font-semibold my-2">
                     {totalAllFiles === 0 ? (
@@ -903,7 +905,7 @@ export default function Stage01Raw() {
                     )}
                   </div>
                   <span className={`block text-xs mt-2 ${
-                    totalAllFiles === 0 || pendingCount > 0 ? 'text-warning/70' : taskRunning ? 'text-accent/70' : 'text-emerald-400/70'
+                    totalAllFiles === 0 || pendingCount > 0 ? 'text-warning/70' : taskRunning ? 'text-text-secondary' : 'text-emerald-400/70'
                   }`}>
                     {totalAllFiles === 0
                       ? 'Upload images to 01-raw/'
@@ -938,7 +940,7 @@ export default function Stage01Raw() {
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                     viewMode === 'all'
                       ? 'bg-gradient-to-r from-[#3b82f6] to-purple-600 text-white shadow-md'
-                      : 'text-text-primary bg-white/50 dark:bg-transparent hover:text-text-primary hover:bg-[#3b82f6]/10 border border-transparent'
+                      : 'text-text-primary bg-card-bg/50 hover:text-text-primary hover:bg-[#3b82f6]/10 border border-transparent'
                   }`}
                 >
                   All Files
@@ -951,7 +953,7 @@ export default function Stage01Raw() {
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                     viewMode === 'progress'
                       ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md'
-                      : 'text-text-primary bg-white/50 dark:bg-transparent hover:text-text-primary hover:bg-warning/10 border border-transparent'
+                      : 'text-text-primary bg-card-bg/50 hover:text-text-primary hover:bg-warning/10 border border-transparent'
                   }`}
                 >
                   Progress ({pendingCount})
@@ -1266,12 +1268,12 @@ export default function Stage01Raw() {
                 <table className="w-full border-collapse bg-bg-secondary/50">
                   <thead className="bg-gradient-to-r from-accent/10 to-accent/5 border-b border-border-color/50">
                     <tr>
-                      <th className="p-4 text-left font-semibold text-accent text-sm whitespace-nowrap">#</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm whitespace-nowrap">Preview</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm whitespace-nowrap">File Name</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm whitespace-nowrap">Status</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm whitespace-nowrap">Created</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm whitespace-nowrap">Actions</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm whitespace-nowrap">#</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm whitespace-nowrap">Preview</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm whitespace-nowrap">File Name</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm whitespace-nowrap">Status</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm whitespace-nowrap">Created</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1286,7 +1288,7 @@ export default function Stage01Raw() {
                     ) : (
                       files.map((file) => (
                         <tr key={file.id} className="border-b border-border-color/30 transition-colors duration-200 last:border-b-0 hover:bg-accent/5">
-                          <td className="p-4 text-accent text-sm font-bold font-mono">#{file.fileNumber}</td>
+                          <td className="p-4 text-text-primary text-sm font-bold font-mono">#{file.fileNumber}</td>
                           <td className="p-4 text-sm">
                             <img
                               src={`${API_URL}/files/${file.id}/preview`}
@@ -1302,6 +1304,11 @@ export default function Stage01Raw() {
                               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/15 text-emerald-400 rounded-lg text-xs font-semibold whitespace-nowrap">
                                 <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full"></span>
                                 Processed
+                              </span>
+                            ) : !file.isReviewed ? (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/15 text-blue-400 rounded-lg text-xs font-semibold whitespace-nowrap">
+                                <span className="w-1.5 h-1.5 bg-blue-400 rounded-full"></span>
+                                Waiting to Review
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/15 text-amber-400 rounded-lg text-xs font-semibold whitespace-nowrap">
@@ -1406,6 +1413,8 @@ export default function Stage01Raw() {
                       File #{previewFile.fileNumber} •{' '}
                       {previewFile.processed ? (
                         <span className="text-emerald-400">✓ Processed</span>
+                      ) : !previewFile.isReviewed ? (
+                        <span className="text-blue-400">⏳ Waiting to Review</span>
                       ) : (
                         <span className="text-amber-400">○ Pending</span>
                       )}

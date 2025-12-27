@@ -806,9 +806,10 @@ export default function GroupDetailPage() {
       }
 
       // Step 2: Mark as reviewed
+      // reviewer จะถูกดึงจาก JWT ที่ backend แทน
       const reviewRes = await fetchWithAuth(`/files/parsed-group/${groupId}/mark-reviewed`, {
         method: 'POST',
-        body: JSON.stringify({ reviewer, notes: saveNotes || undefined }),
+        body: JSON.stringify({ notes: saveNotes || undefined }),
       });
 
       if (!reviewRes.ok) {

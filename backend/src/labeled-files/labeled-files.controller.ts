@@ -52,12 +52,6 @@ export class LabeledFilesController {
     return this.labeledFilesService.getGroupSummary(groupNumber);
   }
 
-  @Post('clear')
-  async clearAll() {
-    await this.labeledFilesService.clearAll();
-    return { message: 'All labeled files cleared' };
-  }
-
   // Get all available templates from database
   @Get('templates')
   async getTemplates() {
@@ -100,15 +94,15 @@ export class LabeledFilesController {
   @Post('group/:groupId/mark-reviewed')
   async markGroupAsReviewed(
     @Param('groupId', ParseIntPipe) groupId: number,
-    @Body() body: { reviewer: string; notes?: string; markAsReviewed?: boolean },
-    @CurrentUser() user?: User,
+    @Body() body: { notes?: string; markAsReviewed?: boolean },
+    @CurrentUser() user: User,
   ) {
     return this.labeledFilesService.markGroupAsReviewed(
       groupId,
-      body.reviewer,
+      user.name, // ใช้ชื่อจาก JWT แทน body.reviewer
       body.notes,
       body.markAsReviewed ?? true, // Default to true for backward compatibility
-      user?.id,
+      user.id,
     );
   }
 

@@ -5,6 +5,11 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermission } from '@/hooks/usePermission';
+import { StageBadge } from '@/components/shared/StageBadge';
+import { BlurFade } from '@/components/ui/blur-fade';
+import { NumberTicker } from '@/components/ui/number-ticker';
+import { Button } from '@/components/ui/Button';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
 
@@ -19,6 +24,20 @@ interface ParsedGroup {
   lockedBy: number | null;
   lockedByName: string | null;
   lockedAt: string | null;
+  finalReview04: 'pending' | 'approved' | 'rejected';
+  finalReview04Reviewer: string | null;
+  finalReview04ReviewedAt: string | null;
+  extractDataNotes: string | null;
+  finalReview04Notes: string | null;
+}
+
+interface Stage04Stats {
+  totalGroups: number;
+  pendingReview: number;
+  reviewed: number;
+  finalApproved: number;
+  finalRejected: number;
+  finalPending: number;
 }
 
 export default function Stage04Extract() {
@@ -26,6 +45,14 @@ export default function Stage04Extract() {
   const { user, isLoading: authLoading } = useAuth();
   const { canAccessStage04 } = usePermission();
   const [groups, setGroups] = useState<ParsedGroup[]>([]);
+  const [stats, setStats] = useState<Stage04Stats>({
+    totalGroups: 0,
+    pendingReview: 0,
+    reviewed: 0,
+    finalApproved: 0,
+    finalRejected: 0,
+    finalPending: 0,
+  });
   const [loading, setLoading] = useState(true);
 
   const fetchGroups = useCallback(async () => {
@@ -41,8 +68,19 @@ export default function Stage04Extract() {
     }
   }, []);
 
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await fetchWithAuth(`/files/stage04-stats`);
+      const data = await res.json();
+      setStats(data);
+    } catch (err) {
+      console.error('Error fetching stage04 stats:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchGroups();
+    fetchStats();
 
     // ✅ SSE: Listen to GROUP_LOCKED and GROUP_UNLOCKED events
     const groupEventsSource = new EventSource(`${API_URL}/files/events`);
@@ -57,6 +95,11 @@ export default function Stage04Extract() {
         } else if (eventData.type === 'GROUP_PARSED') {
           console.log('✅ Group parsed:', eventData);
           fetchGroups();
+          fetchStats(); // Refresh stats when new group is parsed
+        } else if (eventData.type === 'FINAL_REVIEW_04_UPDATED') {
+          console.log('🎯 Final Review 04 updated:', eventData);
+          fetchGroups();
+          fetchStats(); // Refresh stats when Stage 04 final review is updated
         }
       } catch (err) {
         console.error('Error parsing SSE event:', err);
@@ -84,11 +127,6 @@ export default function Stage04Extract() {
       minute: '2-digit',
     });
   };
-
-  const totalGroups = groups.length;
-  const totalCommitteeMembers = groups.reduce((sum, g) => sum + g.committeeCount, 0);
-  const groupsWithFoundation = groups.filter(g => g.hasFoundationInstrument).length;
-  const reviewedGroups = groups.filter(g => g.isParseDataReviewed).length;
 
   // Permission check
   if (authLoading) {
@@ -119,97 +157,95 @@ export default function Stage04Extract() {
 
         <div className="relative p-6 md:p-8 max-w-[1400px] mx-auto">
           {/* Header */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-purple-700 flex items-center justify-center shadow-lg">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              </div>
-              <div>
-                <h1 className="text-2xl md:text-3xl font-bold text-text-primary mb-1">
-                  ข้อมูลที่สกัดได้
-                </h1>
-                <p className="text-text-secondary">
-                  ดูข้อมูลตราสารและรายชื่อกรรมการที่สกัดจากเอกสาร
-                </p>
-              </div>
-            </div>
-          </div>
+          <StageBadge
+            stageNumber="04"
+            title="Stage 04: Extract Data"
+            description="ดูข้อมูลตราสารและรายชื่อกรรมการที่สกัดจากเอกสาร"
+          />
 
           {/* Status Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            {/* Parsed Groups Card */}
-            <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-5 border border-border-color/50 hover:border-accent/30 transition-all duration-300 group">
-              <div className="flex items-start justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-100 to-blue-50 border border-blue-200/50 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                  </svg>
-                </div>
-                <span className="text-xs font-medium text-accent bg-accent/10 px-2 py-1 rounded-lg">Total</span>
+          <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 mb-6 border border-border-color/50 shadow-sm">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-100 to-blue-50 dark:from-blue-900/30 dark:to-blue-800/20 border border-blue-200/50 dark:border-blue-700/50 flex items-center justify-center">
+                <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
               </div>
-              <div className="text-3xl font-bold text-text-primary mb-1">{totalGroups}</div>
-              <div className="text-sm text-text-secondary">Groups ที่ Parse แล้ว</div>
+              <h2 className="m-0 text-lg font-semibold text-text-primary">Current Status</h2>
             </div>
-
-            {/* Foundation Card */}
-            <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-5 border border-border-color/50 hover:border-purple-500/30 transition-all duration-300 group">
-              <div className="flex items-start justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500/20 to-purple-500/10 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                  <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                  </svg>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+              {/* Total Groups */}
+              <BlurFade delay={0.1} inView>
+                <div className="bg-gradient-to-br from-accent/10 to-accent/5 p-5 rounded-xl border border-accent/20">
+                  <span className="block text-blue-600 dark:text-blue-400 text-sm font-medium mb-2">Total Groups</span>
+                  <span className="block text-4xl font-bold text-text-primary">
+                    <NumberTicker value={stats.totalGroups} className="text-text-primary" />
+                  </span>
+                  <span className="block text-xs text-text-secondary mt-2">from Stage 03</span>
                 </div>
-                <span className="text-xs font-medium text-purple-400 bg-purple-500/10 px-2 py-1 rounded-lg">ตราสาร</span>
-              </div>
-              <div className="text-3xl font-bold text-text-primary mb-1">{groupsWithFoundation}</div>
-              <div className="text-sm text-text-secondary">Groups มีข้อมูลตราสาร</div>
-            </div>
+              </BlurFade>
 
-            {/* Committee Card */}
-            <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-5 border border-border-color/50 hover:border-emerald-500/30 transition-all duration-300 group">
-              <div className="flex items-start justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-500/10 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                  <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
+              {/* Pending Review */}
+              <BlurFade delay={0.15} inView>
+                <div className="bg-gradient-to-br from-amber-500/10 to-amber-500/5 p-5 rounded-xl border border-amber-500/20">
+                  <span className="block text-amber-600 dark:text-amber-400 text-sm font-medium mb-2">Pending</span>
+                  <span className="block text-4xl font-bold text-text-primary">
+                    <NumberTicker value={stats.pendingReview} className="text-text-primary" />
+                  </span>
+                  <span className="block text-xs text-amber-600/70 dark:text-amber-400/70 mt-2">not reviewed</span>
                 </div>
-                <span className="text-xs font-medium text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg">กรรมการ</span>
-              </div>
-              <div className="text-3xl font-bold text-text-primary mb-1">{totalCommitteeMembers}</div>
-              <div className="text-sm text-text-secondary">รายชื่อกรรมการทั้งหมด</div>
-            </div>
+              </BlurFade>
 
-            {/* Reviewed Card */}
-            <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-5 border border-border-color/50 hover:border-amber-500/30 transition-all duration-300 group">
-              <div className="flex items-start justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-500/10 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                  <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+              {/* Reviewed */}
+              <BlurFade delay={0.2} inView>
+                <div className="bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 p-5 rounded-xl border border-emerald-500/20">
+                  <span className="block text-emerald-600 dark:text-emerald-400 text-sm font-medium mb-2">Reviewed</span>
+                  <span className="block text-4xl font-bold text-text-primary">
+                    <NumberTicker value={stats.reviewed} className="text-text-primary" />
+                  </span>
+                  <span className="block text-xs text-emerald-600/70 dark:text-emerald-400/70 mt-2">stage 04 done</span>
                 </div>
-                <span className="text-xs font-medium text-amber-400 bg-amber-500/10 px-2 py-1 rounded-lg">Review</span>
-              </div>
-              <div className="text-3xl font-bold text-text-primary mb-1">
-                {reviewedGroups}<span className="text-lg text-text-secondary font-normal">/{totalGroups}</span>
-              </div>
-              <div className="text-sm text-text-secondary">Groups ที่ Review แล้ว</div>
+              </BlurFade>
+
+              {/* Final: Approved */}
+              <BlurFade delay={0.25} inView>
+                <div className="bg-gradient-to-br from-green-500/10 to-green-500/5 p-5 rounded-xl border border-green-500/20">
+                  <span className="block text-green-600 dark:text-green-400 text-sm font-medium mb-2">✓ Approved</span>
+                  <span className="block text-4xl font-bold text-text-primary">
+                    <NumberTicker value={stats.finalApproved} className="text-text-primary" />
+                  </span>
+                  <span className="block text-xs text-green-600/70 dark:text-green-400/70 mt-2">final approved</span>
+                </div>
+              </BlurFade>
+
+              {/* Final: Rejected */}
+              <BlurFade delay={0.3} inView>
+                <div className="bg-gradient-to-br from-red-500/10 to-red-500/5 p-5 rounded-xl border border-red-500/20">
+                  <span className="block text-red-600 dark:text-red-400 text-sm font-medium mb-2">✗ Rejected</span>
+                  <span className="block text-4xl font-bold text-text-primary">
+                    <NumberTicker value={stats.finalRejected} className="text-text-primary" />
+                  </span>
+                  <span className="block text-xs text-red-600/70 dark:text-red-400/70 mt-2">final rejected</span>
+                </div>
+              </BlurFade>
+
+              {/* Final: Pending */}
+              <BlurFade delay={0.35} inView>
+                <div className="bg-gradient-to-br from-purple-500/10 to-purple-500/5 p-5 rounded-xl border border-purple-500/20">
+                  <span className="block text-purple-600 dark:text-purple-400 text-sm font-medium mb-2">⧗ Pending</span>
+                  <span className="block text-4xl font-bold text-text-primary">
+                    <NumberTicker value={stats.finalPending} className="text-text-primary" />
+                  </span>
+                  <span className="block text-xs text-purple-600/70 dark:text-purple-400/70 mt-2">awaiting final</span>
+                </div>
+              </BlurFade>
             </div>
           </div>
 
           {/* Table View */}
-          <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl border border-border-color/50 overflow-hidden shadow-xl shadow-black/5">
-            <div className="px-6 py-5 border-b border-border-color/50 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-100 to-blue-50 border border-blue-200/50 flex items-center justify-center">
-                  <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-                  </svg>
-                </div>
-                <h2 className="text-lg font-bold text-text-primary">รายการ Groups</h2>
-              </div>
-              <span className="text-sm text-text-secondary">{groups.length} รายการ</span>
+          <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 mb-6 border border-border-color/50 shadow-sm">
+            <div className="flex items-center justify-between mb-5 gap-4 flex-wrap">
+              <h2 className="m-0 text-lg font-semibold text-text-primary">Parsed Groups ({groups.length} total)</h2>
             </div>
 
             {loading ? (
@@ -237,114 +273,133 @@ export default function Stage04Extract() {
                 </div>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+              <div className="overflow-x-auto rounded-xl border border-border-color/30 mb-4">
+                <table className="w-full border-collapse">
                   <thead>
-                    <tr className="bg-bg-secondary/50">
-                      <th className="px-6 py-4 text-left font-semibold text-text-secondary">Group</th>
-                      <th className="px-6 py-4 text-center font-semibold text-text-secondary">หน้า</th>
-                      <th className="px-6 py-4 text-center font-semibold text-text-secondary">ตราสาร</th>
-                      <th className="px-6 py-4 text-center font-semibold text-text-secondary">กรรมการ</th>
-                      <th className="px-6 py-4 text-center font-semibold text-text-secondary">สถานะ Review</th>
-                      <th className="px-6 py-4 text-left font-semibold text-text-secondary">ผู้ Review</th>
-                      <th className="px-6 py-4 text-center font-semibold text-text-secondary">วันที่ Parse</th>
-                      <th className="px-6 py-4 text-left font-semibold text-text-secondary">Locked By</th>
-                      <th className="px-6 py-4 text-center font-semibold text-text-secondary">Actions</th>
+                    <tr className="bg-gradient-to-r from-accent/10 via-purple-500/5 to-transparent">
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm uppercase tracking-wider whitespace-nowrap">Group #</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm uppercase tracking-wider whitespace-nowrap">Total Pages</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm uppercase tracking-wider whitespace-nowrap">Reviewed</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm uppercase tracking-wider whitespace-nowrap">Reviewer</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm uppercase tracking-wider whitespace-nowrap">Stage 04 Notes</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm uppercase tracking-wider whitespace-nowrap">Final Review</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm uppercase tracking-wider whitespace-nowrap">Final Review Notes</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm uppercase tracking-wider whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {groups.map((group, idx) => (
+                    {groups.map((group) => (
                       <tr
                         key={group.groupId}
-                        className={`border-t border-border-color/30 hover:bg-accent/5 cursor-pointer transition-all duration-200 ${idx % 2 === 0 ? '' : 'bg-bg-secondary/20'}`}
-                        onClick={() => router.push(`/stages/04-extract/${group.groupId}`)}
+                        className="border-t border-border-color/30 transition-all duration-200 hover:bg-accent/5"
                       >
-                        <td className="px-6 py-4">
+                        {/* 1. Group # */}
+                        <td className="p-4 text-text-primary">
                           <div className="flex items-center gap-3">
                             <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-700 text-white font-bold text-sm flex items-center justify-center shadow-md">
                               {group.groupId}
                             </span>
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="text-text-primary font-medium">{group.fileCount}</span>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          {group.hasFoundationInstrument ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 text-xs font-medium">
-                              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                              </svg>
-                              มี
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/15 text-rose-400 text-xs font-medium">
-                              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                              </svg>
-                              ไม่มี
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ${
-                            group.committeeCount > 0
-                              ? 'bg-purple-500/15 text-purple-400'
-                              : 'bg-text-secondary/10 text-text-secondary'
-                          }`}>
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                            </svg>
-                            {group.committeeCount} คน
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-center">
+
+                        {/* 2. Total Pages */}
+                        <td className="p-4 text-text-primary text-sm">{group.fileCount}</td>
+
+                        {/* 3. Reviewed */}
+                        <td className="p-4 text-text-primary">
                           {group.isParseDataReviewed ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 text-xs font-medium">
-                              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 text-emerald-400 font-semibold text-xs border border-emerald-500/20">
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                <path d="M5 13l4 4L19 7" />
                               </svg>
                               Reviewed
-                            </span>
+                            </div>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 text-amber-400 text-xs font-medium">
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500/15 to-amber-500/5 text-amber-400 font-semibold text-xs border border-amber-500/20">
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
                               Pending
-                            </span>
+                            </div>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-text-secondary text-sm">
-                          {group.parseDataReviewer || (
-                            <span className="text-text-secondary/50 italic">-</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-center text-text-secondary text-sm">
-                          {formatDate(group.parseDataAt)}
-                        </td>
-                        <td className="px-6 py-4 text-text-primary">
-                          {group.lockedBy ? (
+
+                        {/* 4. Reviewer */}
+                        <td className="p-4 text-text-primary">
+                          {group.parseDataReviewer ? (
                             <div className="flex items-center gap-2">
-                              <div className="w-7 h-7 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                                <svg className="w-3.5 h-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                              <div className="w-7 h-7 rounded-lg bg-accent/20 flex items-center justify-center">
+                                <svg className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                  <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                                 </svg>
                               </div>
-                              <div className="flex flex-col">
-                                <span className="font-medium text-sm text-amber-400">{group.lockedByName || 'Unknown'}</span>
-                                {group.lockedAt && (
-                                  <span className="text-[10px] text-text-secondary">
-                                    {new Date(group.lockedAt).toLocaleTimeString()}
-                                  </span>
-                                )}
-                              </div>
+                              <span className="font-medium text-sm">{group.parseDataReviewer}</span>
+                            </div>
+                          ) : (
+                            <span className="text-text-secondary italic text-xs">Not reviewed</span>
+                          )}
+                        </td>
+
+                        {/* 5. Stage 04 Notes */}
+                        <td className="p-4 text-text-primary">
+                          {group.extractDataNotes ? (
+                            <div className="flex items-center gap-2 max-w-xs">
+                              <svg className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              <span className="text-sm truncate" title={group.extractDataNotes}>
+                                {group.extractDataNotes.substring(0, 30)}{group.extractDataNotes.length > 30 ? '...' : ''}
+                              </span>
                             </div>
                           ) : (
                             <span className="text-text-secondary italic text-xs">-</span>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-center">
+
+                        {/* 6. Final Review */}
+                        <td className="p-4 text-text-primary">
+                          {group.finalReview04 === 'approved' ? (
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 text-emerald-400 font-semibold text-xs border border-emerald-500/20">
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                <path d="M5 13l4 4L19 7" />
+                              </svg>
+                              Approved
+                            </div>
+                          ) : group.finalReview04 === 'rejected' ? (
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-r from-red-500/15 to-red-500/5 text-red-400 font-semibold text-xs border border-red-500/20">
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                <path d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                              Rejected
+                            </div>
+                          ) : (
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-r from-text-secondary/15 to-text-secondary/5 text-text-secondary font-semibold text-xs border border-text-secondary/20">
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              Pending
+                            </div>
+                          )}
+                        </td>
+
+                        {/* 7. Final Review Notes */}
+                        <td className="p-4 text-text-primary">
+                          {group.finalReview04Notes ? (
+                            <div className="flex items-center gap-2 max-w-xs">
+                              <svg className="w-4 h-4 text-purple-600 dark:text-purple-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              <span className="text-sm truncate" title={group.finalReview04Notes}>
+                                {group.finalReview04Notes.substring(0, 30)}{group.finalReview04Notes.length > 30 ? '...' : ''}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-text-secondary italic text-xs">-</span>
+                          )}
+                        </td>
+
+                        {/* 8. Actions */}
+                        <td className="p-4 text-text-primary">
                           {(() => {
                             const isLockedByOther = group.lockedBy && group.lockedBy !== user?.id;
                             const LOCK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
@@ -355,50 +410,46 @@ export default function Stage04Extract() {
                               if (isLockExpired) {
                                 // ✅ Lock expired - User can take over
                                 return (
-                                  <div className="flex flex-col gap-1 items-center">
-                                    <button
+                                  <Tooltip content={`Lock expired - Locked by: ${group.lockedByName || 'Unknown'}${group.lockedAt ? `\nLocked at: ${new Date(group.lockedAt).toLocaleString('th-TH')}` : ''}`}>
+                                    <Button
+                                      size="sm"
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         router.push(`/stages/04-extract/${group.groupId}`);
                                       }}
-                                      className="px-4 py-2 rounded-xl bg-amber-500 text-white font-medium text-sm hover:bg-amber-600 hover:shadow-lg transition-all duration-200 active:scale-[0.98]"
+                                      className="bg-amber-500 hover:bg-amber-600"
                                     >
                                       ⚠️ Take Over
-                                    </button>
-                                    <span className="text-[10px] text-amber-400 font-medium">
-                                      Lock expired
-                                    </span>
-                                  </div>
+                                    </Button>
+                                  </Tooltip>
                                 );
                               } else {
                                 // ✅ Still locked - Disabled
                                 return (
-                                  <div className="flex flex-col gap-1 items-center">
-                                    <button
+                                  <Tooltip content={`Locked by: ${group.lockedByName || 'Unknown'}${group.lockedAt ? `\nLocked at: ${new Date(group.lockedAt).toLocaleString('th-TH')}` : ''}`}>
+                                    <Button
+                                      size="sm"
                                       disabled
-                                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-700 text-white font-medium text-sm opacity-50 cursor-not-allowed"
+                                      className="opacity-50 cursor-not-allowed"
                                     >
                                       🔒 Locked
-                                    </button>
-                                    <span className="text-[10px] text-amber-400 font-medium">
-                                      {group.lockedByName || 'In use'}
-                                    </span>
-                                  </div>
+                                    </Button>
+                                  </Tooltip>
                                 );
                               }
                             }
 
                             // ✅ Not locked or locked by self - Normal button
                             return (
-                              <button
+                              <Button
+                                size="sm"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   router.push(`/stages/04-extract/${group.groupId}`);
                                 }}
-                                className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-700 text-white font-medium text-sm hover:from-blue-700 hover:to-purple-800 hover:shadow-lg transition-all duration-200 active:scale-[0.98]"
                               >
                                 Review
-                              </button>
+                              </Button>
                             );
                           })()}
                         </td>

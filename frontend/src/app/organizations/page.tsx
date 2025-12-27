@@ -13,6 +13,8 @@ import {
   createOrganization,
   updateOrganization,
   deleteOrganization,
+  syncOrganizationsToOcr,
+  getOrganizationsFromOcrService,
   getMe,
   type Organization,
   type CreateOrganizationDto,
@@ -28,6 +30,13 @@ export default function OrganizationsPage() {
   const [deleting, setDeleting] = useState(false);
   const [editingOrganization, setEditingOrganization] = useState<Organization | null>(null);
   const [userRole, setUserRole] = useState<string>('user');
+  const [syncing, setSyncing] = useState(false);
+  const [syncSuccess, setSyncSuccess] = useState<string | null>(null);
+
+  // OCR Service Organizations Modal
+  const [showOcrModal, setShowOcrModal] = useState(false);
+  const [ocrOrganizations, setOcrOrganizations] = useState<string[]>([]);
+  const [loadingOcrOrgs, setLoadingOcrOrgs] = useState(false);
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -193,6 +202,42 @@ export default function OrganizationsPage() {
     }
   };
 
+  // Handle sync to OCR service
+  const handleSyncToOcr = async () => {
+    try {
+      setSyncing(true);
+      setError(null);
+      setSyncSuccess(null);
+
+      const result = await syncOrganizationsToOcr();
+      setSyncSuccess(result.message);
+
+      // Auto-hide success message after 5 seconds
+      setTimeout(() => setSyncSuccess(null), 5000);
+    } catch (err: any) {
+      setError(err.message || 'Sync failed');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // Handle view OCR service organizations
+  const handleViewOcrOrganizations = async () => {
+    try {
+      setLoadingOcrOrgs(true);
+      setShowOcrModal(true);
+      setError(null);
+
+      const result = await getOrganizationsFromOcrService();
+      setOcrOrganizations(result.organizations);
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch OCR organizations');
+      setShowOcrModal(false);
+    } finally {
+      setLoadingOcrOrgs(false);
+    }
+  };
+
   const filteredOrganizations = getFilteredOrganizations();
 
   if (userRole !== 'admin') {
@@ -204,19 +249,42 @@ export default function OrganizationsPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-4 py-8 min-h-screen bg-bg-primary">
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold">Organization Management</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Organization Management</h1>
           <p className="text-gray-600 dark:text-gray-400 mt-2">
             จัดการข้อมูลองค์กรและเลข กท.
           </p>
         </div>
-        <Button onClick={handleOpenCreateModal} variant="primary">
-          + Add Organization
-        </Button>
+        <div className="flex gap-3">
+          <Button
+            onClick={handleViewOcrOrganizations}
+            variant="secondary"
+            disabled={loading}
+          >
+            👁️ View OCR Service
+          </Button>
+          <Button
+            onClick={handleSyncToOcr}
+            variant="secondary"
+            disabled={syncing || loading}
+          >
+            {syncing ? '🔄 Syncing...' : '🔄 Sync to OCR'}
+          </Button>
+          <Button onClick={handleOpenCreateModal} variant="primary">
+            + Add Organization
+          </Button>
+        </div>
       </div>
+
+      {/* Success Alert */}
+      {syncSuccess && (
+        <Alert variant="success" dismissible onDismiss={() => setSyncSuccess(null)}>
+          {syncSuccess}
+        </Alert>
+      )}
 
       {/* Error Alert */}
       {error && (
@@ -301,8 +369,8 @@ export default function OrganizationsPage() {
 
       {/* Empty State */}
       {!loading && organizations.length === 0 && (
-        <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow">
-          <p className="text-gray-500 dark:text-gray-400 mb-4">No organizations found</p>
+        <div className="text-center py-12 bg-bg-secondary rounded-lg shadow border border-border-color">
+          <p className="text-text-secondary mb-4">No organizations found</p>
           <Button onClick={handleOpenCreateModal} variant="primary">
             + Add First Organization
           </Button>
@@ -311,8 +379,8 @@ export default function OrganizationsPage() {
 
       {/* No Results After Filter */}
       {!loading && organizations.length > 0 && filteredOrganizations.length === 0 && (
-        <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow">
-          <p className="text-gray-500 dark:text-gray-400">
+        <div className="text-center py-12 bg-bg-secondary rounded-lg shadow border border-border-color">
+          <p className="text-text-secondary">
             No results found for "{searchQuery}"
           </p>
           <Button
@@ -329,48 +397,48 @@ export default function OrganizationsPage() {
       {/* Table */}
       {!loading && filteredOrganizations.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="min-w-full bg-white dark:bg-gray-800 shadow rounded-lg">
-            <thead className="bg-gray-100 dark:bg-gray-700">
+          <table className="min-w-full bg-bg-secondary shadow rounded-lg border border-border-color">
+            <thead className="bg-bg-tertiary border-b border-border-color">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase">
                   #
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase">
                   สำนักงานเขต
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase">
                   ชื่อองค์กร
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase">
                   ประเภท
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase">
                   เลข กท.
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase">
                   หมายเลขกลุ่มที่ match
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase">
                   Status
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            <tbody className="divide-y divide-border-color">
               {filteredOrganizations.map((organization, idx) => (
                 <tr
                   key={organization.id}
-                  className="hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                  className="hover:bg-bg-tertiary/50 transition-colors"
                 >
-                  <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                  <td className="px-4 py-4 whitespace-nowrap text-sm text-text-primary">
                     {idx + 1}
                   </td>
-                  <td className="px-4 py-4 text-sm font-medium text-gray-900 dark:text-gray-100">
+                  <td className="px-4 py-4 text-sm font-medium text-text-primary">
                     {organization.districtOfficeName}
                   </td>
-                  <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-100">
+                  <td className="px-4 py-4 text-sm text-text-primary">
                     {organization.name}
                   </td>
                   <td className="px-4 py-4 whitespace-nowrap">
@@ -384,10 +452,10 @@ export default function OrganizationsPage() {
                       </Badge>
                     )}
                   </td>
-                  <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                  <td className="px-4 py-4 whitespace-nowrap text-sm text-text-primary">
                     {organization.registrationNumber}
                   </td>
-                  <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                  <td className="px-4 py-4 whitespace-nowrap text-sm text-text-primary">
                     {organization.matchedGroupId || '-'}
                   </td>
                   <td className="px-4 py-4 whitespace-nowrap">
@@ -532,6 +600,58 @@ export default function OrganizationsPage() {
         cancelText="Cancel"
         isLoading={deleting}
       />
+
+      {/* OCR Service Organizations Modal */}
+      <Modal isOpen={showOcrModal} onClose={() => setShowOcrModal(false)}>
+        <ModalHeader>
+          <ModalTitle>Organizations in OCR Service</ModalTitle>
+        </ModalHeader>
+        <ModalBody>
+          {loadingOcrOrgs ? (
+            <div className="text-center py-8">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              <p className="mt-4 text-text-secondary">Loading...</p>
+            </div>
+          ) : ocrOrganizations.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-text-secondary">No organizations found in OCR service</p>
+              <p className="text-sm text-text-tertiary mt-2">
+                Click "Sync to OCR" to sync organizations from database
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-text-secondary">
+                  Total: <span className="font-semibold text-text-primary">{ocrOrganizations.length}</span> organization(s)
+                </p>
+              </div>
+              <div className="max-h-96 overflow-y-auto border border-border-color rounded-lg">
+                <ul className="divide-y divide-border-color">
+                  {ocrOrganizations.map((org, idx) => (
+                    <li
+                      key={idx}
+                      className="px-4 py-3 hover:bg-bg-tertiary/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-blue-500/10 text-blue-400 text-sm font-medium">
+                          {idx + 1}
+                        </span>
+                        <span className="text-text-primary">{org}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="secondary" onClick={() => setShowOcrModal(false)}>
+            Close
+          </Button>
+        </ModalFooter>
+      </Modal>
     </div>
   );
 }

@@ -62,14 +62,32 @@ services:
       dockerfile: Dockerfile
     container_name: ocr-service
     restart: unless-stopped
+    environment:
+      OCR_MAX_WORKERS: ${OCR_MAX_WORKERS:-1}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+      PYTHONUNBUFFERED: "1"  # Disable output buffering for real-time logs
     ports:
       - "${OCR_SERVICE_PORT:-8000}:8000"
+    # Memory limit removed for development (unlimited RAM usage)
+    # For production, consider adding limits (e.g., 8G-12G)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 8G
+    #     reservations:
+    #       memory: 4G
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
+    # Enable logging to stdout/stderr (viewable with docker logs)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # NestJS Backend
   backend:
@@ -106,6 +124,10 @@ services:
       TYPHOON_OCR_API_KEY_8: ${TYPHOON_OCR_API_KEY_8:-}
       TYPHOON_OCR_API_KEY_9: ${TYPHOON_OCR_API_KEY_9:-}
       TYPHOON_OCR_API_KEY_10: ${TYPHOON_OCR_API_KEY_10:-}
+      TYPHOON_OCR_API_KEY_11: ${TYPHOON_OCR_API_KEY_11:-}
+      TYPHOON_OCR_API_KEY_12: ${TYPHOON_OCR_API_KEY_12:-}
+      # Portal API URL for Stage 06 upload (use host.docker.internal to reach host machine)
+      PORTAL_API_URL: ${PORTAL_API_URL:-http://host.docker.internal:3001}
     ports:
       - "4004:4004"
     depends_on:
@@ -127,7 +149,7 @@ services:
     container_name: ocr-frontend
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://46.250.238.125:4004}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     ports:
       - "3004:3004"
     depends_on:

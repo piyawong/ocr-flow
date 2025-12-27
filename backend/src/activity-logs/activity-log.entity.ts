@@ -17,6 +17,8 @@ export enum ActivityAction {
   REVIEWED = 'reviewed',
   REVIEW = 'review',
   APPROVE = 'approve',
+  REJECT = 'reject',
+  UPLOAD = 'upload',
 }
 
 export enum ActivityEntityType {
@@ -35,6 +37,7 @@ export enum ActivityStage {
   STAGE_03_PDF_LABEL = '03-pdf-label',
   STAGE_04_EXTRACT = '04-extract',
   STAGE_05_REVIEW = '05-review',
+  STAGE_06_UPLOAD = '06-upload',
 }
 
 @Entity('activity_logs')

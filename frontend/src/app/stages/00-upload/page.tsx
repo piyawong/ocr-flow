@@ -371,11 +371,11 @@ export default function Stage00Upload() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <BlurFade delay={0.1} inView>
                 <div className="bg-gradient-to-br from-accent/10 to-accent/5 p-5 rounded-xl border border-accent/20">
-                  <span className="block text-accent text-sm font-medium mb-2">Total Images</span>
+                  <span className="block text-accent-foreground text-sm font-medium mb-2">Total Images</span>
                   <span className="block text-4xl font-bold text-text-primary">
                     <NumberTicker value={totalFiles} className="text-text-primary" />
                   </span>
-                  <span className="block text-xs text-accent/70 mt-2">
+                  <span className="block text-xs text-text-secondary mt-2">
                     Showing {files.length} of {totalFiles} files
                   </span>
                 </div>
@@ -668,7 +668,7 @@ export default function Stage00Upload() {
                     ) : (
                       files.map((file) => (
                         <tr key={file.id} className="border-b border-border-color/30 transition-colors duration-200 last:border-b-0 hover:bg-accent/5">
-                          <td className="p-4 text-accent text-sm font-bold font-mono">#{file.fileNumber}</td>
+                          <td className="p-4 text-text-primary text-sm font-bold font-mono">#{file.fileNumber}</td>
                           <td className="p-4 text-sm">
                             <img
                               src={`${API_URL}/files/${file.id}/preview`}

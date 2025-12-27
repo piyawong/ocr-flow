@@ -20,12 +20,6 @@ export class Group {
   id: number;
 
   @Column({ default: false })
-  isComplete: boolean;
-
-  @Column({ type: 'timestamp', nullable: true })
-  completedAt: Date | null;
-
-  @Column({ default: false })
   isAutoLabeled: boolean;
 
   @Column({ type: 'timestamp', nullable: true })
@@ -55,21 +49,52 @@ export class Group {
   @Column({ type: 'varchar', length: 255, nullable: true })
   parseDataReviewer: string | null;
 
+  @Column({ type: 'int', nullable: true })
+  parseDataReviewerId: number | null; // User ID who reviewed parse data (Stage 04)
+
   @Column({ type: 'text', nullable: true })
   extractDataNotes: string | null;
 
-  // Stage 05: Final Review & Approval
-  @Column({ default: false })
-  isFinalApproved: boolean;
-
-  @Column({ type: 'timestamp', nullable: true })
-  finalApprovedAt: Date | null;
+  // Stage 05: Final Review (Split 03 and 04)
+  // Review for Stage 03 (PDF Labels)
+  @Column({
+    type: 'enum',
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending'
+  })
+  finalReview03: 'pending' | 'approved' | 'rejected';
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  finalReviewer: string | null;
+  finalReview03Reviewer: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  finalReview03ReviewerId: number | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  finalReview03ReviewedAt: Date | null;
 
   @Column({ type: 'text', nullable: true })
-  finalReviewNotes: string | null;
+  finalReview03Notes: string | null;
+
+  // Review for Stage 04 (Extract Data)
+  @Column({
+    type: 'enum',
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending'
+  })
+  finalReview04: 'pending' | 'approved' | 'rejected';
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  finalReview04Reviewer: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  finalReview04ReviewerId: number | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  finalReview04ReviewedAt: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  finalReview04Notes: string | null;
 
   // District office registration info
   @Column({ type: 'text', nullable: true })
@@ -80,6 +105,19 @@ export class Group {
 
   @Column({ type: 'varchar', length: 500, nullable: true })
   logoUrl: string | null;
+
+  // Portal upload tracking
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  portalOrganizationId: string | null; // ID returned from Portal API after upload
+
+  @Column({ type: 'timestamp', nullable: true })
+  portalUploadedAt: Date | null; // When data was uploaded to Portal
+
+  @Column({ type: 'boolean', default: false })
+  portalLogoUploaded: boolean; // Whether logo was uploaded
+
+  @Column({ type: 'boolean', default: false })
+  portalDocumentsUploaded: boolean; // Whether documents were uploaded
 
   // Group locking for concurrent editing prevention
   @Column({ type: 'int', nullable: true })

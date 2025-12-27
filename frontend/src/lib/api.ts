@@ -401,6 +401,39 @@ export async function deleteOrganization(id: number): Promise<void> {
   }
 }
 
+// Sync organizations to OCR service
+export async function syncOrganizationsToOcr(): Promise<{ success: boolean; count: number; message: string }> {
+  const response = await fetchWithAuth('/organizations/sync-to-ocr', {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Sync failed' }));
+    throw new Error(error.message || 'Sync failed');
+  }
+
+  return response.json();
+}
+
+// Get organizations from OCR service (bypass backend, call OCR service directly)
+export async function getOrganizationsFromOcrService(): Promise<{ organizations: string[]; count: number }> {
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4004';
+  const OCR_SERVICE_URL = API_URL.replace(':4004', ':8000').replace('4004', '8000');
+
+  const response = await fetch(`${OCR_SERVICE_URL}/organizations`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch organizations from OCR service');
+  }
+
+  return response.json();
+}
+
 // ==================== USER STAGE ACCESS UTILITY ====================
 
 /**
@@ -414,9 +447,9 @@ export function getFirstAccessibleStage(user: User | null): string | null {
     return null;
   }
 
-  // Admin can access all stages - start from stage 01
+  // Admin can access all stages - start from stage 00
   if (user.role === 'admin') {
-    return '/stages/01-raw';
+    return '/stages/00-upload';
   }
 
   // For regular users, only stages with specific permissions are accessible

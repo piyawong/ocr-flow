@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In } from 'typeorm';
+import { Repository, DataSource, In, Between } from 'typeorm';
 import { Subject } from 'rxjs';
 import * as sharp from 'sharp';
+import { PDFDocument } from 'pdf-lib';
 import { File } from './file.entity';
 import { Group } from './group.entity';
 import { FoundationInstrument } from './foundation-instrument.entity';
@@ -10,6 +11,7 @@ import { CharterSection } from './charter-section.entity';
 import { CharterArticle } from './charter-article.entity';
 import { CharterSubItem } from './charter-sub-item.entity';
 import { CommitteeMember } from './committee-member.entity';
+import { Document } from '../labeled-files/document.entity';
 import { MinioService } from '../minio/minio.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import {
@@ -19,13 +21,17 @@ import {
 } from '../activity-logs/activity-log.entity';
 
 export interface FileEvent {
-  type: 'GROUP_COMPLETE' | 'GROUP_CREATED' | 'GROUP_LOCKED' | 'GROUP_UNLOCKED' | 'GROUP_PARSED' | 'GROUP_REVIEWED';
+  type: 'GROUP_COMPLETE' | 'GROUP_CREATED' | 'GROUP_LOCKED' | 'GROUP_UNLOCKED' | 'GROUP_PARSED' | 'GROUP_REVIEWED' | 'FINAL_REVIEW_03_UPDATED' | 'FINAL_REVIEW_04_UPDATED' | 'PORTAL_UPLOAD_SUCCESS' | 'PORTAL_UPLOAD_FAILED' | 'AUTO_PORTAL_UPLOAD_SUCCESS' | 'AUTO_PORTAL_UPLOAD_FAILED';
   groupId?: number;
   lockedBy?: number;
   lockedAt?: Date;
   unlockedBy?: number;
   reviewer?: string;
   timestamp?: string;
+  status?: 'approved' | 'rejected' | 'pending';
+  stage?: '03' | '04';
+  portalOrganizationId?: string;
+  error?: string;
 }
 
 @Injectable()
@@ -43,8 +49,10 @@ export class FilesService {
     private charterArticleRepository: Repository<CharterArticle>,
     @InjectRepository(CharterSubItem)
     private charterSubItemRepository: Repository<CharterSubItem>,
+    @InjectRepository(Document)
+    private documentRepository: Repository<Document>,
     private minioService: MinioService,
-    private dataSource: DataSource,
+    public dataSource: DataSource, // ⭐ public สำหรับ transaction ใน TaskRunnerService
     private activityLogsService: ActivityLogsService,
   ) {}
 
@@ -177,7 +185,10 @@ export class FilesService {
 
   async findUnprocessed(): Promise<File[]> {
     return this.fileRepository.find({
-      where: { processed: false },
+      where: {
+        processed: false,
+        isReviewed: true,  // ⭐ หยิบเฉพาะไฟล์ที่ reviewed แล้ว (จาก Stage 00)
+      },
       order: { fileNumber: 'ASC' },
     });
   }
@@ -200,13 +211,115 @@ export class FilesService {
       }
     }
 
-    // Update file status and clear editedPath fields
+    // Update file status and clear editedPath (keep hasEdited = true)
     await this.fileRepository.update(id, {
       processed: true,
       processedAt: new Date(),
       editedPath: null,
-      hasEdited: false,
+      // ⭐ ไม่ reset hasEdited - เก็บไว้เพื่อบอกว่าไฟล์นี้เคย edited
     });
+  }
+
+  // ========== OCR QUEUE MANAGEMENT (Database-backed Queue) ==========
+
+  /**
+   * ⭐ หางาน OCR ถัดไปจาก queue (with Transaction + Advisory Lock)
+   *
+   * Logic:
+   * 1. หาไฟล์ที่ยัง processed=false
+   * 2. และ (ocrProcessing=false OR timeout เกิน 10 นาที)
+   * 3. Sort by ocrFailedCount ASC (ไฟล์ที่ fail น้อยกว่าได้ priority)
+   * 4. Lock ด้วย pg_advisory_xact_lock (ป้องกัน race condition)
+   * 5. Update ocrProcessing=true, ocrStartedAt=now()
+   *
+   * Returns: File object พร้อม storagePath, editedPath
+   */
+  async getNextOcrJob(): Promise<File | null> {
+    const OCR_LOCK_KEY = 99999; // Advisory lock key for OCR queue
+    const OCR_TIMEOUT_MINUTES = 10; // ถือว่า stuck ถ้าเกิน 10 นาที
+
+    return await this.dataSource.transaction(async (manager) => {
+      // Acquire advisory lock (blocks until lock is available)
+      await manager.query('SELECT pg_advisory_xact_lock($1)', [OCR_LOCK_KEY]);
+
+      // Find next file to OCR
+      const file = await manager
+        .getRepository(File)
+        .createQueryBuilder('file')
+        .where('file.processed = false')
+        .andWhere(
+          `(file.ocrProcessing = false OR file.ocrStartedAt < NOW() - INTERVAL '${OCR_TIMEOUT_MINUTES} minutes')`
+        )
+        .orderBy('file.ocrFailedCount', 'ASC') // ไฟล์ที่ fail น้อยกว่าได้ priority
+        .addOrderBy('file.fileNumber', 'ASC') // ลำดับรอง: fileNumber
+        .getOne();
+
+      if (!file) {
+        return null; // ไม่มีงาน
+      }
+
+      // Lock this file (mark as processing)
+      await manager.getRepository(File).update(file.id, {
+        ocrProcessing: true,
+        ocrStartedAt: new Date(),
+      });
+
+      return file;
+    });
+  }
+
+  /**
+   * ⭐ Mark OCR สำเร็จ
+   */
+  async markOcrCompleted(
+    fileId: number,
+    ocrText: string,
+    isBookmark: boolean,
+  ): Promise<void> {
+    await this.fileRepository.update(fileId, {
+      processed: true,
+      processedAt: new Date(),
+      ocrProcessing: false,
+      ocrCompletedAt: new Date(),
+      ocrText,
+      isBookmark,
+      // Reset error state
+      lastOcrError: null,
+    });
+  }
+
+  /**
+   * ⭐ Mark OCR ล้มเหลว (เพิ่ม failed count, unlock สำหรับ retry)
+   */
+  async markOcrFailed(fileId: number, error: string): Promise<void> {
+    const file = await this.fileRepository.findOne({ where: { id: fileId } });
+    if (!file) return;
+
+    await this.fileRepository.update(fileId, {
+      ocrProcessing: false, // Unlock สำหรับ retry
+      ocrFailedCount: file.ocrFailedCount + 1,
+      lastOcrError: error.substring(0, 1000), // เก็บ error message (limit 1000 chars)
+    });
+  }
+
+  /**
+   * ⭐ Reset jobs ที่ค้างไว้เกิน timeout (crashed worker)
+   * เรียกตอน startup
+   */
+  async resetStuckOcrJobs(): Promise<number> {
+    const OCR_TIMEOUT_MINUTES = 10;
+
+    const result = await this.fileRepository
+      .createQueryBuilder()
+      .update(File)
+      .set({ ocrProcessing: false })
+      .where('ocrProcessing = true')
+      .andWhere(
+        `ocrStartedAt < NOW() - INTERVAL '${OCR_TIMEOUT_MINUTES} minutes'`
+      )
+      .execute();
+
+    return result.affected || 0;
   }
 
   async findOne(id: number): Promise<File | null> {
@@ -466,7 +579,6 @@ export class FilesService {
 
   async createGroup(): Promise<Group> {
     const group = this.groupRepository.create({
-      isComplete: false,
       isAutoLabeled: false,
     });
     return this.groupRepository.save(group);
@@ -500,8 +612,6 @@ export class FilesService {
     Array<{
       groupId: number;
       fileCount: number;
-      isComplete: boolean;
-      completedAt: Date | null;
       isAutoLabeled: boolean;
       labeledAt: Date | null;
       createdAt: Date;
@@ -545,8 +655,6 @@ export class FilesService {
       result.push({
         groupId: group.id,
         fileCount,
-        isComplete: group.isComplete,
-        completedAt: group.completedAt,
         isAutoLabeled: group.isAutoLabeled,
         labeledAt: group.labeledAt,
         createdAt: group.createdAt,
@@ -560,8 +668,9 @@ export class FilesService {
   }
 
   async getGroupsReadyToLabel(): Promise<number[]> {
+    // All groups are created as complete, so just check for unlabeled groups
     const groups = await this.groupRepository.find({
-      where: { isComplete: true, isAutoLabeled: false },
+      where: { isAutoLabeled: false },
       order: { id: 'ASC' },
     });
     return groups.map(g => g.id);
@@ -592,17 +701,61 @@ export class FilesService {
     return groupedFiles.map(f => f.id);
   }
 
-  async markGroupComplete(groupId: number): Promise<void> {
-    await this.groupRepository.update(groupId, {
-      isComplete: true,
-      completedAt: new Date(),
+  /**
+   * ⭐ NEW: หา BOOKMARK files ทั้งหมดที่ OCR เสร็จแล้ว (sorted by fileNumber)
+   * ใช้สำหรับ BOOKMARK-based Grouping
+   */
+  async findBookmarks(): Promise<File[]> {
+    return this.fileRepository.find({
+      where: {
+        processed: true,
+        isBookmark: true,
+      },
+      order: { fileNumber: 'ASC' },
     });
+  }
 
-    // Emit GROUP_COMPLETE event
-    this.emitEvent({
-      type: 'GROUP_COMPLETE',
-      groupId,
-      timestamp: new Date().toISOString(),
+  /**
+   * ⭐ NEW: หาไฟล์ระหว่าง start และ end (ไม่รวม BOOKMARK)
+   * ใช้สำหรับสร้าง group จากช่วงระหว่าง BOOKMARK
+   */
+  async findFilesBetween(startFileNumber: number, endFileNumber: number): Promise<File[]> {
+    return this.fileRepository
+      .createQueryBuilder('file')
+      .where('file.fileNumber > :start', { start: startFileNumber })
+      .andWhere('file.fileNumber < :end', { end: endFileNumber })
+      .andWhere('file.isBookmark = false')  // ไม่เอา BOOKMARK files
+      .orderBy('file.fileNumber', 'ASC')
+      .getMany();
+  }
+
+  /**
+   * ⭐ NEW: เช็คว่า group ที่ครอบคลุมไฟล์ใน range นี้ถูกสร้างแล้วหรือยัง
+   * ใช้สำหรับป้องกันการสร้าง group ซ้ำ
+   */
+  async findGroupByRange(startFileNumber: number, endFileNumber: number): Promise<Group | null> {
+    // หาไฟล์ใดก็ได้ใน range ที่มี groupId แล้ว
+    const file = await this.fileRepository
+      .createQueryBuilder('file')
+      .where('file.fileNumber > :start', { start: startFileNumber })
+      .andWhere('file.fileNumber < :end', { end: endFileNumber })
+      .andWhere('file.groupId IS NOT NULL')
+      .getOne();
+
+    if (!file?.groupId) {
+      return null;
+    }
+
+    return this.groupRepository.findOne({ where: { id: file.groupId } });
+  }
+
+  /**
+   * ⭐ นับไฟล์ที่ยังไม่ processed (รอ OCR)
+   * ใช้สำหรับตัดสินใจว่ามีไฟล์รอ OCR อยู่หรือไม่
+   */
+  async countUnprocessedFiles(): Promise<number> {
+    return this.fileRepository.count({
+      where: { processed: false },
     });
   }
 
@@ -657,34 +810,38 @@ export class FilesService {
     }
   }
 
-  async clearIncompleteGroups(): Promise<void> {
-    // Find incomplete groups
-    const incompleteGroups = await this.groupRepository.find({
-      where: { isComplete: false },
-    });
-
-    if (incompleteGroups.length === 0) return;
-
-    const groupIds = incompleteGroups.map(g => g.id);
-
-    // Clear files in ALL incomplete groups (use In operator for multiple IDs)
-    await this.fileRepository.update(
-      { groupId: In(groupIds) },
-      { groupId: null, orderInGroup: null, ocrText: null, isBookmark: false }
-    );
-
-    // Now safe to delete incomplete groups (no files reference them)
-    await this.groupRepository.delete({ isComplete: false });
-  }
 
   async clearGroupedFiles(): Promise<void> {
     // NOTE: labeled_files are deleted via CASCADE when groups are deleted in Step 3
 
-    // Step 1: Clear grouping info from files (but keep the raw files)
+    // Step 0: Delete edited images from MinIO (Stage 00 revert)
+    const filesWithEdits = await this.fileRepository.find({
+      where: { hasEdited: true },
+      select: ['id', 'editedPath'],
+    });
+
+    for (const file of filesWithEdits) {
+      if (file.editedPath) {
+        try {
+          await this.minioService.deleteFile(file.editedPath);
+        } catch (error) {
+          console.error(`Failed to delete edited image: ${file.editedPath}`, error);
+          // Continue even if delete fails
+        }
+      }
+    }
+
+    // Step 1: Clear ALL file data (grouping + Stage 00 review status)
     await this.fileRepository
       .createQueryBuilder()
       .update()
       .set({
+        // Stage 00: Review status (REVERT UPLOAD STAGE)
+        isReviewed: false,
+        reviewedAt: null,
+        editedPath: null,
+        hasEdited: false,
+        // Stage 01-02: Grouping info
         groupId: null,
         orderInGroup: null,
         ocrText: null,
@@ -705,7 +862,10 @@ export class FilesService {
     return this.groupRepository.findOne({ where: { id: groupId } });
   }
 
-  async getParsedGroups(): Promise<Array<{
+  async getParsedGroups(
+    userId?: number,
+    userRole?: string,
+  ): Promise<Array<{
     groupId: number;
     fileCount: number;
     parseDataAt: Date | null;
@@ -716,15 +876,47 @@ export class FilesService {
     lockedBy: number | null;
     lockedByName: string | null;
     lockedAt: Date | null;
+    finalReview04: 'pending' | 'approved' | 'rejected';
+    finalReview04Reviewer: string | null;
+    finalReview04ReviewedAt: Date | null;
+    extractDataNotes: string | null;
+    finalReview04Notes: string | null;
   }>> {
+    console.log('🔑 getParsedGroups called with:', {
+      userId,
+      userRole,
+    });
+
     const groups = await this.groupRepository.find({
       where: { isParseData: true },
       relations: ['foundationInstrument', 'committeeMembers', 'lockedByUser'],
       order: { parseDataAt: 'DESC' },
+      select: ['id', 'parseDataAt', 'isParseDataReviewed', 'parseDataReviewer', 'parseDataReviewerId', 'lockedBy', 'lockedAt', 'finalReview04', 'finalReview04Reviewer', 'finalReview04ReviewedAt', 'extractDataNotes', 'finalReview04Notes'],
     });
+
+    console.log(`📦 Total parsed groups found: ${groups.length}`);
 
     const result = [];
     for (const group of groups) {
+      // Filter logic (same as Stage 03):
+      // 1. Admin → show all groups
+      // 2. Non-admin → show unreviewed groups + groups reviewed by this user
+      if (group.isParseDataReviewed) {
+        // Group is already reviewed
+        if (userRole === 'admin') {
+          // Admin: show all reviewed groups
+          console.log(`✅ Group ${group.id}: Including (admin, reviewed)`);
+        } else {
+          // Non-admin: show only if reviewed by this user
+          if (group.parseDataReviewerId !== userId) {
+            console.log(`⏭️  Group ${group.id}: Skipped (reviewed by another user, reviewerId=${group.parseDataReviewerId}, currentUserId=${userId})`);
+            continue; // ❌ Skip - other user reviewed
+          } else {
+            console.log(`✅ Group ${group.id}: Including (reviewed by current user)`);
+          }
+        }
+      }
+
       const fileCount = await this.fileRepository.count({
         where: { groupId: group.id },
       });
@@ -740,10 +932,116 @@ export class FilesService {
         lockedBy: group.lockedBy,
         lockedByName: group.lockedByUser?.name || null,
         lockedAt: group.lockedAt,
+        finalReview04: group.finalReview04 || 'pending',
+        finalReview04Reviewer: group.finalReview04Reviewer || null,
+        finalReview04ReviewedAt: group.finalReview04ReviewedAt || null,
+        extractDataNotes: group.extractDataNotes || null,
+        finalReview04Notes: group.finalReview04Notes || null,
       });
     }
 
+    console.log(`📊 Returning ${result.length} groups to user ${userId}`);
     return result;
+  }
+
+  async getStage03Stats(): Promise<{
+    totalGroups: number;
+    pendingReview: number;
+    reviewed: number;
+    finalApproved: number;
+    finalRejected: number;
+    finalPending: number;
+  }> {
+    // Total groups that are labeled (from Stage 02)
+    const totalGroups = await this.groupRepository.count({
+      where: { isAutoLabeled: true },
+    });
+
+    // Pending review (not reviewed yet)
+    const pendingReview = await this.groupRepository.count({
+      where: { isAutoLabeled: true, isLabeledReviewed: false },
+    });
+
+    // Reviewed (Stage 03 done)
+    const reviewed = await this.groupRepository.count({
+      where: { isAutoLabeled: true, isLabeledReviewed: true },
+    });
+
+    // Final review: Approved
+    const finalApproved = await this.groupRepository.count({
+      where: { isAutoLabeled: true, finalReview03: 'approved' },
+    });
+
+    // Final review: Rejected
+    const finalRejected = await this.groupRepository.count({
+      where: { isAutoLabeled: true, finalReview03: 'rejected' },
+    });
+
+    // Final review: Pending (only count if already reviewed in Stage 03)
+    const finalPending = await this.groupRepository.count({
+      where: {
+        isAutoLabeled: true,
+        isLabeledReviewed: true,  // ต้อง reviewed แล้ว
+        finalReview03: 'pending'  // และยังไม่ได้ final review
+      },
+    });
+
+    return {
+      totalGroups,
+      pendingReview,
+      reviewed,
+      finalApproved,
+      finalRejected,
+      finalPending,
+    };
+  }
+
+  async getStage04Stats(): Promise<{
+    totalGroups: number;
+    pendingReview: number;
+    reviewed: number;
+    finalApproved: number;
+    finalRejected: number;
+    finalPending: number;
+  }> {
+    // Total groups that are parsed (from Stage 03)
+    const totalGroups = await this.groupRepository.count({
+      where: { isParseData: true },
+    });
+
+    // Pending review (not reviewed yet)
+    const pendingReview = await this.groupRepository.count({
+      where: { isParseData: true, isParseDataReviewed: false },
+    });
+
+    // Reviewed (Stage 04 done)
+    const reviewed = await this.groupRepository.count({
+      where: { isParseData: true, isParseDataReviewed: true },
+    });
+
+    // Final review: Approved
+    const finalApproved = await this.groupRepository.count({
+      where: { isParseData: true, finalReview04: 'approved' },
+    });
+
+    // Final review: Rejected
+    const finalRejected = await this.groupRepository.count({
+      where: { isParseData: true, finalReview04: 'rejected' },
+    });
+
+    // Final review: Pending
+    const finalPending = await this.groupRepository.count({
+      where: { isParseData: true, finalReview04: 'pending' },
+    });
+
+    return {
+      totalGroups,
+      pendingReview,
+      reviewed,
+      finalApproved,
+      finalRejected,
+      finalPending,
+    };
   }
 
   async getParsedGroupDetail(groupId: number): Promise<{
@@ -835,6 +1133,7 @@ export class FilesService {
       {
         isParseDataReviewed: true,
         parseDataReviewer: reviewer,
+        parseDataReviewerId: userId || null,
         extractDataNotes: notes || null,
       },
     );
@@ -1077,6 +1376,7 @@ export class FilesService {
   // ========== STAGE 05: FINAL REVIEW METHODS ==========
 
   async getFinalReviewGroups(status: 'pending' | 'approved' | 'all') {
+    console.log('🔍 getFinalReviewGroups called with status:', status);
     const queryBuilder = this.groupRepository
       .createQueryBuilder('group')
       .leftJoinAndSelect('group.files', 'files')
@@ -1085,11 +1385,20 @@ export class FilesService {
       .where('group.isLabeledReviewed = :labelReviewed', { labelReviewed: true })
       .andWhere('group.isParseDataReviewed = :parseReviewed', { parseReviewed: true });
 
-    // Apply status filter
+    // Apply status filter (based on finalReview03 and finalReview04)
     if (status === 'pending') {
-      queryBuilder.andWhere('group.isFinalApproved = :approved', { approved: false });
+      // Pending = อย่างน้อย 1 ใน 2 ยัง pending หรือ rejected
+      // Use CAST to text to avoid enum comparison error
+      queryBuilder.andWhere(
+        '(CAST(group.finalReview03 AS TEXT) != :approved OR CAST(group.finalReview04 AS TEXT) != :approved)',
+        { approved: 'approved' }
+      );
     } else if (status === 'approved') {
-      queryBuilder.andWhere('group.isFinalApproved = :approved', { approved: true });
+      // Approved = ทั้ง 03 และ 04 ต้อง approved
+      // Use CAST to text to avoid enum comparison error
+      queryBuilder
+        .andWhere('CAST(group.finalReview03 AS TEXT) = :approved', { approved: 'approved' })
+        .andWhere('CAST(group.finalReview04 AS TEXT) = :approved', { approved: 'approved' });
     }
     // 'all' doesn't add any additional filter
 
@@ -1100,6 +1409,17 @@ export class FilesService {
     // NOTE: labeled_files stats are calculated in labeled-files module
     // Use group.files for page count here
     const groupsWithStats = groups.map((group) => {
+      // Calculate if fully approved (both 03 and 04 must be approved)
+      const isFinalApproved =
+        group.finalReview03 === 'approved' &&
+        group.finalReview04 === 'approved';
+
+      // Use latest reviewer (prefer 04 if exists, fallback to 03)
+      const finalReviewer = group.finalReview04Reviewer || group.finalReview03Reviewer || null;
+
+      // Use latest approved timestamp (prefer 04 if exists, fallback to 03)
+      const finalApprovedAt = group.finalReview04ReviewedAt || group.finalReview03ReviewedAt || null;
+
       return {
         groupId: group.id,
         totalPages: group.files.length,
@@ -1116,13 +1436,29 @@ export class FilesService {
         parseDataReviewer: group.parseDataReviewer,
         parseDataAt: group.parseDataAt,
 
-        // Stage 05 data
-        isFinalApproved: group.isFinalApproved,
-        finalReviewer: group.finalReviewer,
-        finalApprovedAt: group.finalApprovedAt,
+        // Stage 05 data (split 03 and 04)
+        finalReview03: group.finalReview03 || 'pending',
+        finalReview03Reviewer: group.finalReview03Reviewer || null,
+        finalReview03ReviewedAt: group.finalReview03ReviewedAt || null,
+        finalReview04: group.finalReview04 || 'pending',
+        finalReview04Reviewer: group.finalReview04Reviewer || null,
+        finalReview04ReviewedAt: group.finalReview04ReviewedAt || null,
+
+        // Combined final approval status (for Frontend compatibility)
+        isFinalApproved,
+        finalReviewer,
+        finalApprovedAt,
+
+        // Portal upload status (for Stage 06)
+        portalOrganizationId: group.portalOrganizationId || null,
+        portalUploadedAt: group.portalUploadedAt || null,
+        portalLogoUploaded: group.portalLogoUploaded || false,
+        portalDocumentsUploaded: group.portalDocumentsUploaded || false,
       };
     });
 
+    console.log('📊 Returning groups count:', groupsWithStats.length);
+    console.log('📋 Groups:', groupsWithStats.map(g => ({ id: g.groupId, isFinalApproved: g.isFinalApproved })));
     return groupsWithStats;
   }
 
@@ -1183,6 +1519,7 @@ export class FilesService {
         isReviewed: group.isLabeledReviewed,
         reviewer: group.labeledReviewer,
         reviewedAt: group.labeledAt,
+        remarks: group.labeledNotes || null, // ⭐ Remarks from Stage 03 review
       },
 
       // Stage 04 - Full detail
@@ -1194,14 +1531,19 @@ export class FilesService {
         isReviewed: group.isParseDataReviewed,
         reviewer: group.parseDataReviewer,
         parseDataAt: group.parseDataAt,
+        remarks: group.extractDataNotes || null, // ⭐ Remarks from Stage 04 review
       },
 
-      // Stage 05 status
+      // Stage 05 status (split 03 and 04)
       stage05: {
-        isFinalApproved: group.isFinalApproved,
-        finalReviewer: group.finalReviewer,
-        finalApprovedAt: group.finalApprovedAt,
-        finalReviewNotes: group.finalReviewNotes,
+        finalReview03: group.finalReview03 || 'pending',
+        finalReview03Reviewer: group.finalReview03Reviewer || null,
+        finalReview03ReviewedAt: group.finalReview03ReviewedAt || null,
+        finalReview03Notes: group.finalReview03Notes || null,
+        finalReview04: group.finalReview04 || 'pending',
+        finalReview04Reviewer: group.finalReview04Reviewer || null,
+        finalReview04ReviewedAt: group.finalReview04ReviewedAt || null,
+        finalReview04Notes: group.finalReview04Notes || null,
       },
 
       // Group metadata
@@ -1213,11 +1555,12 @@ export class FilesService {
     };
   }
 
-  async approveFinalReview(
+  async reviewStage03(
     groupId: number,
+    status: 'approved' | 'rejected',
     reviewerName: string,
+    userId: number,
     notes?: string,
-    userId?: number,
   ) {
     const group = await this.groupRepository.findOne({
       where: { id: groupId },
@@ -1227,41 +1570,116 @@ export class FilesService {
       throw new NotFoundException(`Group ${groupId} not found`);
     }
 
-    // Verify prerequisites
+    // Verify prerequisite
     if (!group.isLabeledReviewed) {
       throw new BadRequestException('Group must be reviewed in Stage 03 first');
     }
 
+    // Update group
+    group.finalReview03 = status;
+    group.finalReview03ReviewedAt = new Date();
+    group.finalReview03Reviewer = reviewerName;
+    group.finalReview03ReviewerId = userId;
+    group.finalReview03Notes = notes || null;
+
+    await this.groupRepository.save(group);
+
+    // Log the review
+    await this.activityLogsService.create({
+      userId,
+      userName: reviewerName,
+      action: status === 'approved' ? ActivityAction.APPROVE : ActivityAction.REJECT,
+      entityType: ActivityEntityType.GROUP,
+      entityId: groupId,
+      groupId,
+      stage: ActivityStage.STAGE_05_REVIEW,
+      description: `Stage 03 (PDF Labels) ${status}${notes ? `: ${notes}` : ''}`,
+    });
+
+    // Emit real-time event for Stage 03 review update
+    this.emitEvent({
+      type: 'FINAL_REVIEW_03_UPDATED',
+      groupId,
+      reviewer: reviewerName,
+      status,
+      stage: '03',
+      timestamp: new Date().toISOString(),
+    });
+
+    // Auto-upload to Portal if both stages are approved
+    if (status === 'approved') {
+      await this.autoUploadToPortalIfFullyApproved(groupId, userId, reviewerName);
+    }
+
+    return {
+      groupId: group.id,
+      finalReview03: group.finalReview03,
+      finalReview03Reviewer: group.finalReview03Reviewer,
+      finalReview03ReviewedAt: group.finalReview03ReviewedAt,
+    };
+  }
+
+  async reviewStage04(
+    groupId: number,
+    status: 'approved' | 'rejected',
+    reviewerName: string,
+    userId: number,
+    notes?: string,
+  ) {
+    const group = await this.groupRepository.findOne({
+      where: { id: groupId },
+    });
+
+    if (!group) {
+      throw new NotFoundException(`Group ${groupId} not found`);
+    }
+
+    // Verify prerequisite
     if (!group.isParseDataReviewed) {
       throw new BadRequestException('Group must be reviewed in Stage 04 first');
     }
 
     // Update group
-    group.isFinalApproved = true;
-    group.finalApprovedAt = new Date();
-    group.finalReviewer = reviewerName;
-    group.finalReviewNotes = notes || null;
+    group.finalReview04 = status;
+    group.finalReview04ReviewedAt = new Date();
+    group.finalReview04Reviewer = reviewerName;
+    group.finalReview04ReviewerId = userId;
+    group.finalReview04Notes = notes || null;
 
     await this.groupRepository.save(group);
 
-    // Log the final approval
+    // Log the review
     await this.activityLogsService.create({
       userId,
       userName: reviewerName,
-      action: ActivityAction.APPROVE,
+      action: status === 'approved' ? ActivityAction.APPROVE : ActivityAction.REJECT,
       entityType: ActivityEntityType.GROUP,
       entityId: groupId,
       groupId,
       stage: ActivityStage.STAGE_05_REVIEW,
-      description: `Final approval completed${notes ? `: ${notes}` : ''}`,
+      description: `Stage 04 (Extract Data) ${status}${notes ? `: ${notes}` : ''}`,
     });
+
+    // Emit real-time event for Stage 04 review update
+    this.emitEvent({
+      type: 'FINAL_REVIEW_04_UPDATED',
+      groupId,
+      reviewer: reviewerName,
+      status,
+      stage: '04',
+      timestamp: new Date().toISOString(),
+    });
+
+    // Auto-upload to Portal if both stages are approved
+    if (status === 'approved') {
+      await this.autoUploadToPortalIfFullyApproved(groupId, userId, reviewerName);
+    }
 
     return {
       groupId: group.id,
-      isFinalApproved: group.isFinalApproved,
-      finalReviewer: group.finalReviewer,
-      finalApprovedAt: group.finalApprovedAt,
-      finalReviewNotes: group.finalReviewNotes,
+      finalReview04: group.finalReview04,
+      finalReview04Reviewer: group.finalReview04Reviewer,
+      finalReview04ReviewedAt: group.finalReview04ReviewedAt,
     };
   }
 
@@ -1424,5 +1842,649 @@ export class FilesService {
         await subItemRepo.update(item.id, { orderIndex: item.orderIndex });
       }
     });
+  }
+
+  // ========== STAGE 06: UPLOAD TO PORTAL ==========
+
+  /**
+   * Transform group data to Portal API format
+   */
+  async transformToPortalFormat(groupId: number) {
+    const group = await this.groupRepository.findOne({
+      where: { id: groupId },
+      relations: [
+        'files',
+        'foundationInstrument',
+        'foundationInstrument.charterSections',
+        'foundationInstrument.charterSections.articles',
+        'foundationInstrument.charterSections.articles.subItems',
+        'committeeMembers',
+      ],
+    });
+
+    if (!group) {
+      throw new NotFoundException(`Group ${groupId} not found`);
+    }
+
+    // Check if group is fully approved
+    if (group.finalReview03 !== 'approved' || group.finalReview04 !== 'approved') {
+      throw new BadRequestException('Group must be approved in both Stage 03 and Stage 04');
+    }
+
+    const foundation = group.foundationInstrument;
+
+    // Transform charter sections with nested articles and subItems
+    const charterSections = foundation?.charterSections
+      ?.sort((a, b) => a.orderIndex - b.orderIndex)
+      .map((section, sectionIndex) => ({
+        number: section.number,
+        title: section.title,
+        sortOrder: sectionIndex + 1,
+        articles: section.articles
+          ?.sort((a, b) => a.orderIndex - b.orderIndex)
+          .map((article, articleIndex) => ({
+            number: article.number,
+            content: article.content,
+            sortOrder: articleIndex + 1,
+            subItems: article.subItems
+              ?.sort((a, b) => a.orderIndex - b.orderIndex)
+              .map((subItem, subIndex) => ({
+                number: subItem.number,
+                content: subItem.content,
+                sortOrder: subIndex + 1,
+              })) || [],
+          })) || [],
+      })) || [];
+
+    // Transform committee members
+    const committeeMembers = group.committeeMembers
+      ?.sort((a, b) => a.orderIndex - b.orderIndex)
+      .map((member, index) => ({
+        name: member.name,
+        address: member.address || null,
+        phone: member.phone || null,
+        position: member.position || null,
+        sortOrder: index + 1,
+      })) || [];
+
+    // Build Portal API payload
+    const portalPayload = {
+      name: foundation?.name || `Group ${groupId}`,
+      type: 'มูลนิธิ',
+      isCancelled: foundation?.isCancelled || false,
+      shortName: foundation?.shortName || null,
+      address: foundation?.address || null,
+      registrationNumber: group.registrationNumber || null,
+      districtOffice: group.districtOffice || null,
+      logoDescription: foundation?.logoDescription || null,
+      charterSections,
+      committeeMembers,
+    };
+
+    return {
+      groupId,
+      portalPayload,
+      summary: {
+        foundationName: foundation?.name,
+        charterSectionsCount: charterSections.length,
+        totalArticles: charterSections.reduce((sum, s) => sum + s.articles.length, 0),
+        committeeMembersCount: committeeMembers.length,
+      },
+    };
+  }
+
+  /**
+   * Upload group data to Portal API
+   */
+  async uploadToPortal(
+    groupId: number,
+    userId: number,
+    userName: string,
+  ) {
+    // Get Portal API URL from environment
+    const portalBaseUrl = process.env.PORTAL_API_URL;
+    if (!portalBaseUrl) {
+      throw new BadRequestException('PORTAL_API_URL is not configured in environment');
+    }
+
+    // Get transformed data
+    const { portalPayload, summary } = await this.transformToPortalFormat(groupId);
+
+    console.log(`📤 Uploading Group ${groupId} to Portal: ${portalBaseUrl}`);
+    console.log(`📊 Summary:`, summary);
+    console.log(`🔑 Registration Number: ${portalPayload.registrationNumber || 'N/A'}`);
+
+    try {
+      // Call Portal API to upsert organization (create or update based on registrationNumber)
+      const response = await fetch(`${portalBaseUrl}/organizations/upsert`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(portalPayload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Portal API error: ${response.status} - ${errorText}`);
+      }
+
+      const result = await response.json();
+      const action = result._isNew ? 'Created' : 'Updated';
+      console.log(`✅ Successfully ${action.toLowerCase()} Group ${groupId} in Portal. Organization ID: ${result.id}`);
+
+      // Update group with portal organization ID
+      const group = await this.groupRepository.findOne({ where: { id: groupId } });
+      if (group) {
+        group.portalOrganizationId = result.id;
+        group.portalUploadedAt = new Date();
+        await this.groupRepository.save(group);
+      }
+
+      // Log the upload activity
+      const isNew = result._isNew === true;
+      await this.activityLogsService.create({
+        userId,
+        userName,
+        action: ActivityAction.UPLOAD,
+        entityType: ActivityEntityType.GROUP,
+        entityId: groupId,
+        groupId,
+        stage: ActivityStage.STAGE_06_UPLOAD,
+        description: `${isNew ? 'Created' : 'Updated'} in Portal. Organization ID: ${result.id}`,
+      });
+
+      // Emit real-time event
+      this.emitEvent({
+        type: 'PORTAL_UPLOAD_SUCCESS',
+        groupId,
+        portalOrganizationId: result.id,
+        timestamp: new Date().toISOString(),
+      });
+
+      return {
+        success: true,
+        groupId,
+        portalOrganizationId: result.id,
+        isNew,
+        summary,
+        portalResponse: result,
+      };
+    } catch (error) {
+      console.error(`❌ Failed to upload Group ${groupId} to Portal:`, error);
+
+      // Log the failed upload
+      await this.activityLogsService.create({
+        userId,
+        userName,
+        action: ActivityAction.UPLOAD,
+        entityType: ActivityEntityType.GROUP,
+        entityId: groupId,
+        groupId,
+        stage: ActivityStage.STAGE_06_UPLOAD,
+        description: `Upload failed: ${error.message}`,
+      });
+
+      // Emit error event
+      this.emitEvent({
+        type: 'PORTAL_UPLOAD_FAILED',
+        groupId,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+
+      throw new BadRequestException(`Failed to upload to Portal: ${error.message}`);
+    }
+  }
+
+  /**
+   * Preview data that will be uploaded to Portal (without actually uploading)
+   */
+  async previewPortalUpload(groupId: number) {
+    return this.transformToPortalFormat(groupId);
+  }
+
+  /**
+   * Upload logo to Portal API
+   */
+  async uploadLogoToPortal(
+    groupId: number,
+    userId: number,
+    userName: string,
+  ) {
+    const portalBaseUrl = process.env.PORTAL_API_URL;
+    if (!portalBaseUrl) {
+      throw new BadRequestException('PORTAL_API_URL is not configured in environment');
+    }
+
+    const group = await this.groupRepository.findOne({
+      where: { id: groupId },
+    });
+
+    if (!group) {
+      throw new NotFoundException(`Group ${groupId} not found`);
+    }
+
+    // Check if group has registrationNumber (required for upsert)
+    if (!group.registrationNumber) {
+      throw new BadRequestException('Group must have registrationNumber to upload logo to Portal');
+    }
+
+    // Check if group has logo
+    if (!group.logoUrl) {
+      return {
+        success: true,
+        groupId,
+        registrationNumber: group.registrationNumber,
+        message: 'No logo to upload',
+        skipped: true,
+      };
+    }
+
+    console.log(`📤 Uploading logo for Group ${groupId} to Portal (Registration: ${group.registrationNumber})`);
+    console.log(`📁 Logo path: ${group.logoUrl}`);
+
+    try {
+      // Get the logo file from MinIO
+      const logoBuffer = await this.minioService.getFile(group.logoUrl);
+
+      // Detect content type from file extension
+      const logoPath = group.logoUrl.toLowerCase();
+      let contentType = 'image/png';
+      let filename = 'logo.png';
+
+      if (logoPath.endsWith('.jpg') || logoPath.endsWith('.jpeg')) {
+        contentType = 'image/jpeg';
+        filename = 'logo.jpg';
+      } else if (logoPath.endsWith('.gif')) {
+        contentType = 'image/gif';
+        filename = 'logo.gif';
+      } else if (logoPath.endsWith('.webp')) {
+        contentType = 'image/webp';
+        filename = 'logo.webp';
+      }
+
+      console.log(`📦 Content-Type: ${contentType}, Filename: ${filename}, Size: ${logoBuffer.length} bytes`);
+
+      // Create FormData using native Node.js 18+ FormData with Blob
+      // Convert Buffer to Uint8Array for TypeScript compatibility
+      const uint8Array = new Uint8Array(logoBuffer);
+      const blob = new Blob([uint8Array], { type: contentType });
+      const formData = new FormData();
+      formData.append('file', blob, filename);
+      formData.append('registrationNumber', group.registrationNumber);
+
+      // Upload logo to Portal API using upsert endpoint (uses registrationNumber as key)
+      const response = await fetch(`${portalBaseUrl}/organizations/upsert-logo`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Portal API error: ${response.status} - ${errorText}`);
+      }
+
+      const result = await response.json();
+
+      // Update group status and portalOrganizationId if not set
+      group.portalLogoUploaded = true;
+      if (result.id && !group.portalOrganizationId) {
+        group.portalOrganizationId = result.id;
+      }
+      await this.groupRepository.save(group);
+
+      // Log the upload
+      await this.activityLogsService.create({
+        userId,
+        userName,
+        action: ActivityAction.UPLOAD,
+        entityType: ActivityEntityType.GROUP,
+        entityId: groupId,
+        groupId,
+        stage: ActivityStage.STAGE_06_UPLOAD,
+        description: `Logo uploaded to Portal (Registration: ${group.registrationNumber})`,
+      });
+
+      console.log(`✅ Logo uploaded for Group ${groupId} (Registration: ${group.registrationNumber})`);
+      console.log(`📷 Logo storage path: ${result.logoStoragePath}`);
+
+      return {
+        success: true,
+        groupId,
+        registrationNumber: group.registrationNumber,
+        portalOrganizationId: result.id,
+        logoStoragePath: result.logoStoragePath,
+        message: 'Logo uploaded successfully',
+      };
+    } catch (error) {
+      console.error(`❌ Failed to upload logo for Group ${groupId}:`, error);
+      throw new BadRequestException(`Failed to upload logo: ${error.message}`);
+    }
+  }
+
+  /**
+   * Upload documents to Portal API
+   * - Merges JPEG pages into PDFs based on document labels
+   * - Creates folder structure based on category
+   * - Names files as {templateName}-{date}.pdf or {templateName}.pdf
+   */
+  async uploadDocumentsToPortal(
+    groupId: number,
+    userId: number,
+    userName: string,
+  ) {
+    const portalBaseUrl = process.env.PORTAL_API_URL;
+    if (!portalBaseUrl) {
+      throw new BadRequestException('PORTAL_API_URL is not configured in environment');
+    }
+
+    const group = await this.groupRepository.findOne({
+      where: { id: groupId },
+      relations: ['files'],
+    });
+
+    if (!group) {
+      throw new NotFoundException(`Group ${groupId} not found`);
+    }
+
+    // Check if registrationNumber exists (required for Portal)
+    if (!group.registrationNumber) {
+      throw new BadRequestException('Group must have registrationNumber to upload documents to Portal');
+    }
+
+    // Get all documents for this group
+    const documents = await this.documentRepository.find({
+      where: { groupId },
+      order: { documentNumber: 'ASC' },
+    });
+
+    if (documents.length === 0) {
+      return {
+        success: true,
+        groupId,
+        registrationNumber: group.registrationNumber,
+        message: 'No documents to upload',
+        skipped: true,
+      };
+    }
+
+    console.log(`📤 Uploading ${documents.length} documents for Group ${groupId} to Portal`);
+    console.log(`📁 Registration Number: ${group.registrationNumber}`);
+
+    try {
+      const uploadedDocs = [];
+      const failedDocs = [];
+      const folderCache: Record<string, string> = {}; // category -> folderId
+
+      // Get portal organization ID (if exists) or find by registrationNumber
+      let portalOrgId = group.portalOrganizationId;
+      if (!portalOrgId) {
+        // Try to find organization by registrationNumber
+        const searchRes = await fetch(`${portalBaseUrl}/organizations?search=${encodeURIComponent(group.registrationNumber)}`);
+        if (searchRes.ok) {
+          const orgs = await searchRes.json();
+          const matchingOrg = orgs.find((o: any) => o.registrationNumber === group.registrationNumber);
+          if (matchingOrg) {
+            portalOrgId = matchingOrg.id;
+          }
+        }
+      }
+
+      if (!portalOrgId) {
+        throw new BadRequestException('Organization not found in Portal. Please upload data first.');
+      }
+
+      for (const doc of documents) {
+        try {
+          console.log(`📄 Processing document ${doc.documentNumber}: ${doc.templateName} (pages ${doc.startPage}-${doc.endPage})`);
+
+          // Get files for this document (orderInGroup between startPage and endPage)
+          const docFiles = group.files
+            .filter(f => !f.isBookmark && f.orderInGroup >= doc.startPage && f.orderInGroup <= doc.endPage)
+            .sort((a, b) => a.orderInGroup - b.orderInGroup);
+
+          if (docFiles.length === 0) {
+            console.warn(`⚠️ No files found for document ${doc.documentNumber}`);
+            continue;
+          }
+
+          // Create PDF from JPEG pages
+          const pdfDoc = await PDFDocument.create();
+
+          for (const file of docFiles) {
+            try {
+              // Get image from MinIO
+              const imageBuffer = await this.minioService.getFile(file.storagePath);
+
+              // Embed image in PDF (detect format)
+              let image;
+              const path = file.storagePath.toLowerCase();
+              if (path.endsWith('.png')) {
+                image = await pdfDoc.embedPng(imageBuffer);
+              } else {
+                // Default to JPEG
+                image = await pdfDoc.embedJpg(imageBuffer);
+              }
+
+              // Add page with image dimensions
+              const page = pdfDoc.addPage([image.width, image.height]);
+              page.drawImage(image, {
+                x: 0,
+                y: 0,
+                width: image.width,
+                height: image.height,
+              });
+            } catch (imgError) {
+              console.error(`❌ Failed to embed image ${file.storagePath}:`, imgError.message);
+            }
+          }
+
+          // Generate PDF bytes
+          const pdfBytes = await pdfDoc.save();
+
+          // Generate filename: {templateName}-{date}.pdf or {templateName}.pdf
+          let filename = doc.templateName || `document-${doc.documentNumber}`;
+          if (doc.documentDate) {
+            const dateStr = new Date(doc.documentDate).toISOString().split('T')[0]; // YYYY-MM-DD
+            filename = `${filename}-${dateStr}`;
+          }
+          filename = `${filename}.pdf`;
+
+          console.log(`📎 Generated PDF: ${filename} (${pdfBytes.length} bytes, ${docFiles.length} pages)`);
+
+          // Create folder if category exists and not cached
+          let parentId: string | null = null;
+          if (doc.category && doc.category.trim()) {
+            const category = doc.category.trim();
+            if (!folderCache[category]) {
+              // Create folder in Portal
+              const folderRes = await fetch(`${portalBaseUrl}/organizations/${portalOrgId}/folders`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  organizationId: portalOrgId,
+                  name: category,
+                  parentId: null,
+                }),
+              });
+
+              if (folderRes.ok) {
+                const folderData = await folderRes.json();
+                folderCache[category] = folderData.id;
+                console.log(`📁 Created folder: ${category} (${folderData.id})`);
+              } else {
+                // Folder might already exist, try to list and find it
+                const listRes = await fetch(`${portalBaseUrl}/organizations/${portalOrgId}/documents`);
+                if (listRes.ok) {
+                  const items = await listRes.json();
+                  const existingFolder = items.find((item: any) => item.isFolder && item.name === category);
+                  if (existingFolder) {
+                    folderCache[category] = existingFolder.id;
+                    console.log(`📁 Found existing folder: ${category} (${existingFolder.id})`);
+                  }
+                }
+              }
+            }
+            parentId = folderCache[category] || null;
+          }
+
+          // Upload PDF to Portal
+          const uint8Array = new Uint8Array(pdfBytes);
+          const blob = new Blob([uint8Array], { type: 'application/pdf' });
+          const formData = new FormData();
+          formData.append('file', blob, filename);
+          if (parentId) {
+            formData.append('parentId', parentId);
+          }
+
+          const uploadRes = await fetch(`${portalBaseUrl}/organizations/${portalOrgId}/documents`, {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (uploadRes.ok) {
+            const uploadData = await uploadRes.json();
+            uploadedDocs.push({
+              documentNumber: doc.documentNumber,
+              templateName: doc.templateName,
+              filename,
+              pageCount: docFiles.length,
+              portalDocumentId: uploadData.id,
+              folderId: parentId,
+            });
+            console.log(`✅ Uploaded: ${filename}`);
+          } else {
+            const errorText = await uploadRes.text();
+            failedDocs.push({
+              documentNumber: doc.documentNumber,
+              templateName: doc.templateName,
+              error: `Upload failed: ${uploadRes.status} - ${errorText}`,
+            });
+            console.error(`❌ Failed to upload ${filename}: ${uploadRes.status}`);
+          }
+        } catch (docError) {
+          failedDocs.push({
+            documentNumber: doc.documentNumber,
+            templateName: doc.templateName,
+            error: docError.message,
+          });
+          console.error(`❌ Failed to process document ${doc.documentNumber}:`, docError.message);
+        }
+      }
+
+      // Update group status
+      group.portalDocumentsUploaded = failedDocs.length === 0 && uploadedDocs.length > 0;
+      if (!group.portalOrganizationId && portalOrgId) {
+        group.portalOrganizationId = portalOrgId;
+      }
+      await this.groupRepository.save(group);
+
+      // Log the upload
+      await this.activityLogsService.create({
+        userId,
+        userName,
+        action: ActivityAction.UPLOAD,
+        entityType: ActivityEntityType.GROUP,
+        entityId: groupId,
+        groupId,
+        stage: ActivityStage.STAGE_06_UPLOAD,
+        description: `${uploadedDocs.length}/${documents.length} documents uploaded to Portal as PDFs`,
+      });
+
+      console.log(`✅ Documents uploaded for Group ${groupId}: ${uploadedDocs.length}/${documents.length}`);
+
+      return {
+        success: failedDocs.length === 0,
+        groupId,
+        registrationNumber: group.registrationNumber,
+        portalOrganizationId: portalOrgId,
+        message: `${uploadedDocs.length}/${documents.length} documents uploaded`,
+        uploadedCount: uploadedDocs.length,
+        failedCount: failedDocs.length,
+        uploadedDocs,
+        failedDocs,
+        foldersCreated: Object.keys(folderCache),
+      };
+    } catch (error) {
+      console.error(`❌ Failed to upload documents for Group ${groupId}:`, error);
+      throw new BadRequestException(`Failed to upload documents: ${error.message}`);
+    }
+  }
+
+  /**
+   * Auto-upload to Portal when both Stage 03 and 04 are approved
+   * Called from reviewStage03 and reviewStage04
+   * Uploads: 1) Data, 2) Logo, 3) Documents
+   */
+  async autoUploadToPortalIfFullyApproved(
+    groupId: number,
+    userId: number,
+    userName: string,
+  ) {
+    const group = await this.groupRepository.findOne({
+      where: { id: groupId },
+    });
+
+    if (!group) {
+      return null;
+    }
+
+    // Check if both stages are approved
+    if (group.finalReview03 === 'approved' && group.finalReview04 === 'approved') {
+      // Skip if already uploaded
+      if (group.portalOrganizationId) {
+        console.log(`⏭️ Group ${groupId} already uploaded to Portal (${group.portalOrganizationId})`);
+        return { skipped: true, groupId, portalOrganizationId: group.portalOrganizationId };
+      }
+
+      console.log(`✅ Group ${groupId} fully approved, auto-uploading to Portal...`);
+
+      try {
+        // 1. Upload Data (creates organization in Portal)
+        const dataResult = await this.uploadToPortal(groupId, userId, userName);
+        console.log(`✅ Data uploaded for Group ${groupId}`);
+
+        // 2. Upload Logo (if exists)
+        try {
+          await this.uploadLogoToPortal(groupId, userId, userName);
+          console.log(`✅ Logo uploaded for Group ${groupId}`);
+        } catch (logoError) {
+          console.warn(`⚠️ Logo upload failed for Group ${groupId}:`, logoError.message);
+        }
+
+        // 3. Upload Documents
+        try {
+          await this.uploadDocumentsToPortal(groupId, userId, userName);
+          console.log(`✅ Documents uploaded for Group ${groupId}`);
+        } catch (docsError) {
+          console.warn(`⚠️ Documents upload failed for Group ${groupId}:`, docsError.message);
+        }
+
+        // Emit success event
+        this.emitEvent({
+          type: 'AUTO_PORTAL_UPLOAD_SUCCESS',
+          groupId,
+          portalOrganizationId: dataResult.portalOrganizationId,
+          timestamp: new Date().toISOString(),
+        });
+
+        return dataResult;
+      } catch (error) {
+        console.error(`❌ Auto-upload failed for Group ${groupId}:`, error);
+
+        // Emit error event
+        this.emitEvent({
+          type: 'AUTO_PORTAL_UPLOAD_FAILED',
+          groupId,
+          error: error.message,
+          timestamp: new Date().toISOString(),
+        });
+
+        return null;
+      }
+    }
+
+    return null;
   }
 }

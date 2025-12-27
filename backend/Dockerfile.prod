@@ -1,0 +1,65 @@
+# ========================================
+# Stage 1: Dependencies
+# ========================================
+FROM node:20-alpine AS deps
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install production dependencies only
+RUN npm ci --only=production
+
+# ========================================
+# Stage 2: Builder
+# ========================================
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including devDependencies for build)
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Build NestJS application
+RUN npm run build
+
+# ========================================
+# Stage 3: Runner (Production)
+# ========================================
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+# Set NODE_ENV to production
+ENV NODE_ENV=production
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nestjs
+
+# Copy production dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+
+# Copy built application from builder stage
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package*.json ./
+
+# Change ownership to nestjs user
+RUN chown -R nestjs:nodejs /app
+
+# Switch to non-root user
+USER nestjs
+
+# Expose port
+EXPOSE 4004
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:4004/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+
+# Start NestJS application
+CMD ["node", "dist/main"]

@@ -90,7 +90,7 @@ export class LabelRunnerService {
     try {
       // Infinite loop - runs until stopped
       while (this.isRunning) {
-        // Get groups that are ready to label (isComplete = true AND isAutoLabeled = false)
+        // Get groups that are ready to label (isAutoLabeled = false)
         const groupsToProcess = await this.filesService.getGroupsReadyToLabel();
 
         if (groupsToProcess.length === 0) {

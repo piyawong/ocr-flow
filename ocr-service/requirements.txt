@@ -5,8 +5,14 @@ uvicorn[standard]==0.34.0
 # Typhoon OCR library (official)
 typhoon-ocr>=0.1.0
 
+# OpenAI SDK for Typhoon API
+openai>=1.0.0
+
 # Image processing
 Pillow>=10.0.0
 
 # Python multipart for file uploads
 python-multipart>=0.0.9
+
+# System monitoring (for memory usage logging)
+psutil>=5.9.0

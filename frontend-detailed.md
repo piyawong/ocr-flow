@@ -1,7 +1,7 @@
 # Frontend Architecture - OCR Flow v2
 
 > **เอกสารฉบับนี้:** รวบรวมรายละเอียดสถาปัตยกรรม Frontend ทั้งหมด
-> **อัปเดตล่าสุด:** 2025-12-25 (Unified Theme System + Stage 00 Canvas Drawing)
+> **อัปเดตล่าสุด:** 2025-12-26 (Stage 02: Revert All Groups ตอนนี้ revert Stage 00 ด้วย - reset review status + delete edited images)
 > **สำหรับ:** นักพัฒนา Frontend (Developer Documentation)
 
 ---
@@ -271,9 +271,14 @@ frontend/
 | Preview | Image | Thumbnail with hover effect |
 | File Number | Number | Auto-increment file number |
 | File Name | Text | Original filename |
-| Status | Badge | Processing / Processed |
+| **Status** | **Badge** | **Processed** (green) / **Waiting to Review** (blue) / **Pending** (amber) |
 | Created At | DateTime | Upload timestamp |
 | Actions | Buttons | View, Delete |
+
+**Status Logic:**
+- **✓ Processed** (Emerald/Green): `processed = true` - ผ่าน OCR แล้ว
+- **⏳ Waiting to Review** (Blue): `processed = false` AND `isReviewed = false` - ยังไม่ผ่าน Stage 00 (ยังไม่ mark reviewed)
+- **○ Pending** (Amber/Yellow): `processed = false` AND `isReviewed = true` - ผ่าน Stage 00 แล้ว (mark reviewed แล้ว) แต่ยังรอ OCR
 
 ##### 4. Quick Actions
 - **👁️ View Button**: เปิด full image preview modal
@@ -470,10 +475,14 @@ Stage01Page
 - ปุ่ม: "Revert All Groups"
 - API: `POST /files/clear-grouping`
 - **Effect**:
-  - Clear `files.groupId`, `orderInGroup`, `ocrText`, `isBookmark`
-  - Delete ทุก groups
-  - **CASCADE DELETE**: labeled_files ถูก delete อัตโนมัติ
-- **Warning**: ต้อง rerun ทั้ง grouping และ labeling
+  - **Stage 00 (Upload) Revert**:
+    - Delete edited images จาก MinIO (ถ้ามี `editedPath`)
+    - Reset `files.isReviewed`, `reviewedAt`, `editedPath`, `hasEdited`
+  - **Stage 02 (Group) Revert**:
+    - Clear `files.groupId`, `orderInGroup`, `ocrText`, `isBookmark`, `processed`, `processedAt`
+    - Delete ทุก groups
+  - **CASCADE DELETE**: labeled_files (Stage 03) และ parsed data (Stage 04) ถูก delete อัตโนมัติ
+- **Warning**: ต้อง rerun ทั้ง upload review, grouping, labeling, และ extraction
 
 #### API Calls
 
@@ -734,44 +743,64 @@ const COLORS = [
 
 ##### 4. Save Flow with Notes
 
-**Step 1: Reviewer Name Check**
-- ถ้ายังไม่ได้ตั้งชื่อ → เด้ง modal ให้ใส่ชื่อ
-- ชื่อจะถูกบันทึกใน localStorage (`ocr-flow-reviewer-name`)
+**Step 1: Login Check**
+- ตรวจสอบว่า user login แล้วหรือไม่ (`user?.name`)
+- ถ้ายังไม่ login → แสดง alert "Please log in to save changes."
 
-**Step 2: Review Notes Modal (แสดงเสมอ)**
+**Step 2: Document Dates Check**
+- ตรวจสอบว่าทุก document มี date หรือไม่
+- ถ้ามี document ที่ไม่มี date → เด้ง "Missing Dates Modal"
+- User ต้องกรอก date ให้ครบก่อน save
 
-**Behavior ตาม Match %:**
+**Step 3: Review Notes Modal (แสดงเสมอ)**
 
-| Match % | Modal Message | Button Text |
-|---------|--------------|-------------|
-| **100%** | "จะ mark as reviewed และ trigger auto-parse" | "Save & Mark as Reviewed" |
-| **< 100%** | "จะ NOT mark as reviewed จนกว่าจะ 100%" | "Save" |
+**Modal มี notes textarea:**
+- User สามารถใส่ notes ได้ (optional)
+- **Keyboard Shortcuts:**
+  - **Enter** (ไม่กด Shift) → Submit ทันที (save)
+  - **Shift+Enter** → ขึ้นบรรทัดใหม่ (เขียน notes หลายบรรทัด)
+  - **Escape** → ปิด modal
 
-**Keyboard Shortcuts ใน Modal:**
-- **Enter** (ไม่กด Shift) → Submit ทันที (save)
-- **Shift+Enter** → ขึ้นบรรทัดใหม่ (เขียน notes หลายบรรทัด)
-- **Escape** → ปิด modal
+**Step 4: Save & Update (Backend)**
 
-**Step 3: Save & Update**
+**API Call:** `POST /labeled-files/group/:groupId/mark-reviewed`
 
-**เสมอ:**
-- บันทึก `labeled_notes` ลง `groups` table
+**Request Body:**
+```json
+{
+  "notes": "string (optional)",
+  "markAsReviewed": true
+}
+```
 
-**ถ้า match 100%:**
-- Update `isUserReviewed = true` ใน `labeled_files`
-- Update `reviewer = <name>` ใน `labeled_files`
-- Update `labeled_reviewer = <name>` ใน `groups`
-- Update `is_labeled_reviewed = true` ใน `groups`
-- **Auto-trigger Parse Data** → รัน parse ทันทีใน background
-- Parse ทำงาน asynchronously (user ไม่ต้องรอ)
-- ข้อมูลจะปรากฏใน Stage 04 เมื่อ parse เสร็จ
+**Backend Processing:**
 
-**ถ้า match < 100%:**
-- **ไม่** update `isUserReviewed`
+**เสมอ (ทุกครั้ง):**
+- บันทึก `labeledNotes` ลง `groups` table
+
+**ถ้า markAsReviewed = true:**
+- Update `documents` table:
+  - `isUserReviewed = true`
+  - `reviewer = <user.name>` (จาก JWT)
+  - `reviewNotes = <notes>`
+- Update `groups` table:
+  - `labeledReviewer = <user.name>` (จาก JWT)
+  - `labeledReviewerId = <user.id>` (จาก JWT)
+  - `isLabeledReviewed = true`
+  - `labeledNotes = <notes>`
+- **🚀 Auto-trigger Parse Data** (backend):
+  - ตรวจสอบว่า match 100% หรือไม่
+  - ถ้า match 100% → เรียก `parseRunnerService.parseGroup(groupId)` ทันที
+  - Parse ทำงาน asynchronously (user ไม่ต้องรอ)
+  - ข้อมูลจะปรากฏใน Stage 04 เมื่อ parse เสร็จ
+
+**ถ้า markAsReviewed = false:**
+- บันทึกเฉพาะ notes (ไม่ mark as reviewed)
 - Group ยังคงแสดงใน Stage 03
 
 **หลัง save เสร็จ:**
 - ✅ **No Auto-Jump**: คงอยู่หน้าเดิม (ไม่เด้งไปหน้า unmatch)
+- ✅ **Refresh data**: ดึงข้อมูลใหม่เพื่ออัพเดท UI
 
 ##### 5. Unsaved Changes Warning
 
@@ -897,9 +926,38 @@ ManualLabelPage
 | Button | Action | API | Condition |
 |--------|--------|-----|-----------|
 | **← Back** | กลับไปหน้า list | - | Always |
-| **Mark as Reviewed** | Mark ว่า review แล้ว | `POST /files/parsed-group/:groupId/mark-reviewed` | ยัง review (show เฉพาะตอนนี้) |
-| **Re-parse Data** | รัน parse ใหม่ | `POST /parse-runner/parse/:groupId` | Always |
+| **Mark as Reviewed** | Mark ว่า review แล้ว | `POST /files/parsed-group/:groupId/mark-reviewed` | ถ้ายังไม่ reviewed |
+| **Re-parse Data** | รัน parse ใหม่ | `POST /parse-runner/parse/:groupId?force=true` | Always |
 | **📄 Documents** | เปิด Documents viewer | - | Always |
+
+**Mark as Reviewed Flow:**
+
+**API Call:** `POST /files/parsed-group/:groupId/mark-reviewed`
+
+**Request Body:**
+```json
+{
+  "notes": "string (optional)"
+}
+```
+
+**Backend Processing:**
+- Update `groups` table:
+  - `isParseDataReviewed = true`
+  - `parseDataReviewer = <user.name>` (จาก JWT)
+  - `parseDataReviewerId = <user.id>` (จาก JWT)
+  - `extractDataNotes = <notes>`
+- Log activity (Stage 04 Review)
+
+**Permission Filter:**
+
+Non-admin users จะเห็นเฉพาะ:
+1. Groups ที่ยังไม่ reviewed
+2. Groups ที่ตัวเอง reviewed (`parseDataReviewerId = user.id`)
+
+Admin users เห็นทุก groups
+
+**Note:** ⚠️ **ไม่มี Notes Modal** ใน Stage 04 - ถ้าต้องการเพิ่ม notes จะต้องแก้ไข frontend เพื่อแสดง modal ก่อน save
 
 **Documents Button:**
 - Icon: "open in new window" (↗️)
@@ -1198,7 +1256,7 @@ DocumentsViewerPage
 ### Stage 05: Review (`/stages/05-review`)
 
 #### หน้าที่ (Purpose)
-Final Review & Approval Stage - รวม Stage 03 + 04 review
+Final Review & Approval Stage - review แยก Stage 03 และ Stage 04 เป็นอิสระจากกัน
 
 #### Main List Page
 
@@ -1206,18 +1264,18 @@ Final Review & Approval Stage - รวม Stage 03 + 04 review
 
 | Filter | Condition |
 |--------|-----------|
-| **Pending** | `isFinalApproved = false` |
-| **Approved** | `isFinalApproved = true` |
+| **Pending** | `finalReview03 != 'approved'` OR `finalReview04 != 'approved'` |
+| **Approved** | `finalReview03 = 'approved'` AND `finalReview04 = 'approved'` |
 | **All** | Show all groups |
 
 ##### Status Cards
 
 | Card | Metric |
 |------|--------|
-| **Pending** | Groups ที่ยังไม่ approve |
-| **Approved** | Groups ที่ approve แล้ว |
+| **Pending** | Groups ที่ยังไม่ approve ครบทั้ง 2 stage |
+| **Approved** | Groups ที่ approve ทั้ง 03 และ 04 แล้ว |
 | **Total Groups** | รวมทั้งหมด |
-| **Approval Rate** | % ของ approved |
+| **Approval Rate** | % ของ fully approved |
 
 ##### Entry Conditions
 
@@ -1241,13 +1299,19 @@ Final Review & Approval Stage - รวม Stage 03 + 04 review
 │   ← Back | Logo | Foundation Name            │
 │            📄 Documents Button               │
 ├──────────────────────────────────────────────┤
+│  [Status Badges: Stage 03 | Stage 04]       │ ⭐ NEW
+├──────────────────────────────────────────────┤
+│  [Fully Approved Banner]                    │ (ถ้าทั้ง 2 approved)
+├──────────────────────────────────────────────┤
 │  [Tabs: Foundation Instrument | Committee]  │
 ├──────────────────────────────────────────────┤
 │                                              │
 │          [Tab Content - Read Only]           │
 │                                              │
 ├──────────────────────────────────────────────┤
-│     [Approve/Reject Section]                 │
+│  [Remarks from Stage 03 | Stage 04]         │ ⭐ NEW
+├──────────────────────────────────────────────┤
+│  [Review Section 03 | Review Section 04]    │ ⭐ CHANGED
 └──────────────────────────────────────────────┘
 ```
 
@@ -1314,52 +1378,140 @@ Final Review & Approval Stage - รวม Stage 03 + 04 review
 
 ---
 
-##### Approve/Reject Section (อยู่ด้านล่าง tabs)
+##### Status Badges (Dual Display)
 
-**แสดงเมื่อ:** `isFinalApproved = false`
+**แสดงสถานะ 2 ส่วนแยกกัน:**
 
-**Form:**
-- **Notes/Comments** (optional) - textarea
-  - Placeholder: "Add any notes or comments about this review..."
-  - 4 rows
-  - สามารถพิมพ์ notes ได้ตอน approve
+**Stage 03 Review Badge:**
 
-**Action Buttons:**
+| Status | Color | Display |
+|--------|-------|---------|
+| **Approved** | Emerald/Green | "✓ Stage 03 Approved<br>By {reviewer} on {timestamp}" |
+| **Rejected** | Rose/Red | "✗ Stage 03 Rejected<br>By {reviewer} on {timestamp}" |
+| **Pending** | Amber/Yellow | "⏳ Stage 03 Pending Review" |
 
-| Button | Styling | Action |
-|--------|---------|--------|
-| **Approve & Ready for Upload** | Green gradient (emerald-500 → emerald-600) | Call approve API |
-| **Reject** | Red gradient (rose-500 → rose-600) | Show confirm → Navigate back |
+**Stage 04 Review Badge:**
 
-**Approve Flow:**
-1. User กด "Approve & Ready for Upload"
-2. Call API: `POST /files/final-review-groups/:groupId/approve`
-3. Body: `{ reviewerName: user.name, notes: "..." }`
-4. Update `isFinalApproved = true`
-5. Refresh data
-6. Show success alert
+| Status | Color | Display |
+|--------|-------|---------|
+| **Approved** | Emerald/Green | "✓ Stage 04 Approved<br>By {reviewer} on {timestamp}" |
+| **Rejected** | Rose/Red | "✗ Stage 04 Rejected<br>By {reviewer} on {timestamp}" |
+| **Pending** | Amber/Yellow | "⏳ Stage 04 Pending Review" |
 
-**Reject Flow:**
-1. User กด "Reject"
-2. Show confirmation dialog
-3. ถ้ายืนยัน → Alert + Navigate back to `/stages/05-review`
-4. ไม่ call API (แค่กลับไปหน้า list)
+**Fully Approved Message:**
+- แสดงเมื่อ `finalReview03 = 'approved'` AND `finalReview04 = 'approved'`
+- Large green banner with checkmark
+- Message: "Both stages approved - ready for Stage 06 (Upload)"
 
 ---
 
-##### Approved State Display
+##### Review Section 1: Stage 03 (PDF Labels)
 
-**แสดงเมื่อ:** `isFinalApproved = true`
+**แสดงเมื่อ:** `finalReview03 = 'pending'`
 
-**Green Badge:**
-- ✓ Approved
-- By {finalReviewer} on {finalApprovedAt}
+**Form:**
+- **Notes for Stage 03** (optional) - textarea
+  - Placeholder: "Add notes about PDF labels review..."
+  - 4 rows
 
-**Review Notes Card:**
-- แสดง `finalReviewNotes` (ถ้ามี)
-- Whitespace preserved
+**Action Buttons:**
 
-**ซ่อน Approve/Reject buttons**
+| Button | API Call | Request Body |
+|--------|----------|--------------|
+| **✓ Approve Stage 03** | `POST /files/final-review-groups/:groupId/review-stage03` | `{ status: 'approved', notes }` |
+| **✗ Reject Stage 03** | `POST /files/final-review-groups/:groupId/review-stage03` | `{ status: 'rejected', notes }` |
+
+**Colors:**
+- Approve: Green gradient (emerald-500 → emerald-600)
+- Reject: Red gradient (rose-500 → rose-600)
+
+**Backend Processing:**
+- Verify: `isLabeledReviewed = true`
+- Update `groups` table:
+  - `finalReview03 = <status>`
+  - `finalReview03Reviewer = <user.name>` (จาก JWT)
+  - `finalReview03ReviewerId = <user.id>` (จาก JWT)
+  - `finalReview03ReviewedAt = <current timestamp>`
+  - `finalReview03Notes = <notes>`
+- Log activity
+
+---
+
+##### Review Section 2: Stage 04 (Extract Data)
+
+**แสดงเมื่อ:** `finalReview04 = 'pending'`
+
+**Form:**
+- **Notes for Stage 04** (optional) - textarea
+  - Placeholder: "Add notes about extract data review..."
+  - 4 rows
+
+**Action Buttons:**
+
+| Button | API Call | Request Body |
+|--------|----------|--------------|
+| **✓ Approve Stage 04** | `POST /files/final-review-groups/:groupId/review-stage04` | `{ status: 'approved', notes }` |
+| **✗ Reject Stage 04** | `POST /files/final-review-groups/:groupId/review-stage04` | `{ status: 'rejected', notes }` |
+
+**Colors:**
+- Approve: Green gradient (emerald-500 → emerald-600)
+- Reject: Red gradient (rose-500 → rose-600)
+
+**Backend Processing:**
+- Verify: `isParseDataReviewed = true`
+- Update `groups` table:
+  - `finalReview04 = <status>`
+  - `finalReview04Reviewer = <user.name>` (จาก JWT)
+  - `finalReview04ReviewerId = <user.id>` (จาก JWT)
+  - `finalReview04ReviewedAt = <current timestamp>`
+  - `finalReview04Notes = <notes>`
+- Log activity
+
+---
+
+##### Remarks from Previous Stages (Display Above Review Sections)
+
+**แสดง remarks จาก Stage 03 และ Stage 04 ที่ reviewer เขียนไว้ตอนทำ review ใน stage นั้นๆ**
+
+**2-Column Grid Layout:**
+
+**Stage 03 Remarks Card (Blue Theme):**
+- แสดงเมื่อมี `stage03.remarks` (labeledNotes)
+- Icon: Blue document icon
+- Header:
+  - Title: "Stage 03 Remarks (PDF Labels Review)"
+  - Reviewer: "By {stage03.reviewer}"
+- Content: `stage03.remarks` (whitespace preserved)
+
+**Stage 04 Remarks Card (Purple Theme):**
+- แสดงเมื่อมี `stage04.remarks` (extractDataNotes)
+- Icon: Purple clipboard icon
+- Header:
+  - Title: "Stage 04 Remarks (Extract Data Review)"
+  - Reviewer: "By {stage04.reviewer}"
+- Content: `stage04.remarks` (whitespace preserved)
+
+**Note:** Remarks นี้เป็น notes ที่เขียนไว้ตอน review ใน Stage 03 และ 04 (ไม่ใช่ notes จาก Stage 05)
+
+---
+
+##### Notes Display (Final Review Notes)
+
+**แสดง notes จาก Stage 05 final review (ถ้ามี):**
+
+**Stage 03 Final Review Notes Card:**
+- แสดงเมื่อมี `finalReview03Notes`
+- Icon: Blue document
+- Title: "Stage 05 Review Notes (Stage 03):"
+- Content: `finalReview03Notes` (whitespace preserved)
+
+**Stage 04 Final Review Notes Card:**
+- แสดงเมื่อมี `finalReview04Notes`
+- Icon: Purple document
+- Title: "Stage 05 Review Notes (Stage 04):"
+- Content: `finalReview04Notes` (whitespace preserved)
+
+**Note:** Notes นี้เป็น notes ที่เขียนใน Stage 05 ตอน final review
 
 ---
 
@@ -1370,17 +1522,20 @@ Final Review & Approval Stage - รวม Stage 03 + 04 review
 | ✅ **Read-only Display** | แสดงข้อมูล Stage 04 แบบ read-only (ไม่ให้แก้ไข) |
 | ✅ **2 Tabs** | Foundation Instrument + Committee Members |
 | ✅ **Charter Hierarchy** | หมวด → ข้อ → อนุข้อ (collapsible) |
-| ✅ **Approve/Reject** | Dual action buttons |
+| ✅ **Separate Review** | Review Stage 03 และ 04 แยกกัน (อิสระ) |
+| ✅ **Approve/Reject Each** | Approve หรือ Reject แต่ละ stage ได้แยกกัน |
+| ✅ **Status Badges** | แสดง status แต่ละ stage (Approved/Rejected/Pending) |
 | ✅ **Documents Link** | เปิด Documents viewer ใน new window |
-| ✅ **Audit Trail** | Reviewer, timestamp, notes |
+| ✅ **Audit Trail** | Reviewer, timestamp, notes (แยก 03 และ 04) |
 
 #### API Calls
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/files/final-review-groups` | GET | Groups ready for final review |
-| `/files/parsed-group/:groupId` | GET | Detail ของ group (Foundation + Committee) |
-| `/files/final-review-groups/:groupId/approve` | POST | Approve group (Body: `{ reviewerName, notes }`) |
+| `/files/final-review-groups/:groupId` | GET | Detail ของ group (Foundation + Committee + Review Status) |
+| `/files/final-review-groups/:groupId/review-stage03` | POST | Review Stage 03 (Body: `{ status: 'approved'|'rejected', notes }`) |
+| `/files/final-review-groups/:groupId/review-stage04` | POST | Review Stage 04 (Body: `{ status: 'approved'|'rejected', notes }`) |
 
 #### UI Components Tree
 
@@ -1392,7 +1547,10 @@ FinalReviewDetailPage
 │   ├── FoundationName
 │   ├── Organization (ถ้ามี)
 │   └── DocumentsButton (เปิด new window)
-├── StatusBadge (ถ้า approved)
+├── StatusBadgesGrid (2-column)
+│   ├── Stage03Badge (Approved/Rejected/Pending)
+│   └── Stage04Badge (Approved/Rejected/Pending)
+├── FullyApprovedBanner (ถ้าทั้ง 2 approved)
 ├── Tabs
 │   ├── TabButton (Foundation Instrument)
 │   └── TabButton (Committee Members)
@@ -1412,10 +1570,30 @@ FinalReviewDetailPage
 │           ├── Position
 │           ├── Phone
 │           └── Address
-└── ApproveRejectSection (ถ้ายัง approved)
-    ├── NotesTextarea
-    ├── ApproveButton
-    └── RejectButton
+├── RemarksFromPreviousStages (2-column grid) ⭐ NEW
+│   ├── Stage03RemarksCard (ถ้ามี stage03.remarks)
+│   │   ├── Header (Blue theme)
+│   │   │   ├── Icon (document)
+│   │   │   ├── Title: "Stage 03 Remarks"
+│   │   │   └── Reviewer: "By {name}"
+│   │   └── Content (labeledNotes)
+│   └── Stage04RemarksCard (ถ้ามี stage04.remarks)
+│       ├── Header (Purple theme)
+│       │   ├── Icon (clipboard)
+│       │   ├── Title: "Stage 04 Remarks"
+│       │   └── Reviewer: "By {name}"
+│       └── Content (extractDataNotes)
+├── ReviewSection03 (ถ้า finalReview03 = 'pending')
+│   ├── NotesTextarea03
+│   ├── ApproveStage03Button
+│   └── RejectStage03Button
+├── ReviewSection04 (ถ้า finalReview04 = 'pending')
+│   ├── NotesTextarea04
+│   ├── ApproveStage04Button
+│   └── RejectStage04Button
+└── FinalReviewNotesDisplay (2-column grid)
+    ├── Stage03FinalNotesCard (ถ้ามี finalReview03Notes)
+    └── Stage04FinalNotesCard (ถ้ามี finalReview04Notes)
 ```
 
 ---
@@ -1428,7 +1606,10 @@ Upload final documents ไปยัง destination
 #### Entry Condition
 
 **เฉพาะ groups ที่:**
-- `isFinalApproved = true`
+- `finalReview03 = 'approved'` (Stage 03 ผ่าน final review)
+- **AND** `finalReview04 = 'approved'` (Stage 04 ผ่าน final review)
+
+**Note:** ทั้ง 2 stages ต้อง approved ถึงจะเข้า Stage 06 ได้
 
 #### Features
 (To be implemented)
@@ -1779,7 +1960,7 @@ return () => eventSource.close();
 |----------|--------|---------|
 | `/task-runner/logs` | FILE_PROCESSED, TASK_COMPLETE | Stage 01 OCR progress |
 | `/label-runner/logs` | GROUP_PROCESSED, LABEL_COMPLETE | Stage 02/03 Label progress |
-| `/files/events` | GROUP_COMPLETE, FILE_UPDATED | File system events |
+| `/files/events` | GROUP_COMPLETE, FILE_UPDATED, GROUP_LOCKED, GROUP_UNLOCKED, GROUP_PARSED, GROUP_REVIEWED, **FINAL_REVIEW_03_UPDATED**, **FINAL_REVIEW_04_UPDATED** | File system events + Final Review updates |
 
 ### Event Types
 
@@ -1807,6 +1988,35 @@ return () => eventSource.close();
   }
 }
 ```
+
+**FINAL_REVIEW_03_UPDATED:** ⭐ New
+```json
+{
+  "type": "FINAL_REVIEW_03_UPDATED",
+  "groupId": 1,
+  "reviewer": "admin@example.com",
+  "status": "approved",
+  "stage": "03",
+  "timestamp": "2025-12-27T10:00:00.000Z"
+}
+```
+
+**FINAL_REVIEW_04_UPDATED:** ⭐ New
+```json
+{
+  "type": "FINAL_REVIEW_04_UPDATED",
+  "groupId": 1,
+  "reviewer": "admin@example.com",
+  "status": "approved",
+  "stage": "04",
+  "timestamp": "2025-12-27T10:00:00.000Z"
+}
+```
+
+**Usage in Stage 03 and 04:**
+- Stage 03 (`/stages/03-pdf-label/page.tsx`) listens to `FINAL_REVIEW_03_UPDATED`
+- Stage 04 (`/stages/04-extract/page.tsx`) listens to `FINAL_REVIEW_04_UPDATED`
+- Both stages auto-refresh groups list and stats when final review is updated
 
 ### Reconnection Strategy
 

@@ -1,6 +1,6 @@
 # OCR Flow v2 - Backend Architecture (รายละเอียด)
 
-> **อัปเดตล่าสุด:** 2025-12-24 (Migrate districts → organizations)
+> **อัปเดตล่าสุด:** 2025-12-26 (BOOKMARK-based Grouping - groups สร้างเป็น atomic operation, ลบ isComplete/completedAt)
 > **วัตถุประสงค์:** เอกสารรายละเอียดสถาปัตยกรรม Backend สำหรับนักพัฒนา
 
 ---
@@ -58,7 +58,7 @@ Backend ของ OCR Flow v2 ถูกสร้างด้วย **NestJS** (N
 
 | Service | Purpose | Keys |
 |---------|---------|------|
-| **Typhoon OCR API** | OCR text extraction | 3 API keys (rotation) |
+| **Typhoon OCR API** | OCR text extraction | up to 5 API keys (parallel) |
 
 ### Key Libraries
 
@@ -168,35 +168,93 @@ export class Group {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ unique: true })
-  groupNumber: number;
+  // Note: Groups are created as complete atomically (BOOKMARK-based)
 
   @Column({ default: false })
-  isComplete: boolean;
+  isAutoLabeled: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  labeledAt: Date | null;
+
+  // Stage 03: PDF Labeling Review
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  labeledReviewer: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  labeledReviewerId: number | null;
+
+  @Column({ type: 'text', nullable: true })
+  labeledNotes: string | null;
 
   @Column({ default: false })
-  isLabeled: boolean;
+  isLabeledReviewed: boolean;
 
+  // Stage 04: Parse Data Review
   @Column({ default: false })
   isParseData: boolean;
 
-  @Column({ default: false })
-  is_labeled_reviewed: boolean;
-
-  @Column({ nullable: true })
-  labeled_reviewer: string;
-
-  @Column({ type: 'text', nullable: true })
-  labeled_notes: string;
+  @Column({ type: 'timestamp', nullable: true })
+  parseDataAt: Date | null;
 
   @Column({ default: false })
   isParseDataReviewed: boolean;
 
-  @Column({ nullable: true })
-  parseDataReviewer: string;
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  parseDataReviewer: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  parseDataReviewerId: number | null;
 
   @Column({ type: 'text', nullable: true })
-  extractDataNotes: string;
+  extractDataNotes: string | null;
+
+  // Stage 05: Final Review (Split 03 and 04)
+  // Review for Stage 03 (PDF Labels)
+  @Column({
+    type: 'enum',
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending'
+  })
+  finalReview03: 'pending' | 'approved' | 'rejected';
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  finalReview03Reviewer: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  finalReview03ReviewerId: number | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  finalReview03ReviewedAt: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  finalReview03Notes: string | null;
+
+  // Review for Stage 04 (Extract Data)
+  @Column({
+    type: 'enum',
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending'
+  })
+  finalReview04: 'pending' | 'approved' | 'rejected';
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  finalReview04Reviewer: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  finalReview04ReviewerId: number | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  finalReview04ReviewedAt: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  finalReview04Notes: string | null;
+
+  // Group locking
+  @Column({ type: 'int', nullable: true })
+  lockedBy: number | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  lockedAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;
@@ -206,9 +264,6 @@ export class Group {
 
   @OneToMany(() => File, file => file.group)
   files: File[];
-
-  @OneToMany(() => LabeledFile, labeledFile => labeledFile.group)
-  labeledFiles: LabeledFile[];
 }
 ```
 
@@ -277,7 +332,7 @@ interface GetFilesQuery {
 | GET | `/files/ready-to-label` | ดึง groups ที่พร้อม label | Yes |
 | GET | `/files/group/:groupId` | ดึงไฟล์ของ group ที่ระบุ | Yes |
 | PUT | `/files/group/:groupId/reorder` | เปลี่ยนลำดับไฟล์ใน group | Yes |
-| POST | `/files/clear-grouping` | ลบการจัดกลุ่มทั้งหมด (CASCADE DELETE) | Yes |
+| POST | `/files/clear-grouping` | ลบการจัดกลุ่มทั้งหมด + **Revert Stage 00** (delete edited images + reset review status) | Yes |
 | SSE | `/files/events` | รับ events แบบ real-time | No (Public) |
 
 ##### GET /files/groups-metadata - Response
@@ -288,8 +343,7 @@ interface GetFilesQuery {
     {
       "groupNumber": 1,
       "fileCount": 5,
-      "isComplete": true,
-      "isLabeled": false,
+      "isAutoLabeled": false,
       "createdAt": "2025-12-19T10:00:00.000Z"
     }
   ]
@@ -308,14 +362,44 @@ interface GetFilesQuery {
 
 ```typescript
 // Event types
-type FileEvent = 'GROUP_COMPLETE' | 'GROUP_CREATED';
+type FileEvent =
+  | 'GROUP_COMPLETE'
+  | 'GROUP_CREATED'
+  | 'GROUP_LOCKED'
+  | 'GROUP_UNLOCKED'
+  | 'GROUP_PARSED'
+  | 'GROUP_REVIEWED'
+  | 'FINAL_REVIEW_03_UPDATED'  // ⭐ New: Stage 03 final review updated
+  | 'FINAL_REVIEW_04_UPDATED'; // ⭐ New: Stage 04 final review updated
 
-// Event data
+// Event data examples
 {
   type: 'GROUP_COMPLETE',
   data: {
     groupNumber: 1,
     fileCount: 5
+  }
+}
+
+{
+  type: 'FINAL_REVIEW_03_UPDATED',
+  data: {
+    groupId: 1,
+    reviewer: 'admin@example.com',
+    status: 'approved', // or 'rejected'
+    stage: '03',
+    timestamp: '2025-12-27T10:00:00.000Z'
+  }
+}
+
+{
+  type: 'FINAL_REVIEW_04_UPDATED',
+  data: {
+    groupId: 1,
+    reviewer: 'admin@example.com',
+    status: 'approved', // or 'rejected'
+    stage: '04',
+    timestamp: '2025-12-27T10:00:00.000Z'
   }
 }
 ```
@@ -371,16 +455,33 @@ type FileEvent = 'GROUP_COMPLETE' | 'GROUP_CREATED';
 ```typescript
 // Request
 {
-  "reviewer": "admin@example.com",
-  "notes": "Reviewed and approved"
+  "notes": "Reviewed and approved" // Optional
 }
+
+// Note: reviewer และ reviewerId ดึงจาก JWT token (@CurrentUser())
 
 // Response
 {
   "success": true,
   "message": "Parse data marked as reviewed"
 }
+
+// Backend Processing:
+// - Update groups table:
+//   - isParseDataReviewed = true
+//   - parseDataReviewer = user.name (from JWT)
+//   - parseDataReviewerId = user.id (from JWT)
+//   - extractDataNotes = notes
+// - Log activity (Stage 04 Review)
 ```
+
+**Permission Filter (GET /files/parsed-groups):**
+
+Non-admin users จะเห็นเฉพาะ:
+1. Groups ที่ยังไม่ reviewed
+2. Groups ที่ตัวเอง reviewed (`parseDataReviewerId = user.id`)
+
+Admin users เห็นทุก groups
 
 ### Service Methods สำคัญ
 
@@ -583,35 +684,51 @@ class LabeledFilesService {
 ```typescript
 async startInfiniteWorkerLoop() {
   while (this.isRunning) {
-    // 1. Find pending files (processed = false)
-    const pendingFiles = await this.filesService.findPending();
+    // 1. Get file IDs ที่อยู่ใน groups แล้ว
+    const fileIdsInGroups = await this.filesService.getFileIdsInCompleteGroups();
 
-    if (pendingFiles.length === 0) {
+    // 2. Find pending files (processed = false AND hasEdited = true)
+    const allUnprocessedFiles = await this.filesService.findUnprocessed();
+
+    // 3. Filter out files ที่อยู่ใน groups แล้ว
+    const rawFiles = allUnprocessedFiles.filter(
+      file => !fileIdsInGroups.includes(file.id)
+    );
+
+    if (rawFiles.length === 0) {
       this.log('No pending files. Waiting...');
       await this.sleep(5000);
       continue;
     }
 
-    // 2. Process each file
-    for (const file of pendingFiles) {
-      // OCR
-      const ocrResult = await this.ocrService.process(file);
+    this.log(`Found ${rawFiles.length} unprocessed file(s) to process`);
 
-      // Update file
-      await this.filesService.update(file.id, {
-        ocrText: ocrResult,
-        processed: true
-      });
+    // 4. Process batch (parallel OCR + sequential grouping)
+    await this.processBatch(rawFiles);
 
-      this.emitEvent('FILE_PROCESSED', { fileId: file.id });
-    }
-
-    // 3. Auto-group files
-    await this.groupFiles();
-
-    await this.sleep(1000);
+    await this.sleep(2000);
   }
 }
+```
+
+**⭐ เงื่อนไขการหยิบไฟล์:**
+
+| # | เงื่อนไข | SQL | จุดประสงค์ |
+|---|----------|-----|------------|
+| 1️⃣ | **ยังไม่ processed** | `processed = false` | ยังไม่ได้ทำ OCR |
+| 2️⃣ | **⭐ ต้อง edited แล้ว** | `hasEdited = true` | ต้อง review/edit ใน Stage 00 ก่อน |
+| 3️⃣ | **ยังไม่อยู่ใน group** | `groupId IS NULL` | ยังไม่ถูก group |
+| 4️⃣ | **เรียงตาม fileNumber** | `ORDER BY fileNumber ASC` | ประมวลผลตามลำดับ |
+
+**⭐ Feature: Use Edited Image Priority**
+
+```typescript
+// Priority: Use editedPath if available (edited image from Stage 00)
+const pathToOcr = file.editedPath || file.storagePath;
+
+// หลัง OCR เสร็จ:
+// - ลบ editedPath จาก MinIO (ประหยัด storage)
+// - เก็บ hasEdited = true (audit trail)
 ```
 
 ### SSE Events
@@ -1814,7 +1931,7 @@ class BackgroundService {
 | `findByGroup(groupId)` | ดึงไฟล์ของ group ที่ระบุ | File[] |
 | `rotateImage(id, degrees)` | Rotate รูปภาพ | File |
 | `reorderGroupFiles(groupId, fileIds)` | เปลี่ยนลำดับไฟล์ใน group | void |
-| `clearGrouping()` | ลบการจัดกลุ่มทั้งหมด (CASCADE) | void |
+| `clearGroupedFiles()` | ลบการจัดกลุ่มทั้งหมด (CASCADE) + **Revert Stage 00** (delete edited images + reset review status) | void |
 
 ### LabeledFilesService
 

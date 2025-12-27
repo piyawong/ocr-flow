@@ -1464,10 +1464,10 @@ export default function ManualLabelPage() {
       const is100Matched = matchedCount === totalCount;
 
       // Always save notes, but mark as reviewed only when 100% matched
+      // reviewer จะถูกดึงจาก JWT ที่ backend แทน
       const res = await fetchWithAuth(`/labeled-files/group/${groupId}/mark-reviewed`, {
         method: 'POST',
         body: JSON.stringify({
-          reviewer: reviewerName,
           notes: notes || null,
           markAsReviewed: is100Matched, // Only mark as reviewed when 100% matched
         }),

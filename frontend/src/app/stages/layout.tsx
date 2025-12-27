@@ -7,6 +7,7 @@ export default function StagesLayout({
 }) {
   return (
     <>
+      {/* Stage Tabs - normal flow (scrollable) */}
       <StageTabs />
       {children}
     </>

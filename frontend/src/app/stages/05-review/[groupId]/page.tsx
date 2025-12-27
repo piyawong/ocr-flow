@@ -75,6 +75,7 @@ interface GroupDetailResponse {
     isReviewed: boolean;
     reviewer: string | null;
     reviewedAt: string | null;
+    remarks: string | null;
   };
   stage04: {
     hasFoundationInstrument: boolean;
@@ -84,12 +85,17 @@ interface GroupDetailResponse {
     isReviewed: boolean;
     reviewer: string | null;
     parseDataAt: string | null;
+    remarks: string | null;
   };
   stage05: {
-    isFinalApproved: boolean;
-    finalReviewer: string | null;
-    finalApprovedAt: string | null;
-    finalReviewNotes: string | null;
+    finalReview03: 'pending' | 'approved' | 'rejected';
+    finalReview03Reviewer: string | null;
+    finalReview03ReviewedAt: string | null;
+    finalReview03Notes: string | null;
+    finalReview04: 'pending' | 'approved' | 'rejected';
+    finalReview04Reviewer: string | null;
+    finalReview04ReviewedAt: string | null;
+    finalReview04Notes: string | null;
   };
   metadata: {
     districtOffice: string | null;
@@ -108,9 +114,13 @@ export default function FinalReviewDetailPage() {
   const [groupDetail, setGroupDetail] = useState<GroupDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'foundation' | 'committee'>('foundation');
-  const [submitting, setSubmitting] = useState(false);
-  const [notes, setNotes] = useState('');
+  const [notes03, setNotes03] = useState('');
+  const [notes04, setNotes04] = useState('');
+  const [submitting03, setSubmitting03] = useState(false);
+  const [submitting04, setSubmitting04] = useState(false);
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
+  const [isEditingStage03, setIsEditingStage03] = useState(false);
+  const [isEditingStage04, setIsEditingStage04] = useState(false);
 
   useEffect(() => {
     const fetchDetail = async () => {
@@ -130,7 +140,8 @@ export default function FinalReviewDetailPage() {
           });
         }
         setGroupDetail(data);
-        setNotes(data?.stage05?.finalReviewNotes || '');
+        setNotes03(data?.stage05?.finalReview03Notes || '');
+        setNotes04(data?.stage05?.finalReview04Notes || '');
 
         // Auto-expand all sections
         if (data?.stage04?.foundationData?.charterSections) {
@@ -149,53 +160,145 @@ export default function FinalReviewDetailPage() {
     }
   }, [groupId]);
 
-  const handleApprove = async () => {
+  const handleApproveStage03 = async () => {
     if (!user) return;
 
-    setSubmitting(true);
+    setSubmitting03(true);
     try {
-      const res = await fetchWithAuth(`/files/final-review-groups/${groupId}/approve`, {
+      const res = await fetchWithAuth(`/files/final-review-groups/${groupId}/review-stage03`, {
         method: 'POST',
         body: JSON.stringify({
-          reviewerName: user.name,
-          notes: notes || undefined,
+          status: 'approved',
+          notes: notes03 || undefined,
         }),
       });
 
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.message || 'Failed to approve');
+        throw new Error(error.message || 'Failed to approve Stage 03');
       }
 
       // Refresh data
       const updatedRes = await fetchWithAuth(`/files/final-review-groups/${groupId}`);
       const updatedData = await updatedRes.json();
       setGroupDetail(updatedData);
+      setNotes03(updatedData?.stage05?.finalReview03Notes || '');
+      setIsEditingStage03(false);
 
-      alert('Group approved successfully!');
+      alert('Stage 03 (PDF Labels) approved successfully!');
     } catch (err: any) {
-      console.error('Error approving group:', err);
-      alert(err.message || 'Failed to approve group');
+      console.error('Error approving Stage 03:', err);
+      alert(err.message || 'Failed to approve Stage 03');
     } finally {
-      setSubmitting(false);
+      setSubmitting03(false);
     }
   };
 
-  const handleReject = async () => {
+  const handleRejectStage03 = async () => {
     if (!user) return;
-    if (!confirm('Are you sure you want to reject this group? This will mark it as not ready for upload.')) {
+    if (!confirm('Are you sure you want to reject Stage 03 (PDF Labels)? This will require re-review.')) {
       return;
     }
 
-    setSubmitting(true);
+    setSubmitting03(true);
     try {
-      alert('Group rejected. Please review and fix issues before re-submitting.');
-      router.push('/stages/05-review');
+      const res = await fetchWithAuth(`/files/final-review-groups/${groupId}/review-stage03`, {
+        method: 'POST',
+        body: JSON.stringify({
+          status: 'rejected',
+          notes: notes03 || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || 'Failed to reject Stage 03');
+      }
+
+      // Refresh data
+      const updatedRes = await fetchWithAuth(`/files/final-review-groups/${groupId}`);
+      const updatedData = await updatedRes.json();
+      setGroupDetail(updatedData);
+      setNotes03(updatedData?.stage05?.finalReview03Notes || '');
+      setIsEditingStage03(false);
+
+      alert('Stage 03 (PDF Labels) rejected. Please review and fix issues.');
     } catch (err: any) {
-      console.error('Error rejecting group:', err);
-      alert(err.message || 'Failed to reject group');
+      console.error('Error rejecting Stage 03:', err);
+      alert(err.message || 'Failed to reject Stage 03');
     } finally {
-      setSubmitting(false);
+      setSubmitting03(false);
+    }
+  };
+
+  const handleApproveStage04 = async () => {
+    if (!user) return;
+
+    setSubmitting04(true);
+    try {
+      const res = await fetchWithAuth(`/files/final-review-groups/${groupId}/review-stage04`, {
+        method: 'POST',
+        body: JSON.stringify({
+          status: 'approved',
+          notes: notes04 || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || 'Failed to approve Stage 04');
+      }
+
+      // Refresh data
+      const updatedRes = await fetchWithAuth(`/files/final-review-groups/${groupId}`);
+      const updatedData = await updatedRes.json();
+      setGroupDetail(updatedData);
+      setNotes04(updatedData?.stage05?.finalReview04Notes || '');
+      setIsEditingStage04(false);
+
+      alert('Stage 04 (Extract Data) approved successfully!');
+    } catch (err: any) {
+      console.error('Error approving Stage 04:', err);
+      alert(err.message || 'Failed to approve Stage 04');
+    } finally {
+      setSubmitting04(false);
+    }
+  };
+
+  const handleRejectStage04 = async () => {
+    if (!user) return;
+    if (!confirm('Are you sure you want to reject Stage 04 (Extract Data)? This will require re-review.')) {
+      return;
+    }
+
+    setSubmitting04(true);
+    try {
+      const res = await fetchWithAuth(`/files/final-review-groups/${groupId}/review-stage04`, {
+        method: 'POST',
+        body: JSON.stringify({
+          status: 'rejected',
+          notes: notes04 || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || 'Failed to reject Stage 04');
+      }
+
+      // Refresh data
+      const updatedRes = await fetchWithAuth(`/files/final-review-groups/${groupId}`);
+      const updatedData = await updatedRes.json();
+      setGroupDetail(updatedData);
+      setNotes04(updatedData?.stage05?.finalReview04Notes || '');
+      setIsEditingStage04(false);
+
+      alert('Stage 04 (Extract Data) rejected. Please review and fix issues.');
+    } catch (err: any) {
+      console.error('Error rejecting Stage 04:', err);
+      alert(err.message || 'Failed to reject Stage 04');
+    } finally {
+      setSubmitting04(false);
     }
   };
 
@@ -220,6 +323,10 @@ export default function FinalReviewDetailPage() {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const isAdmin = () => {
+    return user?.role === 'admin';
   };
 
   // Permission check
@@ -272,7 +379,9 @@ export default function FinalReviewDetailPage() {
     );
   }
 
-  const isApproved = groupDetail?.stage05?.isFinalApproved || false;
+  const finalReview03Status = groupDetail?.stage05?.finalReview03 || 'pending';
+  const finalReview04Status = groupDetail?.stage05?.finalReview04 || 'pending';
+  const isFullyApproved = finalReview03Status === 'approved' && finalReview04Status === 'approved';
   const foundationInstrument = groupDetail?.stage04?.foundationData;
   const committeeMembers = groupDetail?.stage04?.committeeMembers || [];
 
@@ -336,24 +445,116 @@ export default function FinalReviewDetailPage() {
             </button>
           </div>
 
-          {/* Status Badge */}
-          {isApproved && (
-            <div className="mb-6 bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 border border-emerald-500/20 rounded-2xl p-4">
+          {/* Status Badges */}
+          <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Stage 03 Review Badge */}
+            <div className={`rounded-2xl p-4 border ${
+              finalReview03Status === 'approved'
+                ? 'bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 border-emerald-500/20'
+                : finalReview03Status === 'rejected'
+                ? 'bg-gradient-to-r from-rose-500/15 to-rose-500/5 border-rose-500/20'
+                : 'bg-gradient-to-r from-amber-500/15 to-amber-500/5 border-amber-500/20'
+            }`}>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center">
-                  <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M5 13l4 4L19 7" />
-                  </svg>
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                  finalReview03Status === 'approved'
+                    ? 'bg-emerald-500/20'
+                    : finalReview03Status === 'rejected'
+                    ? 'bg-rose-500/20'
+                    : 'bg-amber-500/20'
+                }`}>
+                  {finalReview03Status === 'approved' ? (
+                    <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : finalReview03Status === 'rejected' ? (
+                    <svg className="w-6 h-6 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  ) : (
+                    <svg className="w-6 h-6 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )}
                 </div>
-                <div>
-                  <div className="text-emerald-400 font-semibold text-lg">✓ Approved</div>
-                  <div className="text-emerald-400/70 text-sm">
-                    By {groupDetail?.stage05?.finalReviewer || 'Unknown'} on {formatDate(groupDetail?.stage05?.finalApprovedAt)}
+                <div className="flex-1">
+                  <div className={`font-semibold text-base ${
+                    finalReview03Status === 'approved'
+                      ? 'text-emerald-400'
+                      : finalReview03Status === 'rejected'
+                      ? 'text-rose-400'
+                      : 'text-amber-400'
+                  }`}>
+                    {finalReview03Status === 'approved' ? '✓ Stage 03 Approved' : finalReview03Status === 'rejected' ? '✗ Stage 03 Rejected' : '⏳ Stage 03 Pending'}
                   </div>
+                  <div className="text-xs text-text-secondary mt-0.5">
+                    PDF Labels Review
+                  </div>
+                  {finalReview03Status !== 'pending' && (
+                    <div className={`text-xs mt-1 ${
+                      finalReview03Status === 'approved' ? 'text-emerald-400/70' : 'text-rose-400/70'
+                    }`}>
+                      By {groupDetail?.stage05?.finalReview03Reviewer || 'Unknown'} on {formatDate(groupDetail?.stage05?.finalReview03ReviewedAt)}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
-          )}
+
+            {/* Stage 04 Review Badge */}
+            <div className={`rounded-2xl p-4 border ${
+              finalReview04Status === 'approved'
+                ? 'bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 border-emerald-500/20'
+                : finalReview04Status === 'rejected'
+                ? 'bg-gradient-to-r from-rose-500/15 to-rose-500/5 border-rose-500/20'
+                : 'bg-gradient-to-r from-amber-500/15 to-amber-500/5 border-amber-500/20'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                  finalReview04Status === 'approved'
+                    ? 'bg-emerald-500/20'
+                    : finalReview04Status === 'rejected'
+                    ? 'bg-rose-500/20'
+                    : 'bg-amber-500/20'
+                }`}>
+                  {finalReview04Status === 'approved' ? (
+                    <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : finalReview04Status === 'rejected' ? (
+                    <svg className="w-6 h-6 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  ) : (
+                    <svg className="w-6 h-6 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className={`font-semibold text-base ${
+                    finalReview04Status === 'approved'
+                      ? 'text-emerald-400'
+                      : finalReview04Status === 'rejected'
+                      ? 'text-rose-400'
+                      : 'text-amber-400'
+                  }`}>
+                    {finalReview04Status === 'approved' ? '✓ Stage 04 Approved' : finalReview04Status === 'rejected' ? '✗ Stage 04 Rejected' : '⏳ Stage 04 Pending'}
+                  </div>
+                  <div className="text-xs text-text-secondary mt-0.5">
+                    Extract Data Review
+                  </div>
+                  {finalReview04Status !== 'pending' && (
+                    <div className={`text-xs mt-1 ${
+                      finalReview04Status === 'approved' ? 'text-emerald-400/70' : 'text-rose-400/70'
+                    }`}>
+                      By {groupDetail?.stage05?.finalReview04Reviewer || 'Unknown'} on {formatDate(groupDetail?.stage05?.finalReview04ReviewedAt)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
 
           {/* Tabs */}
           <div className="flex flex-wrap gap-2 mb-6">
@@ -384,6 +585,51 @@ export default function FinalReviewDetailPage() {
               Committee Members ({committeeMembers.length})
             </button>
           </div>
+
+          {/* Remarks Cards - Display Stage 03 & 04 Remarks */}
+          {(groupDetail?.stage03?.remarks || groupDetail?.stage04?.remarks) && (
+            <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Stage 03 Remarks Card */}
+              {groupDetail?.stage03?.remarks && (
+                <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-blue-500/10 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-text-primary">Stage 03 Remarks (PDF Labels Review)</h3>
+                      <p className="text-xs text-text-secondary">By {groupDetail?.stage03?.reviewer || 'Unknown'}</p>
+                    </div>
+                  </div>
+                  <div className="text-sm text-text-primary whitespace-pre-wrap bg-bg-secondary/30 p-4 rounded-xl">
+                    {groupDetail?.stage03?.remarks}
+                  </div>
+                </div>
+              )}
+
+              {/* Stage 04 Remarks Card */}
+              {groupDetail?.stage04?.remarks && (
+                <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500/20 to-purple-500/10 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-text-primary">Stage 04 Remarks (Extract Data Review)</h3>
+                      <p className="text-xs text-text-secondary">By {groupDetail?.stage04?.reviewer || 'Unknown'}</p>
+                    </div>
+                  </div>
+                  <div className="text-sm text-text-primary whitespace-pre-wrap bg-bg-secondary/30 p-4 rounded-xl">
+                    {groupDetail?.stage04?.remarks}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Content */}
           <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl border border-border-color/50 shadow-xl">
@@ -564,93 +810,284 @@ export default function FinalReviewDetailPage() {
             )}
           </div>
 
-          {/* Approve/Reject Section */}
-          {!isApproved && (
-            <div className="mt-6 bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
-              <div className="flex items-center gap-3 mb-5">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-500/10 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          {/* Review Sections */}
+          <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Stage 03 Review Section */}
+            {(finalReview03Status === 'pending' || (isAdmin() && isEditingStage03)) && (
+              <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-blue-500/10 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h2 className="text-lg font-bold text-text-primary">Review Stage 03</h2>
+                    <p className="text-xs text-text-secondary">PDF Labels</p>
+                  </div>
+                  {isEditingStage03 && (
+                    <button
+                      onClick={() => {
+                        setIsEditingStage03(false);
+                        setNotes03(groupDetail?.stage05?.finalReview03Notes || '');
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-bg-secondary border border-border-color/50 text-text-secondary hover:text-text-primary hover:border-accent transition-all text-sm"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary mb-2">
+                      Notes / Comments (Optional):
+                    </label>
+                    <textarea
+                      value={notes03}
+                      onChange={(e) => setNotes03(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-bg-secondary border border-border-color/50 text-text-primary placeholder-text-secondary focus:outline-none focus:border-accent transition-all resize-none"
+                      rows={3}
+                      placeholder="Add notes about PDF labels review..."
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleApproveStage03}
+                      disabled={submitting03}
+                      className="flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold hover:shadow-lg hover:shadow-emerald-500/25 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                    >
+                      {submitting03 ? (
+                        <>
+                          <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                            <path d="M5 13l4 4L19 7" />
+                          </svg>
+                          Approve Stage 03
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={handleRejectStage03}
+                      disabled={submitting03}
+                      className="flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 text-white font-semibold hover:shadow-lg hover:shadow-rose-500/25 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                    >
+                      {submitting03 ? (
+                        <>
+                          <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                            <path d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                          Reject Stage 03
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Edit Review Button for Stage 03 (Admin only, when already reviewed) */}
+            {isAdmin() && (finalReview03Status === 'approved' || finalReview03Status === 'rejected') && !isEditingStage03 && (
+              <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-blue-500/10 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-text-primary">Stage 03 Review</h2>
+                    <p className="text-xs text-text-secondary">Already reviewed as {finalReview03Status}</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setIsEditingStage03(true)}
+                  className="w-full px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-purple-700 text-white font-semibold hover:shadow-lg transition-all duration-300 flex items-center justify-center gap-2 text-sm"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Edit Review
+                </button>
+              </div>
+            )}
+
+            {/* Stage 04 Review Section */}
+            {(finalReview04Status === 'pending' || (isAdmin() && isEditingStage04)) && (
+              <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500/20 to-purple-500/10 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h2 className="text-lg font-bold text-text-primary">Review Stage 04</h2>
+                    <p className="text-xs text-text-secondary">Extract Data</p>
+                  </div>
+                  {isEditingStage04 && (
+                    <button
+                      onClick={() => {
+                        setIsEditingStage04(false);
+                        setNotes04(groupDetail?.stage05?.finalReview04Notes || '');
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-bg-secondary border border-border-color/50 text-text-secondary hover:text-text-primary hover:border-accent transition-all text-sm"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary mb-2">
+                      Notes / Comments (Optional):
+                    </label>
+                    <textarea
+                      value={notes04}
+                      onChange={(e) => setNotes04(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-bg-secondary border border-border-color/50 text-text-primary placeholder-text-secondary focus:outline-none focus:border-accent transition-all resize-none"
+                      rows={3}
+                      placeholder="Add notes about extracted data review..."
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleApproveStage04}
+                      disabled={submitting04}
+                      className="flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold hover:shadow-lg hover:shadow-emerald-500/25 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                    >
+                      {submitting04 ? (
+                        <>
+                          <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                            <path d="M5 13l4 4L19 7" />
+                          </svg>
+                          Approve Stage 04
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={handleRejectStage04}
+                      disabled={submitting04}
+                      className="flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 text-white font-semibold hover:shadow-lg hover:shadow-rose-500/25 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                    >
+                      {submitting04 ? (
+                        <>
+                          <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                            <path d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                          Reject Stage 04
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Edit Review Button for Stage 04 (Admin only, when already reviewed) */}
+            {isAdmin() && (finalReview04Status === 'approved' || finalReview04Status === 'rejected') && !isEditingStage04 && (
+              <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500/20 to-purple-500/10 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-text-primary">Stage 04 Review</h2>
+                    <p className="text-xs text-text-secondary">Already reviewed as {finalReview04Status}</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setIsEditingStage04(true)}
+                  className="w-full px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-purple-700 text-white font-semibold hover:shadow-lg transition-all duration-300 flex items-center justify-center gap-2 text-sm"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Edit Review
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Fully Approved Message */}
+          {isFullyApproved && (
+            <div className="mt-6 bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 border border-emerald-500/20 rounded-2xl p-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+                  <svg className="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <h2 className="text-lg font-bold text-text-primary">Final Review Decision</h2>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-text-primary mb-2">
-                    Notes / Comments (Optional):
-                  </label>
-                  <textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl bg-bg-secondary border border-border-color/50 text-text-primary placeholder-text-secondary focus:outline-none focus:border-accent transition-all resize-none"
-                    rows={4}
-                    placeholder="Add any notes or comments about this review..."
-                  />
+                <div className="flex-1">
+                  <div className="text-emerald-400 font-bold text-xl">Fully Approved!</div>
+                  <div className="text-emerald-400/70 text-sm mt-1">
+                    Both Stage 03 (PDF Labels) and Stage 04 (Extract Data) have been approved. This group is ready for Stage 06 (Upload).
+                  </div>
                 </div>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleApprove}
-                    disabled={submitting}
-                    className="flex-1 px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold hover:shadow-lg hover:shadow-emerald-500/25 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {submitting ? (
-                      <>
-                        <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                          <path d="M5 13l4 4L19 7" />
-                        </svg>
-                        Approve & Ready for Upload
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={handleReject}
-                    disabled={submitting}
-                    className="flex-1 px-6 py-3 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 text-white font-semibold hover:shadow-lg hover:shadow-rose-500/25 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {submitting ? (
-                      <>
-                        <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                          <path d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                        Reject
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <p className="text-xs text-text-secondary text-center">
-                  By approving, this group will be marked as ready for Stage 06 (Upload)
-                </p>
               </div>
             </div>
           )}
 
-          {/* Show Notes if Approved */}
-          {isApproved && groupDetail?.stage05?.finalReviewNotes && (
-            <div className="mt-6 bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
-              <div className="flex items-center gap-3 mb-3">
-                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-                </svg>
-                <h3 className="font-semibold text-text-primary">Review Notes:</h3>
-              </div>
-              <p className="text-text-primary whitespace-pre-wrap bg-bg-secondary/30 p-4 rounded-xl">
-                {groupDetail?.stage05?.finalReviewNotes}
-              </p>
+          {/* Show Notes */}
+          {(groupDetail?.stage05?.finalReview03Notes || groupDetail?.stage05?.finalReview04Notes) && (
+            <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Stage 03 Notes */}
+              {groupDetail?.stage05?.finalReview03Notes && (
+                <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
+                  <div className="flex items-center gap-3 mb-3">
+                    <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                    </svg>
+                    <h3 className="font-semibold text-text-primary">Stage 03 Review Notes:</h3>
+                  </div>
+                  <p className="text-text-primary whitespace-pre-wrap bg-bg-secondary/30 p-4 rounded-xl text-sm">
+                    {groupDetail?.stage05?.finalReview03Notes}
+                  </p>
+                </div>
+              )}
+
+              {/* Stage 04 Notes */}
+              {groupDetail?.stage05?.finalReview04Notes && (
+                <div className="bg-card-bg/80 backdrop-blur-sm rounded-2xl p-6 border border-border-color/50 shadow-sm">
+                  <div className="flex items-center gap-3 mb-3">
+                    <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                    </svg>
+                    <h3 className="font-semibold text-text-primary">Stage 04 Review Notes:</h3>
+                  </div>
+                  <p className="text-text-primary whitespace-pre-wrap bg-bg-secondary/30 p-4 rounded-xl text-sm">
+                    {groupDetail?.stage05?.finalReview04Notes}
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -49,6 +49,22 @@ export class File {
   @Column({ type: 'timestamp', nullable: true })
   processedAt: Date | null;
 
+  // ⭐ OCR Queue State Tracking (Database-backed Queue)
+  @Column({ default: false })
+  ocrProcessing: boolean; // กำลัง OCR อยู่ (locked by worker)
+
+  @Column({ type: 'timestamp', nullable: true })
+  ocrStartedAt: Date | null; // เวลาที่เริ่ม OCR (detect timeout)
+
+  @Column({ type: 'timestamp', nullable: true })
+  ocrCompletedAt: Date | null; // เวลาที่ OCR สำเร็จ
+
+  @Column({ default: 0 })
+  ocrFailedCount: number; // จำนวนครั้งที่ OCR fail
+
+  @Column({ type: 'text', nullable: true })
+  lastOcrError: string | null; // Error message ล่าสุด
+
   // Stage 02: Grouping - Foreign Key to groups table
   @Column({ type: 'int', nullable: true })
   groupId: number | null;

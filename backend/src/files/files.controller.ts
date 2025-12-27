@@ -12,6 +12,7 @@ import {
   ParseIntPipe,
   Res,
   NotFoundException,
+  BadRequestException,
   Sse,
   Query,
 } from '@nestjs/common';
@@ -115,22 +116,78 @@ export class FilesController {
     };
   }
 
-  // ========== GENERIC ROUTES (must be after specific routes) ==========
+  // ========== ACTION ENDPOINTS ==========
 
-  @Get(':id')
-  async findOne(@Param('id', ParseIntPipe) id: number) {
-    const file = await this.filesService.findOne(id);
-    if (!file) {
-      throw new NotFoundException(`File with ID ${id} not found`);
-    }
-    return file;
+  @Post('clear')
+  async clearAll() {
+    await this.filesService.clearAll();
+    return { message: 'All files cleared' };
   }
 
-  @Delete(':id')
-  async deleteFile(@Param('id', ParseIntPipe) id: number) {
-    await this.filesService.deleteFile(id);
-    return { message: 'File deleted' };
+  @Post('reset-processed')
+  async resetProcessed() {
+    const count = await this.filesService.resetProcessed();
+    return {
+      message: `Reset ${count} files to unprocessed`,
+      count
+    };
   }
+
+  @Post('validate-storage')
+  async validateStorage() {
+    const result = await this.filesService.validateAndCleanupStorage();
+    return {
+      message: `Validation complete: ${result.validated} files OK, ${result.removed} orphaned files removed, ${result.orphanedLabelsRemoved} orphaned labels removed, ${result.orphanedGroupsRemoved} orphaned groups removed`,
+      ...result
+    };
+  }
+
+  // ========== STAGE 02: GROUPING ENDPOINTS (formerly grouped-files) ==========
+  // NOTE: These specific routes MUST be before the generic :id route
+
+  @Get('groups-metadata')
+  async getGroupsMetadata(@CurrentUser() user?: User) {
+    const groups = await this.filesService.getGroupMetadata(
+      user?.id,
+      user?.role,
+    );
+    return { groups };
+  }
+
+  @Get('parsed-groups')
+  async getParsedGroups(@CurrentUser() user?: User) {
+    const groups = await this.filesService.getParsedGroups(
+      user?.id,
+      user?.role,
+    );
+    return { groups };
+  }
+
+  @Get('stage03-stats')
+  async getStage03Stats() {
+    const stats = await this.filesService.getStage03Stats();
+    return stats;
+  }
+
+  @Get('stage04-stats')
+  async getStage04Stats() {
+    const stats = await this.filesService.getStage04Stats();
+    return stats;
+  }
+
+  // ========== SSE EVENTS (must be before generic :id route) ==========
+
+  @Public()
+  @Sse('events')
+  streamEvents(): Observable<MessageEvent> {
+    return this.filesService.getEventObservable().pipe(
+      map((event) => ({
+        data: JSON.stringify(event),
+      } as MessageEvent)),
+    );
+  }
+
+  // ========== GENERIC ROUTES (must be LAST - after all specific routes) ==========
 
   @Get()
   async findAll(
@@ -160,49 +217,6 @@ export class FilesController {
     };
   }
 
-  // ========== ACTION ENDPOINTS ==========
-
-  @Post('clear')
-  async clearAll() {
-    await this.filesService.clearAll();
-    return { message: 'All files cleared' };
-  }
-
-  @Post('reset-processed')
-  async resetProcessed() {
-    const count = await this.filesService.resetProcessed();
-    return {
-      message: `Reset ${count} files to unprocessed`,
-      count
-    };
-  }
-
-  @Post('validate-storage')
-  async validateStorage() {
-    const result = await this.filesService.validateAndCleanupStorage();
-    return {
-      message: `Validation complete: ${result.validated} files OK, ${result.removed} orphaned files removed, ${result.orphanedLabelsRemoved} orphaned labels removed, ${result.orphanedGroupsRemoved} orphaned groups removed`,
-      ...result
-    };
-  }
-
-  // ========== STAGE 02: GROUPING ENDPOINTS (formerly grouped-files) ==========
-
-  @Get('groups-metadata')
-  async getGroupsMetadata(@CurrentUser() user?: User) {
-    const groups = await this.filesService.getGroupMetadata(
-      user?.id,
-      user?.role,
-    );
-    return { groups };
-  }
-
-  @Get('parsed-groups')
-  async getParsedGroups() {
-    const groups = await this.filesService.getParsedGroups();
-    return { groups };
-  }
-
   @Get('parsed-group/:groupId')
   async getParsedGroupDetail(@Param('groupId', ParseIntPipe) groupId: number) {
     const detail = await this.filesService.getParsedGroupDetail(groupId);
@@ -215,14 +229,14 @@ export class FilesController {
   @Post('parsed-group/:groupId/mark-reviewed')
   async markExtractDataReviewed(
     @Param('groupId', ParseIntPipe) groupId: number,
-    @Body() body: { reviewer: string; notes?: string },
-    @CurrentUser() user?: User,
+    @Body() body: { notes?: string },
+    @CurrentUser() user: User,
   ) {
     return this.filesService.markExtractDataReviewed(
       groupId,
-      body.reviewer,
+      user.name, // ใช้ชื่อจาก JWT แทน body.reviewer
       body.notes,
-      user?.id,
+      user.id,
     );
   }
 
@@ -348,21 +362,42 @@ export class FilesController {
     return detail;
   }
 
-  @Post('final-review-groups/:groupId/approve')
-  async approveFinalReview(
+  @Post('final-review-groups/:groupId/review-stage03')
+  async reviewStage03(
     @Param('groupId', ParseIntPipe) groupId: number,
-    @Body() body: { notes?: string; reviewerName: string },
-    @CurrentUser() user?: User,
+    @Body() body: { status: 'approved' | 'rejected'; notes?: string },
+    @CurrentUser() user: User,
   ) {
-    const group = await this.filesService.approveFinalReview(
+    const group = await this.filesService.reviewStage03(
       groupId,
-      body.reviewerName,
+      body.status,
+      user.name,
+      user.id,
       body.notes,
-      user?.id,
     );
     return {
       success: true,
-      message: 'Group approved successfully',
+      message: `Stage 03 ${body.status} successfully`,
+      group,
+    };
+  }
+
+  @Post('final-review-groups/:groupId/review-stage04')
+  async reviewStage04(
+    @Param('groupId', ParseIntPipe) groupId: number,
+    @Body() body: { status: 'approved' | 'rejected'; notes?: string },
+    @CurrentUser() user: User,
+  ) {
+    const group = await this.filesService.reviewStage04(
+      groupId,
+      body.status,
+      user.name,
+      user.id,
+      body.notes,
+    );
+    return {
+      success: true,
+      message: `Stage 04 ${body.status} successfully`,
       group,
     };
   }
@@ -418,15 +453,170 @@ export class FilesController {
     };
   }
 
-  // ========== SSE EVENTS ==========
+  // ========== STAGE 06: UPLOAD TO PORTAL ==========
 
-  @Public()
-  @Sse('events')
-  streamEvents(): Observable<MessageEvent> {
-    return this.filesService.getEventObservable().pipe(
-      map((event) => ({
-        data: JSON.stringify(event),
-      } as MessageEvent)),
-    );
+  /**
+   * Preview data that will be uploaded to Portal
+   * Returns transformed data without actually uploading
+   */
+  @Get('portal-upload/preview/:groupId')
+  async previewPortalUpload(@Param('groupId', ParseIntPipe) groupId: number) {
+    const preview = await this.filesService.previewPortalUpload(groupId);
+    return preview;
   }
+
+  /**
+   * Upload group data to Portal API
+   */
+  @Post('portal-upload/:groupId/data')
+  async uploadDataToPortal(
+    @Param('groupId', ParseIntPipe) groupId: number,
+    @CurrentUser() user: User,
+  ) {
+    const result = await this.filesService.uploadToPortal(
+      groupId,
+      user.id,
+      user.name,
+    );
+
+    return result;
+  }
+
+  /**
+   * Upload group logo to Portal API
+   */
+  @Post('portal-upload/:groupId/logo')
+  async uploadLogoToPortal(
+    @Param('groupId', ParseIntPipe) groupId: number,
+    @CurrentUser() user: User,
+  ) {
+    const result = await this.filesService.uploadLogoToPortal(
+      groupId,
+      user.id,
+      user.name,
+    );
+
+    return result;
+  }
+
+  /**
+   * Upload group documents to Portal API
+   */
+  @Post('portal-upload/:groupId/documents')
+  async uploadDocumentsToPortal(
+    @Param('groupId', ParseIntPipe) groupId: number,
+    @CurrentUser() user: User,
+  ) {
+    const result = await this.filesService.uploadDocumentsToPortal(
+      groupId,
+      user.id,
+      user.name,
+    );
+
+    return result;
+  }
+
+  /**
+   * Upload all (data + logo + documents) to Portal API
+   */
+  @Post('portal-upload/:groupId/all')
+  async uploadAllToPortal(
+    @Param('groupId', ParseIntPipe) groupId: number,
+    @CurrentUser() user: User,
+  ) {
+    const results = {
+      data: null as any,
+      logo: null as any,
+      documents: null as any,
+      errors: [] as string[],
+    };
+
+    // 1. Upload data
+    try {
+      results.data = await this.filesService.uploadToPortal(groupId, user.id, user.name);
+    } catch (error) {
+      results.errors.push(`Data upload failed: ${error.message}`);
+    }
+
+    // Only continue if data upload succeeded (we need the organization ID)
+    if (results.data?.portalOrganizationId) {
+      // 2. Upload logo
+      try {
+        results.logo = await this.filesService.uploadLogoToPortal(groupId, user.id, user.name);
+      } catch (error) {
+        results.errors.push(`Logo upload failed: ${error.message}`);
+      }
+
+      // 3. Upload documents
+      try {
+        results.documents = await this.filesService.uploadDocumentsToPortal(groupId, user.id, user.name);
+      } catch (error) {
+        results.errors.push(`Documents upload failed: ${error.message}`);
+      }
+    }
+
+    return {
+      success: results.errors.length === 0,
+      groupId,
+      ...results,
+    };
+  }
+
+  /**
+   * Batch upload multiple groups to Portal API
+   */
+  @Post('portal-upload/batch')
+  async batchUploadToPortal(
+    @Body() body: { groupIds: number[] },
+    @CurrentUser() user: User,
+  ) {
+    if (!body.groupIds || body.groupIds.length === 0) {
+      throw new BadRequestException('groupIds is required and must not be empty');
+    }
+
+    const results = [];
+    const errors = [];
+
+    for (const groupId of body.groupIds) {
+      try {
+        const result = await this.filesService.uploadToPortal(
+          groupId,
+          user.id,
+          user.name,
+        );
+        results.push(result);
+      } catch (error) {
+        errors.push({
+          groupId,
+          error: error.message,
+        });
+      }
+    }
+
+    return {
+      success: errors.length === 0,
+      uploaded: results.length,
+      failed: errors.length,
+      results,
+      errors,
+    };
+  }
+
+  // ========== GENERIC :id ROUTES (MUST BE LAST!) ==========
+
+  @Get(':id')
+  async findOne(@Param('id', ParseIntPipe) id: number) {
+    const file = await this.filesService.findOne(id);
+    if (!file) {
+      throw new NotFoundException(`File with ID ${id} not found`);
+    }
+    return file;
+  }
+
+  @Delete(':id')
+  async deleteFile(@Param('id', ParseIntPipe) id: number) {
+    await this.filesService.deleteFile(id);
+    return { message: 'File deleted' };
+  }
+
 }

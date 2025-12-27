@@ -7,6 +7,7 @@ import { CharterSection } from './charter-section.entity';
 import { CharterArticle } from './charter-article.entity';
 import { CharterSubItem } from './charter-sub-item.entity';
 import { CommitteeMember } from './committee-member.entity';
+import { Document } from '../labeled-files/document.entity';
 import { FilesService } from './files.service';
 import { FilesController } from './files.controller';
 import { MinioModule } from '../minio/minio.module';
@@ -22,6 +23,7 @@ import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
       CharterArticle,
       CharterSubItem,
       CommitteeMember,
+      Document,
     ]),
     MinioModule,
     ActivityLogsModule,

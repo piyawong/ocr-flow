@@ -57,8 +57,8 @@ export default function LogsPage() {
 
   if (authLoading || !user) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <p className="text-gray-400">Loading...</p>
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+        <p className="text-text-secondary">Loading...</p>
       </div>
     );
   }
@@ -68,35 +68,35 @@ export default function LogsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100 p-8">
+    <div className="min-h-screen bg-bg-primary text-text-primary p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2">Activity Logs</h1>
-          <p className="text-gray-400">View all system activity and changes (Admin Only)</p>
+          <p className="text-text-secondary">View all system activity and changes (Admin Only)</p>
         </div>
 
         {/* Filters */}
-        <div className="bg-gray-800 rounded-lg p-6 mb-6">
+        <div className="bg-card-bg rounded-lg p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4">Filters</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Search */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text-secondary mb-2">
                 Search (name, description, field)
               </label>
               <input
                 type="text"
                 value={filters.search}
                 onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 bg-bg-secondary border border-border-color rounded-md text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
                 placeholder="Search..."
               />
             </div>
 
             {/* Group ID */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text-secondary mb-2">
                 Group ID
               </label>
               <input
@@ -105,14 +105,14 @@ export default function LogsPage() {
                 onChange={(e) =>
                   setFilters({ ...filters, groupId: e.target.value ? Number(e.target.value) : undefined })
                 }
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 bg-bg-secondary border border-border-color rounded-md text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
                 placeholder="Filter by Group ID"
               />
             </div>
 
             {/* Stage */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text-secondary mb-2">
                 Stage
               </label>
               <select
@@ -120,7 +120,7 @@ export default function LogsPage() {
                 onChange={(e) =>
                   setFilters({ ...filters, stage: e.target.value || undefined })
                 }
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 bg-bg-secondary border border-border-color rounded-md text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
               >
                 <option value="">All Stages</option>
                 <option value="03-pdf-label">03 - PDF Label</option>
@@ -131,7 +131,7 @@ export default function LogsPage() {
 
             {/* Action */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text-secondary mb-2">
                 Action
               </label>
               <select
@@ -139,7 +139,7 @@ export default function LogsPage() {
                 onChange={(e) =>
                   setFilters({ ...filters, action: e.target.value || undefined })
                 }
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 bg-bg-secondary border border-border-color rounded-md text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
               >
                 <option value="">All Actions</option>
                 <option value="create">Create</option>
@@ -164,7 +164,7 @@ export default function LogsPage() {
                   });
                   setCurrentPage(1);
                 }}
-                className="w-full px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-md transition-colors"
+                className="w-full px-4 py-2 bg-bg-secondary hover:bg-hover-bg text-text-primary rounded-md transition-colors"
               >
                 Reset Filters
               </button>
@@ -173,80 +173,80 @@ export default function LogsPage() {
         </div>
 
         {/* Logs Table */}
-        <div className="bg-gray-800 rounded-lg overflow-hidden">
+        <div className="bg-card-bg rounded-lg overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full table-auto">
-              <thead className="bg-gray-700">
+              <thead className="bg-bg-secondary">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-40">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider w-40">
                     Time
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-32">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider w-32">
                     User
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-24">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider w-24">
                     Action
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-28">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider w-28">
                     Stage
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-20">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider w-20">
                     Group ID
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
                     Description
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-700">
+              <tbody className="divide-y divide-border-color">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={6} className="px-4 py-8 text-center text-text-secondary">
                       Loading logs...
                     </td>
                   </tr>
                 ) : logs.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={6} className="px-4 py-8 text-center text-text-secondary">
                       No logs found
                     </td>
                   </tr>
                 ) : (
                   logs.map((log) => (
-                    <tr key={log.id} className="hover:bg-gray-750">
-                      <td className="px-4 py-3 text-sm text-gray-300">
+                    <tr key={log.id} className="hover:bg-hover-bg">
+                      <td className="px-4 py-3 text-sm text-text-secondary">
                         {new Date(log.createdAt).toLocaleString()}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-300">{log.userName}</td>
+                      <td className="px-4 py-3 text-sm text-text-secondary">{log.userName}</td>
                       <td className="px-4 py-3 text-sm">
                         <span
                           className={`px-2 py-1 rounded-full text-xs font-medium ${
                             log.action === 'create'
-                              ? 'bg-green-900 text-green-300'
+                              ? 'bg-success/20 text-success'
                               : log.action === 'update'
-                              ? 'bg-blue-900 text-blue-300'
+                              ? 'bg-accent/20 text-accent-foreground'
                               : log.action === 'delete'
-                              ? 'bg-red-900 text-red-300'
+                              ? 'bg-danger/20 text-danger'
                               : log.action === 'review'
-                              ? 'bg-yellow-900 text-yellow-300'
+                              ? 'bg-warning/20 text-warning'
                               : log.action === 'approve'
-                              ? 'bg-purple-900 text-purple-300'
-                              : 'bg-gray-700 text-gray-300'
+                              ? 'bg-purple-500/20 text-purple-400'
+                              : 'bg-bg-secondary text-text-secondary'
                           }`}
                         >
                           {log.action}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-300">{log.stage}</td>
-                      <td className="px-4 py-3 text-sm text-gray-300">
+                      <td className="px-4 py-3 text-sm text-text-secondary">{log.stage}</td>
+                      <td className="px-4 py-3 text-sm text-text-secondary">
                         {log.groupId || '-'}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-300 max-w-md">
+                      <td className="px-4 py-3 text-sm text-text-secondary max-w-md">
                         <div className="break-words whitespace-pre-wrap">
                           {log.description}
                         </div>
                         {log.fieldName && log.oldValue && log.newValue && (
-                          <div className="text-xs text-gray-500 mt-1 font-mono">
+                          <div className="text-xs text-text-secondary/70 mt-1 font-mono">
                             {log.fieldName}: {log.oldValue} → {log.newValue}
                           </div>
                         )}
@@ -259,16 +259,16 @@ export default function LogsPage() {
           </div>
 
           {/* Pagination */}
-          <div className="bg-gray-750 px-4 py-3 flex items-center justify-between border-t border-gray-700">
+          <div className="bg-bg-secondary px-4 py-3 flex items-center justify-between border-t border-border-color">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-400">Items per page:</span>
+              <span className="text-sm text-text-secondary">Items per page:</span>
               <select
                 value={limit}
                 onChange={(e) => {
                   setLimit(Number(e.target.value));
                   setCurrentPage(1);
                 }}
-                className="px-3 py-1 bg-gray-700 border border-gray-600 rounded-md text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-3 py-1 bg-bg-secondary border border-border-color rounded-md text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-accent"
               >
                 <option value={25}>25</option>
                 <option value={50}>50</option>
@@ -280,17 +280,17 @@ export default function LogsPage() {
               <button
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
-                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-gray-100 rounded-md text-sm transition-colors"
+                className="px-3 py-1 bg-bg-secondary hover:bg-hover-bg disabled:bg-bg-primary disabled:text-text-secondary/50 text-text-primary rounded-md text-sm transition-colors"
               >
                 Previous
               </button>
-              <span className="text-sm text-gray-400">
+              <span className="text-sm text-text-secondary">
                 Page {currentPage} of {totalPages}
               </span>
               <button
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
-                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-gray-100 rounded-md text-sm transition-colors"
+                className="px-3 py-1 bg-bg-secondary hover:bg-hover-bg disabled:bg-bg-primary disabled:text-text-secondary/50 text-text-primary rounded-md text-sm transition-colors"
               >
                 Next
               </button>

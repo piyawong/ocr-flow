@@ -89,4 +89,16 @@ export class OrganizationsController {
       message: 'Organization deleted successfully',
     };
   }
+
+  /**
+   * Sync organizations to OCR service
+   * ดึง active organizations จาก DB แล้วส่งไปยัง OCR service
+   * Admin only
+   */
+  @Post('sync-to-ocr')
+  @Roles(UserRole.ADMIN)
+  async syncToOcrService() {
+    const result = await this.organizationsService.syncToOcrService();
+    return result;
+  }
 }

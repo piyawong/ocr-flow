@@ -40,7 +40,7 @@ export default function Stage05Review() {
 
   const [groups, setGroups] = useState<FinalReviewGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<'pending' | 'approved' | 'all'>('pending');
+  const [statusFilter, setStatusFilter] = useState<'pending' | 'approved' | 'all'>('all');
 
   const fetchGroups = useCallback(async () => {
     try {
@@ -142,11 +142,11 @@ export default function Stage05Review() {
               </BlurFade>
               <BlurFade delay={0.3} inView>
                 <div className="bg-gradient-to-br from-accent/10 to-accent/5 p-5 rounded-xl border border-accent/20">
-                  <span className="block text-accent text-sm font-medium mb-2">Total Groups</span>
+                  <span className="block text-accent-foreground text-sm font-medium mb-2">Total Groups</span>
                   <span className="block text-4xl font-bold text-text-primary">
                     <NumberTicker value={totalGroups} className="text-text-primary" />
                   </span>
-                  <span className="block text-xs text-accent/70 mt-2">ready for review</span>
+                  <span className="block text-xs text-text-secondary mt-2">ready for review</span>
                 </div>
               </BlurFade>
               <BlurFade delay={0.4} inView>
@@ -207,13 +207,13 @@ export default function Stage05Review() {
                 <table className="w-full border-collapse">
                   <thead>
                     <tr className="bg-gradient-to-r from-accent/10 via-purple-500/5 to-transparent">
-                      <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Group #</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Stage 03</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Stage 04</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Final Status</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Reviewer</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Date</th>
-                      <th className="p-4 text-left font-semibold text-accent text-sm uppercase tracking-wider whitespace-nowrap">Actions</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm uppercase tracking-wider whitespace-nowrap">Group #</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm uppercase tracking-wider whitespace-nowrap">Stage 03</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm uppercase tracking-wider whitespace-nowrap">Stage 04</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm uppercase tracking-wider whitespace-nowrap">Final Status</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm uppercase tracking-wider whitespace-nowrap">Reviewer</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm uppercase tracking-wider whitespace-nowrap">Date</th>
+                      <th className="p-4 text-left font-semibold text-text-primary text-sm uppercase tracking-wider whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
                   <tbody>

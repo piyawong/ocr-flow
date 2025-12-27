@@ -48,7 +48,9 @@ export class DashboardService {
     const totalDocuments = await this.documentRepository.count();
     const foundationsProcessed = await this.foundationRepository.count();
     const finalApproved = await this.groupRepository.count({
-      where: { isFinalApproved: true },
+      where: [
+        { finalReview03: 'approved', finalReview04: 'approved' },
+      ],
     });
 
     // Get counts from 7 days ago for trend calculation
@@ -67,12 +69,12 @@ export class DashboardService {
     const foundationsLast7Days = await this.foundationRepository.count({
       where: { createdAt: MoreThan(sevenDaysAgo) },
     });
-    const approvedLast7Days = await this.groupRepository.count({
-      where: {
-        isFinalApproved: true,
-        finalApprovedAt: MoreThan(sevenDaysAgo),
-      },
-    });
+    const approvedLast7Days = await this.groupRepository
+      .createQueryBuilder('group')
+      .where('group.finalReview03 = :approved03', { approved03: 'approved' })
+      .andWhere('group.finalReview04 = :approved04', { approved04: 'approved' })
+      .andWhere('(group.finalReview03ReviewedAt > :date OR group.finalReview04ReviewedAt > :date)', { date: sevenDaysAgo })
+      .getCount();
 
     // Calculate trends (percentage)
     const calculateTrend = (current: number, recent: number) => {
@@ -108,7 +110,6 @@ export class DashboardService {
     // Stage 02: Groups unlabeled vs labeled
     const stage02Unlabeled = await this.groupRepository.count({
       where: {
-        isComplete: true,
         isAutoLabeled: false,
       },
     });
@@ -139,15 +140,16 @@ export class DashboardService {
     });
 
     // Stage 05: Pending approval vs approved
-    const stage05Pending = await this.groupRepository.count({
-      where: {
-        isLabeledReviewed: true,
-        isParseDataReviewed: true,
-        isFinalApproved: false,
-      },
-    });
+    const stage05Pending = await this.groupRepository
+      .createQueryBuilder('group')
+      .where('group.isLabeledReviewed = :reviewed', { reviewed: true })
+      .andWhere('group.isParseDataReviewed = :reviewed', { reviewed: true })
+      .andWhere('(group.finalReview03 != :approved03 OR group.finalReview04 != :approved04)', { approved03: 'approved', approved04: 'approved' })
+      .getCount();
     const stage05Approved = await this.groupRepository.count({
-      where: { isFinalApproved: true },
+      where: [
+        { finalReview03: 'approved', finalReview04: 'approved' },
+      ],
     });
 
     return {
@@ -232,7 +234,9 @@ export class DashboardService {
       },
     });
     const approvedGroups = await this.groupRepository.count({
-      where: { isFinalApproved: true },
+      where: [
+        { finalReview03: 'approved', finalReview04: 'approved' },
+      ],
     });
     const approvalRate = readyForApproval > 0
       ? Math.round((approvedGroups / readyForApproval) * 100)
@@ -316,12 +320,12 @@ export class DashboardService {
     }
 
     // Recent approvals
-    const recentApprovals = await this.groupRepository.count({
-      where: {
-        isFinalApproved: true,
-        finalApprovedAt: MoreThan(new Date(Date.now() - 3600000)), // Last hour
-      },
-    });
+    const recentApprovals = await this.groupRepository
+      .createQueryBuilder('group')
+      .where('group.finalReview03 = :approved03', { approved03: 'approved' })
+      .andWhere('group.finalReview04 = :approved04', { approved04: 'approved' })
+      .andWhere('(group.finalReview03ReviewedAt > :date OR group.finalReview04ReviewedAt > :date)', { date: new Date(Date.now() - 3600000) })
+      .getCount();
     if (recentApprovals > 0) {
       activities.push({
         type: 'approval',
@@ -388,13 +392,12 @@ export class DashboardService {
     }
 
     // Stage 05 bottleneck (> 20 pending)
-    const stage05Pending = await this.groupRepository.count({
-      where: {
-        isLabeledReviewed: true,
-        isParseDataReviewed: true,
-        isFinalApproved: false,
-      },
-    });
+    const stage05Pending = await this.groupRepository
+      .createQueryBuilder('group')
+      .where('group.isLabeledReviewed = :reviewed', { reviewed: true })
+      .andWhere('group.isParseDataReviewed = :reviewed', { reviewed: true })
+      .andWhere('(group.finalReview03 != :approved03 OR group.finalReview04 != :approved04)', { approved03: 'approved', approved04: 'approved' })
+      .getCount();
 
     if (stage05Pending > 20) {
       alerts.push({

@@ -142,6 +142,11 @@ export class LabeledFilesService {
       lockedBy: number | null;
       lockedByName: string | null;
       lockedAt: Date | null;
+      finalReview03: 'pending' | 'approved' | 'rejected';
+      finalReview03Reviewer: string | null;
+      finalReview03ReviewedAt: Date | null;
+      finalReview03Notes: string | null;
+      labeledNotes: string | null;
     }[]
   > {
     console.log('🔑 getAllGroupsSummary options:', {
@@ -153,7 +158,7 @@ export class LabeledFilesService {
     // Calculate from groups + files + documents
     const groups = await this.groupRepository.find({
       where: { isAutoLabeled: true }, // Only labeled groups
-      select: ['id', 'isParseData', 'isLabeledReviewed', 'labeledReviewer', 'labeledReviewerId', 'lockedBy', 'lockedAt'],
+      select: ['id', 'isParseData', 'isLabeledReviewed', 'labeledReviewer', 'labeledReviewerId', 'lockedBy', 'lockedAt', 'finalReview03', 'finalReview03Reviewer', 'finalReview03ReviewedAt', 'finalReview03Notes', 'labeledNotes'],
     });
 
     console.log(`📦 Total labeled groups found: ${groups.length}`);
@@ -170,6 +175,11 @@ export class LabeledFilesService {
       lockedBy: number | null;
       lockedByName: string | null;
       lockedAt: Date | null;
+      finalReview03: 'pending' | 'approved' | 'rejected';
+      finalReview03Reviewer: string | null;
+      finalReview03ReviewedAt: Date | null;
+      finalReview03Notes: string | null;
+      labeledNotes: string | null;
     }[] = [];
 
     for (const group of groups) {
@@ -252,27 +262,16 @@ export class LabeledFilesService {
         lockedBy: group.lockedBy || null,
         lockedByName,
         lockedAt: group.lockedAt || null,
+        finalReview03: group.finalReview03 || 'pending',
+        finalReview03Reviewer: group.finalReview03Reviewer || null,
+        finalReview03ReviewedAt: group.finalReview03ReviewedAt || null,
+        finalReview03Notes: group.finalReview03Notes || null,
+        labeledNotes: group.labeledNotes || null,
       });
     }
 
     return summaries.sort((a, b) => a.groupId - b.groupId);
   }
-
-  async clearAll(): Promise<void> {
-    // Delete all documents (files in MinIO are preserved in files table)
-    await this.documentRepository.clear();
-
-    // Reset labeled status in groups table (using QueryBuilder to update all)
-    await this.groupRepository
-      .createQueryBuilder()
-      .update()
-      .set({
-        isAutoLabeled: false,
-        labeledAt: null,
-      })
-      .execute();
-  }
-
 
   async getProcessedGroups(): Promise<number[]> {
     // Get distinct group IDs from documents table
